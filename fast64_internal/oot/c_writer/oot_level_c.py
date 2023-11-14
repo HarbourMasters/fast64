@@ -2,6 +2,7 @@ from ...utility import CData, PluginError
 from ...f3d.f3d_gbi import ScrollMethod
 from ..oot_f3d_writer import OOTGfxFormatter
 from ..oot_collision import ootCollisionToC
+from ..oot_collision import ootCollisionToSohXML
 from ..oot_cutscene import ootCutsceneDataToC
 from ..oot_utility import indent
 from ..oot_constants import ootRoomShapeStructs, ootRoomShapeEntryStructs
@@ -780,6 +781,11 @@ def ootSceneCollisionToC(scene):
     sceneCollisionC.append(ootCollisionToC(scene.collision))
     return sceneCollisionC
 
+# Writes the collision data for a scene
+def ootSceneCollisionToSohXML(scene):
+    sceneCollisionSohXML = ootCollisionToSohXML(scene.collision)
+    return sceneCollisionSohXML
+
 
 # scene is either None or an OOTScene. This can either be the main scene itself,
 # or one of the alternate / cutscene headers.
@@ -812,6 +818,7 @@ def ootLevelToC(scene, textureExportSettings):
     levelC.sceneMainC = ootSceneMainToC(scene, 0)
     levelC.sceneTexturesC = ootSceneTexturesToC(scene, textureExportSettings)
     levelC.sceneCollisionC = ootSceneCollisionToC(scene)
+    levelC.sceneCollisionSohXML = ootSceneCollisionToSohXML(scene)
     levelC.sceneCutscenesC = ootSceneCutscenesToC(scene)
 
     for i in range(len(scene.rooms)):
@@ -836,6 +843,7 @@ class OOTLevelC:
         self.sceneMainC = CData()
         self.sceneTexturesC = CData()
         self.sceneCollisionC = CData()
+        self.sceneCollisionSohXML = ""
         self.sceneCutscenesC = []
         # Files for room segments
         self.roomMainC = {}

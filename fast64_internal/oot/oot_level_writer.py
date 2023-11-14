@@ -31,6 +31,7 @@ from ..utility import (
     checkObjectReference,
     writeCDataSourceOnly,
     writeCDataHeaderOnly,
+    writeXMLData,
 )
 
 from .c_writer.oot_scene_bootup import (
@@ -161,10 +162,16 @@ def ootExportSceneToC(
                 ootPreprendSceneIncludes(scene, levelC.sceneTexturesC),
                 os.path.join(levelPath, scene.sceneName() + "_tex.c"),
             )
+
+        '''
         writeCDataSourceOnly(
             ootPreprendSceneIncludes(scene, levelC.sceneCollisionC),
             os.path.join(levelPath, scene.sceneName() + "_col.c"),
         )
+        '''
+
+        writeXMLData(levelC.sceneCollisionSohXML, os.path.join(levelPath, scene.sceneName() + "_collision"))
+
         if levelC.sceneCutscenesIsUsed():
             for i in range(len(levelC.sceneCutscenesC)):
                 writeCDataSourceOnly(
