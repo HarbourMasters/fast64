@@ -7,6 +7,7 @@ from .mk64_properties import mk64_props_register, mk64_props_unregister
 from .mk64_operators import mk64_operator_register, mk64_operator_unregister
 from .mk64_panels import mk64_panel_register, mk64_panel_unregister
 
+
 class MK64_Properties(PropertyGroup):
     """Global MK64 Scene Properties found under scene.fast64.mk64"""
 
@@ -35,4 +36,3 @@ def mk64_unregister(registerPanel):
         mk64_panel_unregister()
     mk64_operator_unregister()
     mk64_props_unregister()
-
