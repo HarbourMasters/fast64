@@ -4,7 +4,7 @@ from bpy.path import abspath
 
 from . import addon_updater_ops
 
-from .fast64_internal.utility import prop_split, multilineLabel, draw_and_check_tab
+from .fast64_internal.utility import prop_split, multilineLabel, set_prop_if_in_data
 
 from .fast64_internal.repo_settings import (
     draw_repo_settings,
@@ -22,9 +22,12 @@ from .fast64_internal.sm64.sm64_objects import SM64_ObjectProperties
 from .fast64_internal.oot import OOT_Properties, oot_register, oot_unregister
 from .fast64_internal.oot.oot_constants import oot_world_defaults
 from .fast64_internal.oot.props_panel_main import OOT_ObjectProperties
+from .fast64_internal.oot.actor.properties import initOOTActorProperties
 from .fast64_internal.utility_anim import utility_anim_register, utility_anim_unregister, ArmatureApplyWithMeshOperator
 
-from .fast64_internal.mk64 import MK64_Properties, mk64_register, mk64_unregister
+from .fast64_internal.mk64.mk64_constants import mk64_world_defaults
+from .fast64_internal.mk64 import mk64_register, mk64_unregister
+from .fast64_internal.mk64.mk64_properties import MK64_ObjectProperties, MK64_CurveProperties, MK64_Properties
 
 from .fast64_internal.f3d.f3d_material import (
     F3D_MAT_CUR_VERSION,
@@ -88,7 +91,7 @@ class F3D_GlobalSettingsPanel(bpy.types.Panel):
     def draw(self, context):
         col = self.layout.column()
         col.scale_y = 1.1  # extra padding
-        prop_split(col, context.scene, "f3d_type", "F3D Microcode")
+        prop_split(col, context.scene, "f3d_type", "Microcode")
         col.prop(context.scene, "saveTextures")
         col.prop(context.scene, "f3d_simple", text="Simple Material UI")
         col.prop(context.scene, "exportInlineF3D", text="Bleed and Inline Material Exports")
@@ -213,6 +216,19 @@ class Fast64Settings_Properties(bpy.types.PropertyGroup):
 
     internal_game_update_ver: bpy.props.IntProperty(default=0)
 
+    def to_repo_settings(self):
+        data = {}
+        data["autoLoad"] = self.auto_repo_load_settings
+        data["autoPickTextureFormat"] = self.auto_pick_texture_format
+        if self.auto_pick_texture_format:
+            data["preferRGBAOverCI"] = self.prefer_rgba_over_ci
+        return data
+
+    def from_repo_settings(self, data: dict):
+        set_prop_if_in_data(self, "auto_repo_load_settings", data, "autoLoad")
+        set_prop_if_in_data(self, "auto_pick_texture_format", data, "autoPickTextureFormat")
+        set_prop_if_in_data(self, "prefer_rgba_over_ci", data, "preferRGBAOverCI")
+
 
 class Fast64_Properties(bpy.types.PropertyGroup):
     """
@@ -244,6 +260,25 @@ class Fast64_ObjectProperties(bpy.types.PropertyGroup):
 
     sm64: bpy.props.PointerProperty(type=SM64_ObjectProperties, name="SM64 Object Properties")
     oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="OOT Object Properties")
+    mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Object Properties")
+
+
+class Fast64_MeshProperties(bpy.types.PropertyGroup):
+    """
+    Properties in object.fast64 (bpy.types.Mesh)
+    All new object properties should be children of this property group.
+    """
+
+    pass
+
+
+class Fast64_CurveProperties(bpy.types.PropertyGroup):
+    """
+    Properties in object.fast64 (bpy.types.Curve)
+    All new object properties should be children of this property group.
+    """
+
+    mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Curve Properties")
 
 
 class UpgradeF3DMaterialsDialog(bpy.types.Operator):
@@ -316,6 +351,8 @@ classes = (
     Fast64_Properties,
     Fast64_BoneProperties,
     Fast64_ObjectProperties,
+    Fast64_MeshProperties,
+    Fast64_CurveProperties,
     F3D_GlobalSettingsPanel,
     Fast64_GlobalSettingsPanel,
     Fast64_GlobalToolsPanel,
@@ -378,6 +415,9 @@ def set_game_defaults(scene: bpy.types.Scene, set_ucode=True):
     if scene.gameEditorMode == "SM64":
         f3d_type = "F3D"
         world_defaults = sm64_world_defaults
+    elif scene.gameEditorMode == "MK64":
+        f3d_type = "F3DEX"
+        world_defaults = mk64_world_defaults
     elif scene.gameEditorMode == "OOT":
         f3d_type = "F3DEX2/LX2"
         world_defaults = oot_world_defaults
@@ -417,6 +457,7 @@ def register():
     register_class(ExampleAddonPreferences)
     addon_updater_ops.register(bl_info)
 
+    initOOTActorProperties()
     utility_anim_register()
     mat_register()
     render_engine_register()
@@ -457,6 +498,8 @@ def register():
     bpy.types.Scene.fast64 = bpy.props.PointerProperty(type=Fast64_Properties, name="Fast64 Properties")
     bpy.types.Bone.fast64 = bpy.props.PointerProperty(type=Fast64_BoneProperties, name="Fast64 Bone Properties")
     bpy.types.Object.fast64 = bpy.props.PointerProperty(type=Fast64_ObjectProperties, name="Fast64 Object Properties")
+    bpy.types.Mesh.fast64 = bpy.props.PointerProperty(type=Fast64_MeshProperties, name="Fast64 Mesh Properties")
+    bpy.types.Curve.fast64 = bpy.props.PointerProperty(type=Fast64_CurveProperties, name="Fast64 Curve Properties")
 
     bpy.app.handlers.load_post.append(after_load)
 
