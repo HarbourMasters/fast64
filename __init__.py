@@ -248,6 +248,7 @@ class Fast64_ObjectProperties(bpy.types.PropertyGroup):
     oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="OOT Object Properties")
     mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Object Properties")
 
+
 class Fast64_CurveProperties(bpy.types.PropertyGroup):
     """
     Properties in object.fast64 (bpy.types.Curve)
@@ -255,6 +256,7 @@ class Fast64_CurveProperties(bpy.types.PropertyGroup):
     """
 
     mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Curve Properties")
+
 
 class UpgradeF3DMaterialsDialog(bpy.types.Operator):
     bl_idname = "dialog.upgrade_f3d_materials"
