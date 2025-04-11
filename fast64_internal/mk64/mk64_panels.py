@@ -37,6 +37,7 @@ class MK64_ExportCoursePanel(MK64_Panel):
     bl_context = "objectmode"
 
     def draw(self, context):
+        col.prop(context.scene.fast64.mk64, "featureSet")
         col = self.layout.column()
         col.scale_y = 1.1  # extra padding
         col.operator(MK64_ExportCourse.bl_idname)
