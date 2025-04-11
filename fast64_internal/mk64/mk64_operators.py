@@ -130,12 +130,20 @@ class MK64_ExportCourse(Operator):
             raisePluginError(self, e)
             return {"CANCELLED"}  # must return a set
 
+        finalTransform = 1
+
         try:
             applyRotation([root], math.radians(90), "X")
 
             export_path = bpy.path.abspath(mk64_props.course_export_settings.export_path)
 
-            export_course_c(root, context, export_path)
+            saveTextures = context.scene.saveTextures
+            exportSettings = context.scene.fast64.oot.DLExportSettings
+
+            if context.scene.fast64.mk64.featureSet == "HM64":
+                ootConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
+            else:
+                export_course_c(root, context, export_path)
 
             self.report({"INFO"}, "Success!")
             applyRotation([root], math.radians(-90), "X")
