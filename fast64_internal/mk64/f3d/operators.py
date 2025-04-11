@@ -74,15 +74,18 @@ class MK64_ImportCourseDL(Operator):
                 print(vertex_path)
                 f3d_context.vertexData["0x4000000"] = parse_course_vtx(vertex_path, f3d_context.f3d)
 
-            importMeshC(
-                data,
-                name,
-                scale_value,
-                remove_doubles,
-                import_normals,
-                draw_layer,
-                f3d_context,
-            )
+            if context.scene.fast64.mk64.featureSet == "HM64":
+                ootConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
+            else:
+                importMeshC(
+                    data,
+                    name,
+                    scale_value,
+                    remove_doubles,
+                    import_normals,
+                    draw_layer,
+                    f3d_context,
+                )
 
             self.report({"INFO"}, "Success!")
             return {"FINISHED"}

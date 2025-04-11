@@ -2082,7 +2082,7 @@ class F3D_ExportDL(bpy.types.Operator):
             matWriteMethod = getWriteMethodFromEnum(context.scene.matWriteMethod)
             self.report({"INFO"}, "F3D_ExportDL 5")
 
-            if bpy.context.scene.fast64.oot.featureSet == "SoH":
+            if bpy.context.scene.fast64.oot.featureSet == "HM64":
                 self.report({"INFO"}, "F3D_ExportDL 6")
                 exportF3DtoXML(
                     exportPath,
