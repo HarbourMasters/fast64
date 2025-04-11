@@ -163,7 +163,7 @@ def mk64ConvertMeshToXML(
     finalTransform: mathutils.Matrix,
     DLFormat: DLFormat,
     saveTextures: bool,
-    settings: OOTDLExportSettings,
+    settings: MK64DLExportSettings,
     logging_func,
 ):
     logging_func({"INFO"}, "mk64ConvertMeshToXML 1")
