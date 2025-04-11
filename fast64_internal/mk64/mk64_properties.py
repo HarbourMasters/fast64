@@ -63,6 +63,10 @@ class MK64_ExportProperties(PropertyGroup):
 #    Scene Properties
 # ------------------------------------------------------------------------
 
+featureSetEnum = (
+    ("Decomp", "Decomp", "Decomp"),
+    ("HM64", "HM64", "Harbour Masters"),
+)
 
 class MK64_Properties(PropertyGroup):
     """Global MK64 Scene Properties found under scene.fast64.mk64"""
