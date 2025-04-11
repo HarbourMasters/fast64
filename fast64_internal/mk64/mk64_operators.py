@@ -141,7 +141,7 @@ class MK64_ExportCourse(Operator):
             exportSettings = context.scene.fast64.oot.DLExportSettings
 
             if context.scene.fast64.mk64.featureSet == "HM64":
-                ootConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
+                mk64ConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
             else:
                 export_course_c(root, context, export_path)
 
@@ -156,6 +156,96 @@ class MK64_ExportCourse(Operator):
 
             raisePluginError(self, e)
             return {"CANCELLED"}  # must return a set
+
+
+def mk64ConvertMeshToXML(
+    originalObj: bpy.types.Object,
+    finalTransform: mathutils.Matrix,
+    DLFormat: DLFormat,
+    saveTextures: bool,
+    settings: OOTDLExportSettings,
+    logging_func,
+):
+    logging_func({"INFO"}, "mk64ConvertMeshToXML 1")
+
+    folderName = settings.folder
+    exportPath = bpy.path.abspath(settings.customPath)
+    isCustomExport = settings.isCustom
+    drawLayer = settings.drawLayer
+    removeVanillaData = settings.removeVanillaData
+    name = toAlnum(originalObj.name)
+    overlayName = settings.actorOverlayName
+    flipbookUses2DArray = settings.flipbookUses2DArray
+    flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
+
+    logging_func({"INFO"}, "mk64ConvertMeshToXML 2")
+
+    try:
+        obj, allObjs = ootDuplicateHierarchy(originalObj, None, False, OOTObjectCategorizer())
+
+        logging_func({"INFO"}, "mk64ConvertMeshToXML 3")
+
+        fModel = OOTModel(name, DLFormat, drawLayer)
+
+        logging_func({"INFO"}, "mk64ConvertMeshToXML 4")
+
+        triConverterInfo = TriangleConverterInfo(obj, None, fModel.f3d, finalTransform, getInfoDict(obj))
+
+        logging_func({"INFO"}, "mk64ConvertMeshToXML 5")
+
+        fMeshes = saveStaticModel(
+            triConverterInfo,
+            fModel,
+            obj,
+            finalTransform,
+            fModel.name,
+            not saveTextures,
+            False,
+            "mk64",
+            logging_func=logging_func,
+        )
+
+        logging_func({"INFO"}, "mk64ConvertMeshToXML 6")
+
+        # Since we provide a draw layer override, there should only be one fMesh.
+        for drawLayer, fMesh in fMeshes.items():
+            fMesh.draw.name = name
+
+        logging_func({"INFO"}, "mk64ConvertMeshToXML 7")
+
+        ootCleanupScene(originalObj, allObjs)
+
+        logging_func({"INFO"}, "mk64ConvertMeshToXML 8")
+
+    except Exception as e:
+        ootCleanupScene(originalObj, allObjs)
+        raise Exception(str(e))
+
+    logging_func(
+        {"INFO"}, "mk64ConvertMeshToXML 9.1 exportPath=" + (str(exportPath) if exportPath is not None else "None")
+    )
+    logging_func(
+        {"INFO"},
+        "mk64ConvertMeshToXML 9.2 settings.customAssetIncludeDir="
+        + (str(settings.customAssetIncludeDir) if settings.customAssetIncludeDir is not None else "None"),
+    )
+
+    path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
+
+    logging_func({"INFO"}, "mk64ConvertMeshToXML 10.1 path=" + (str(path) if path is not None else "None"))
+    logging_func(
+        {"INFO"}, "mk64ConvertMeshToXML 10.2 folderName=" + (str(folderName) if folderName is not None else "None")
+    )
+
+    data = fModel.to_xml(exportPath, folderName, logging_func)
+
+    logging_func({"INFO"}, "mk64ConvertMeshToXML 11")
+
+    if isCustomExport:
+        textureArrayData = writeTextureArraysNewXML(fModel, flipbookArrayIndex2D)
+        data += textureArrayData
+
+    logging_func({"INFO"}, "mk64ConvertMeshToXML 12")
 
 
 mk64_operator_classes = (MK64_ImportCourseDL, MK64_ExportCourse)
