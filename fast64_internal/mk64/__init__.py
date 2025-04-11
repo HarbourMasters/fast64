@@ -18,6 +18,7 @@ class MK64_Properties(PropertyGroup):
     def upgrade_changed_props():
         pass
 
+
 def mk64_register(registerPanels):
     mk64_props_register()
     mk64_operator_register()
