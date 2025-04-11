@@ -291,6 +291,8 @@ class OOT_ExportDL(Operator):
 
             if context.scene.fast64.oot.featureSet == "HM64":
                 ootConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
+            else if context.scene.fast64.mk64.featureSet == "HM64":
+                ootConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
             else:
                 ootConvertMeshToC(
                     obj,
