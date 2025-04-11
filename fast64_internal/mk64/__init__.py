@@ -9,22 +9,6 @@ from .mk64_operators import mk64_operator_register, mk64_operator_unregister
 from .mk64_panels import mk64_panel_register, mk64_panel_unregister
 
 
-class MK64_Properties(PropertyGroup):
-    """Global MK64 Scene Properties found under scene.fast64.mk64"""
-
-    featureSet: bpy.props.EnumProperty(
-        name="Feature Set", default="HM64", items=featureSetEnum, update=featureSetUpdate
-    )
-
-    # Import Course DL
-    # course_DL_import_settings: bpy.props.PointerProperty(type=MK64CourseDLImportSettings)
-    # scale: FloatProperty(name="F3D Blender Scale", default=100, update=on_update_render_settings)
-
-    @staticmethod
-    def upgrade_changed_props():
-        pass
-
-
 def mk64_register(registerPanels):
     mk64_props_register()
     mk64_operator_register()

@@ -67,6 +67,10 @@ class MK64_ExportProperties(PropertyGroup):
 class MK64_Properties(PropertyGroup):
     """Global MK64 Scene Properties found under scene.fast64.mk64"""
 
+    featureSet: bpy.props.EnumProperty(
+        name="Feature Set", default="HM64", items=featureSetEnum, update=featureSetUpdate
+    )
+
     # Import Course DL
     course_DL_import_settings: bpy.props.PointerProperty(type=MK64_ImportProperties)
     # exporter settings, merge with above later?
