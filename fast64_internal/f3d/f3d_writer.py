@@ -2098,7 +2098,7 @@ class F3D_ExportDL(bpy.types.Operator):
                     self.report,
                 )
                 self.report({"INFO"}, "F3D_ExportDL 7")
-            else if bpy.context.scene.fast64.mk64.featureSet == "HM64":
+            elif bpy.context.scene.fast64.mk64.featureSet == "HM64":
                 self.report({"INFO"}, "F3D_ExportDL 6")
                 exportF3DtoXML(
                     exportPath,
