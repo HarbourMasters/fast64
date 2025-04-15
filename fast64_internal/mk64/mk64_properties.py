@@ -49,12 +49,17 @@ class MK64_ExportProperties(PropertyGroup):
     """
 
     name: StringProperty(name="Name")
+    internal_game_path: StringProperty(name="Directory", subtype="FILE_PATH")
     export_path: StringProperty(name="Directory", subtype="FILE_PATH")
     decomp_path: StringProperty(name="Directory", subtype="FILE_PATH")
     enable_render_Mode_Default: BoolProperty(name="Set Render Mode by Default", default=True)
 
     def draw_props(self, layout: UILayout):
         prop_split(layout, self, "name", "Name")
+
+        if bpy.context.scene.fast64.mk64.featureSet == "HM64":
+            prop_split(layout, self, "internal_game_path", "internal_game_path")
+
         prop_split(layout, self, "export_path", "export_path")
         prop_split(layout, self, "decomp_path", "decomp_path")
 
