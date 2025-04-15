@@ -10,7 +10,7 @@ from pathlib import Path
 from mathutils import Vector, Euler, Matrix
 from dataclasses import dataclass, fields
 
-from .mk64_constants import MODEL_HEADER
+from .mk64_constants import MODEL_HEADER, SURFACE_TYPE_ENUM
 from .mk64_properties import MK64_ObjectProperties, MK64_CurveProperties
 
 from ..f3d.f3d_writer import exportF3DCommon, getInfoDict, TriangleConverterInfo, saveStaticModel
@@ -37,6 +37,7 @@ from ..utility import (
     PluginError,
     CData,
     writeCData,
+    writeXMLData
 )
 
 # ------------------------------------------------------------------------
@@ -186,6 +187,14 @@ class MK64_fModel(FModel):
         export_data.staticData.append(self.to_c_dl_array())
 
         return export_data
+    
+    def to_xml(self, *args):
+
+        export_data = super().to_xml(*args)
+        self.to_xml_actors()
+        self.to_xml_path(*args)
+        self.to_xml_track_sections(*args)
+        return export_data
 
     def to_c_dl_array(self):
         data = CData()
@@ -198,6 +207,7 @@ class MK64_fModel(FModel):
             data.source += f"{fMesh.draw.name}, " + ("\n\t" if index % 3 == 0 else "")
         data.source += "};\n\n"
         return data
+
 
     def to_c_track_actors(self):
         data = CData()
@@ -215,6 +225,26 @@ class MK64_fModel(FModel):
         )
         return data
 
+    def to_xml_actors(self, *args):
+        #export_dir, internal_path, printer = args
+
+        #lines = []
+        if not self.actors:
+            return
+
+        #actors = "\n\t".join([f"<Spawn {actors.to_xml()} />" for actor in self.actors])
+
+        #lines.extend((
+        #    f"<Actors>",
+        #    f"\t{actors}",
+        #    f"</Actors>"
+        #))
+
+        #data = "\n".join(lines)
+        #writeXMLData(data, os.path.join(export_dir, "data_actors"))
+
+
+
     def to_c_track_sections(self):
         data = CData()
         if not self.track_sections:
@@ -230,6 +260,30 @@ class MK64_fModel(FModel):
             )
         )
         return data
+    
+    def to_xml_track_sections(self, *args):
+        export_dir, internal_path, printer = args
+
+        lines = []
+        if not self.track_sections:
+            return
+        
+        for i, section in enumerate(self.track_sections):
+
+            sections = "\n\t".join([
+                f"<Section gfx_path=\"{internal_path}/{section.gfx_list_name}\" surface=\"{SURFACE_TYPE_ENUM[section.surface_type]}\" section=\"{section.section_id:#04x}\" flags=\"{section.flags:#04x}\" />"
+                for section in self.track_sections
+            ])
+
+            lines.extend((
+                f"<TrackSections XMLSucks=\"1\">",
+                f"\t{sections}",
+                "</TrackSections>"
+            ))
+
+        data = "\n".join(lines)
+        writeXMLData(data, os.path.join(export_dir, "data_track_sections"))
+
 
     def to_c_path(self):
         data = CData()
@@ -254,6 +308,27 @@ class MK64_fModel(FModel):
             )
 
         return data
+    
+    def to_xml_path(self, *args):
+        export_dir, internal_path, printer = args
+
+        lines = []
+        if not self.path:
+            return
+
+        lines.append("<Paths XMLSucks=\"1\">")
+        for i, path in enumerate(self.path):
+            # Use integer formatting instead of float formatting
+            waypoints = "\n\t\t".join([f"<Point X=\"{x}\" Y=\"{y}\" Z=\"{z}\" ID=\"{pid}\"/>" for x, y, z, pid in path.points])
+
+            lines.extend((
+                f"\t<TrackWaypoint>",
+                f"\t\t{waypoints}",
+                "\t</TrackWaypoint>"
+            ))
+        lines.append("</Paths>")
+        data = "\n".join(lines)
+        writeXMLData(data, os.path.join(export_dir, "data_paths"))
 
 
 @dataclass
@@ -294,6 +369,10 @@ class MK64_Actor:
     def to_c(self):
         pos = ", ".join(f"{int(coord):6}" for coord in self.pos)
         return f"{{ {{{pos}}}, {{{self.id}}} }}"
+    
+    def to_xml(self):
+        pos = " ".join(f"{int(coord):6}" for coord in self.pos)
+        return f"{{ {{{pos}}}, {{{self.id}}} }}"
 
 
 @dataclass
@@ -307,6 +386,12 @@ class MK64_Path:
     points: List[Tuple[int, int, int, int]]  # id is unsigned
 
     def to_c(self):
+        lines = []
+        for x, y, z, pid in self.points:
+            lines.append(f"{{ {x}, {y}, {z}, {pid} }},")
+        return "\n".join(lines)
+    
+    def to_xml(self):
         lines = []
         for x, y, z, pid in self.points:
             lines.append(f"{{ {x}, {y}, {z}, {pid} }},")
@@ -349,3 +434,41 @@ def export_course_c(obj: bpy.types.Object, context: bpy.types.Context, export_di
     model_data.append(dynamicData)
 
     writeCData(model_data, os.path.join(export_dir, "header.h"), os.path.join(export_dir, "model.inc.c"))
+
+def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_dir: Path, internal_path: Path):
+
+    inline = context.scene.exportInlineF3D
+    mk64_props: MK64_Properties = context.scene.fast64.mk64
+    scale = mk64_props.scale
+    mat_write_method = GfxMatWriteMethod.WriteDifferingAndRevert if not inline else GfxMatWriteMethod.WriteAll
+
+    print("export course 1")
+
+    bpy_course = MK64_BpyCourse(obj)
+    print("export course 1")
+
+    mk64_fModel = bpy_course.make_mk64_course_from_bpy(context, scale, mat_write_method)
+    print("export course 12")
+    bpy_course.cleanup_course()
+
+    print("export course 2")
+
+    if inline:
+        bleed_gfx = BleedGraphics()
+        bleed_gfx.bleed_fModel(mk64_fModel, mk64_fModel.meshes)
+
+    # idk how scrolls would actually affect this export
+    gfxFormatter = GfxFormatter(ScrollMethod.Vertex, 64, None)
+    export_data = mk64_fModel.to_xml(export_dir, internal_path, print)
+    #staticData = export_data.staticData
+    #dynamicData = export_data.dynamicData
+
+    print("export course 3")
+
+    #model_data = CData()
+    #model_data.source += MODEL_HEADER
+    #model_data.append(staticData)
+    #model_data.append(dynamicData)
+
+
+    #writeXMLData(export_data, os.path.join(export_dir, "model.xml"))
