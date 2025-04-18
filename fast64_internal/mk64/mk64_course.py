@@ -324,7 +324,8 @@ class MK64_fModel(FModel):
             lines.extend((
                 f"\t<TrackWaypoint>",
                 f"\t\t{waypoints}",
-                "\t</TrackWaypoint>"
+                f"\t\t<Point X=\"-32768\" Y=\"-32768\" Z=\"-32768\" ID=\"0\"/>",
+                f"\t</TrackWaypoint>"
             ))
         lines.append("</Paths>")
         data = "\n".join(lines)
