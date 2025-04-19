@@ -1,4 +1,4 @@
-from bpy.props import StringProperty, BoolProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
 from bpy.types import PropertyGroup, UILayout
 from bpy.utils import register_class, unregister_class
 from ...utility import prop_split
@@ -22,6 +22,26 @@ class MK64CourseDLImportSettings(PropertyGroup):
 
         layout.prop(self, "enable_render_Mode_Default")
 
+class MK64DLExportSettings(PropertyGroup):
+    isCustomFilename: BoolProperty(
+        name="Use Custom Filename", description="Override filename instead of basing it off of the Blender name"
+    )
+    filename: StringProperty(name="Filename")
+    folder: StringProperty(name="DL Folder", default="gameplay_keep")
+    customPath: StringProperty(name="Custom DL Path", subtype="FILE_PATH")
+    isCustom: BoolProperty(
+        name="Use Custom Path", description="Determines whether or not to export to an explicitly specified folder"
+    )
+    removeVanillaData: BoolProperty(name="Replace Vanilla DLs")
+    drawLayer: EnumProperty(name="Draw Layer", items=ootEnumDrawLayers)
+    actorOverlayName: StringProperty(name="Overlay", default="")
+    flipbookUses2DArray: BoolProperty(name="Has 2D Flipbook Array", default=False)
+    flipbookArrayIndex2D: IntProperty(name="Index if 2D Array", default=0, min=0)
+    customAssetIncludeDir: StringProperty(
+        name="Asset Include Directory",
+        default="assets/objects/gameplay_keep",
+        description="Used in #include for including image files",
+    )
 
     def draw_props(self, layout: UILayout):
         layout.label(text="Object name used for export.", icon="INFO")
