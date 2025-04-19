@@ -436,7 +436,7 @@ def export_course_c(obj: bpy.types.Object, context: bpy.types.Context, export_di
 
     writeCData(model_data, os.path.join(export_dir, "header.h"), os.path.join(export_dir, "model.inc.c"))
 
-def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_dir: Path, internal_path: Path):
+def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_dir: Path, internal_path: Path, logging_func):
 
     inline = context.scene.exportInlineF3D
     mk64_props: MK64_Properties = context.scene.fast64.mk64
@@ -460,7 +460,7 @@ def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_
 
     # idk how scrolls would actually affect this export
     gfxFormatter = GfxFormatter(ScrollMethod.Vertex, 64, None)
-    export_data = mk64_fModel.to_xml(export_dir, internal_path, print)
+    export_data = mk64_fModel.to_xml(export_dir, internal_path, logging_func)
     #staticData = export_data.staticData
     #dynamicData = export_data.dynamicData
 
