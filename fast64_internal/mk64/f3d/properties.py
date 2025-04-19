@@ -1,4 +1,4 @@
-from bpy.props import StringProperty, BoolProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy.types import PropertyGroup, UILayout
 from bpy.utils import register_class, unregister_class
 from ...utility import prop_split
