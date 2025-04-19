@@ -4,7 +4,7 @@ from bpy.utils import register_class, unregister_class
 
 from .mk64_model_classes import MK64F3DContext, parse_course_vtx
 from .mk64_course import export_course_c
-from .mk64_properties import MK64_ImportProperties
+from .mk64_properties import MK64_ImportProperties, MK64DLExportSettings
 
 from ..f3d.f3d_material import createF3DMat
 from ..f3d.f3d_gbi import get_F3D_GBI, DLFormat
