@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from mathutils import Matrix
 from bpy.types import Object
-from ....utility import PluginError, CData, indent
+from ....utility import PluginError, CData, indent, writeXMLData
 from ...oot_utility import getObjectList
 from ..utility import Utility
 
@@ -34,6 +34,18 @@ class Path:
 
         return pathData
 
+    def getXML(self):
+        """Returns the pathway position list as an XML ``str``"""
+        data = "<Pathway>\n"
+        pathDataElement = indent * 1 + "<PathDataElement>\n"
+        for point in self.points:
+            pointData = indent * 2 + "<Point "
+            pointData += f"X='{round(point.x):5}' "
+            pointData += f"Y='{round(point.y):5}' "
+            pointData += f"Z='{round(point.z):5}'/>\n"
+            pathDataElement += pointData
+        data += pathDataElement
+        data += "</Pathway>\n"
 
 @dataclass
 class ScenePathways:
@@ -92,3 +104,16 @@ class ScenePathways:
         pathData.append(pathListData)
 
         return pathData
+
+    def getXML(self, dirPath):
+        """Returns an XML ``str`` containing the data of the pathway array"""
+
+        data = "<Pathways>\n"
+        for path in self.pathList:
+            filePath = os.join(dirPath, path.name)
+            pathToXML = path.toXML()
+            writeXMLData(pathToXML, filePath)
+            data += indent * 1 + f"<Pathway FilePath='{filePath}'/>\n"
+        data += "</Pathways>\n"
+        return data
+
