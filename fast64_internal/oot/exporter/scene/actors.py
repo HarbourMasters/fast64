@@ -223,6 +223,7 @@ class SceneEntranceActors:
 
     def getC(self):
         """Returns the spawn actor array"""
+
         spawnActorList = CData()
         listName = f"ActorEntry {self.name}"
 

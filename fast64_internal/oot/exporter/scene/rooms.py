@@ -47,7 +47,8 @@ class RoomEntries:
                 sceneName,
                 saveTexturesAsPNG,
             )
-for i in range(min(roomDict.keys()), len(roomDict)):
+
+        for i in range(min(roomDict.keys()), len(roomDict)):
             if i not in roomDict:
                 raise PluginError(f"Room indices are not consecutive. Missing room index: {i}")
 

@@ -250,7 +250,8 @@ class SceneExits(Utility):
     def new(name: str, props: OOTSceneHeaderProperty):
         # TODO: proper implementation of exits
 
-        exitList: list[tuple[int, str]] = [] for i, exitProp in enumerate(props.exitList):
+        exitList: list[tuple[int, str]] = []
+        for i, exitProp in enumerate(props.exitList):
             if exitProp.exitIndex != "Custom":
                 raise PluginError("ERROR: Exits are unfinished, please use 'Custom'.")
             exitList.append((i, exitProp.exitIndexCustom))
