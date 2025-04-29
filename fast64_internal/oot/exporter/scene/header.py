@@ -69,14 +69,10 @@ class SceneHeader:
 
         return headerData
 
-
 @dataclass
 class SceneAlternateHeader:
     """This class stores alternate header data for the scene"""
 
-    name: str
-
-    childNight: Optional[SceneHeader] = field(init=False, default=None)
-    adultDay: Optional[SceneHeader] = field(init=False, default=None)
+    name: str childNight: Optional[SceneHeader] = field(init=False, default=None) adultDay: Optional[SceneHeader] = field(init=False, default=None)
     adultNight: Optional[SceneHeader] = field(init=False, default=None)
     cutscenes: list[SceneHeader] = field(init=False, default_factory=list)

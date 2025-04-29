@@ -142,6 +142,37 @@ class SceneLighting:
 
         return lightSettingsC
 
+    def getXML(self):
+        """Returns a ``str`` containing the XML data of env. light settings"""
+
+        data = "<LightingSettings>\n"
+        for i, light in enumerate(self.settings):
+            data += indent *1 + "<LightingSetting "
+            data += f"AmbientColorR='{light.ambientColor[0]}' "
+            data += f"AmbientColorG='{light.ambientColor[1]}' "
+            data += f"AmbientColorB='{light.ambientColor[2]}' "
+            
+            data += f"Light1DirX='{light.light1Dir[0]}' "
+            data += f"Light1DirY='{light.light1Dir[1]}' "
+            data += f"Light1DirZ='{light.light1Dir[2]}' "
+            data += f"Light1ColorR='{light.light1Color[0]}' "
+            data += f"Light1ColorG='{light.light1Color[1]}' "
+            data += f"Light1ColorB='{light.light1Color[2]}' "
+
+            data += f"Light2DirX='{light.light2Dir[0]}' "
+            data += f"Light2DirY='{light.light2Dir[1]}' "
+            data += f"Light2DirZ='{light.light2Dir[2]}' "
+            data += f"Light2ColorR='{light.light2Color[0]}' "
+            data += f"Light2ColorG='{light.light2Color[1]}' "
+            data += f"Light2ColorB='{light.light2Color[2]}' "
+
+            data += f"FogColorR='{light.fogColor[0]}' "
+            data += f"FogColorG='{light.fogColor[1]}' "
+            data += f"FogColorB='{light.fogColor[2]}' "
+            data += f"FogNear='{light.fogNear}' "
+            data += f"FogFar='{light.zFar}'/>\n"
+        data += "</LightingSettings>\n"
+        return data
 
 @dataclass
 class SceneInfos:
@@ -219,8 +250,7 @@ class SceneExits(Utility):
     def new(name: str, props: OOTSceneHeaderProperty):
         # TODO: proper implementation of exits
 
-        exitList: list[tuple[int, str]] = []
-        for i, exitProp in enumerate(props.exitList):
+        exitList: list[tuple[int, str]] = [] for i, exitProp in enumerate(props.exitList):
             if exitProp.exitIndex != "Custom":
                 raise PluginError("ERROR: Exits are unfinished, please use 'Custom'.")
             exitList.append((i, exitProp.exitIndexCustom))
@@ -249,3 +279,12 @@ class SceneExits(Utility):
         )
 
         return exitListC
+
+    def getXML(self):
+        """Returns a ``str`` containing the XML data of the exit array"""
+
+        data = "<ExitList>\n"
+        for (exitId, name) in self.exitList:
+            data += indent * 1 + "<ExitEntry Id='{exitId}' Name='{name}' />\n"
+        data += "</ExitList>\n"
+        return data

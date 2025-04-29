@@ -36,6 +36,23 @@ class TransitionActor(Actor):
             + ("\n" + indent + "},\n")
         )
 
+    def getEntryXML(self)
+        """Returns a single transition actor entry as an XML ``str``"""
+
+        rot = self.rot[len("DEF_TO_BINANG("):-1]
+        data = indent + "<TransitionActor "
+        data += f"FrontSideRoom='{self.roomFrom}' "
+        data += f"FrontSideEffects={self.cameraFront}' "
+        data += f"BackSideRoom='{self.roomTo}' "
+        data += f"BackSideEffects='{self.cameraBack}' "
+
+        data += f"PosX='{self.posData[0]}' "
+        data += f"PosY='{self.posData[1]}' "
+        data += f"PosZ='{self.posData[2]}' "
+        data += f"RotY='{rot}' "
+        data += f"Params='{self.params}'/>\n"
+
+        return data
 
 @dataclass
 class SceneTransitionActors:
@@ -118,6 +135,13 @@ class SceneTransitionActors:
 
         return transActorList
 
+    def getXML(self):
+        """Returns the transition actor list as an XML string"""
+        data = "<TransitionActorList>\n"
+        for actor in self.entries:
+            data += actor.getXML();
+        data += "</TransitionActorList>\n"
+        return data
 
 @dataclass
 class EntranceActor(Actor):
@@ -130,6 +154,16 @@ class EntranceActor(Actor):
         """Returns a single spawn entry"""
 
         return indent + "{ " + f"{self.spawnIndex}, {self.roomIndex}" + " },\n"
+
+    def getEntryXML(self)
+        """Returns a single spawn entry as an XML ``str``"""
+
+        rot = self.rot[len("DEF_TO_BINANG("):-1]
+        data = indent + "<EntraceEntry "
+        data += f"Spawn='{self.spawnIndex}' "
+        data += f"Room='{self.roomIndex}'/>\n"
+
+        return data
 
 
 @dataclass
@@ -189,7 +223,6 @@ class SceneEntranceActors:
 
     def getC(self):
         """Returns the spawn actor array"""
-
         spawnActorList = CData()
         listName = f"ActorEntry {self.name}"
 
@@ -202,6 +235,14 @@ class SceneEntranceActors:
         )
 
         return spawnActorList
+
+    def getXML(self):
+        """Returns the spawn list as an XML string"""
+        data = "<EntranceList>\n"
+        for actor in self.entries:
+            data += actor.getXML();
+        data += "</EntranceList>\n"
+        return data
 
 
 @dataclass
@@ -234,3 +275,11 @@ class SceneSpawns(Utility):
         )
 
         return spawnList
+
+    def getXML(self):
+        """Returns the spawn list as an XML string"""
+        data = "<EntranceList>\n"
+        for actor in self.entries:
+            data += actor.getXML();
+        data += "</EntranceList>\n"
+        return data
