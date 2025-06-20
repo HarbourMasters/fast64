@@ -289,7 +289,9 @@ class OOT_ExportDL(Operator):
 
             self.report({"INFO"}, "OOT_ExportDL execute 4")
 
-            if context.scene.fast64.oot.featureSet == "SoH":
+            if context.scene.fast64.oot.featureSet == "HM64":
+                ootConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
+            elif context.scene.fast64.mk64.featureSet == "HM64":
                 ootConvertMeshToXML(obj, finalTransform, DLFormat.Static, saveTextures, exportSettings, self.report)
             else:
                 ootConvertMeshToC(

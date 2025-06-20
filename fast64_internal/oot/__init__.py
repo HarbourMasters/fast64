@@ -62,7 +62,7 @@ from .tools import (
 featureSetEnum = (
     ("Decomp", "Decomp", "Decomp"),
     ("HackerOOT", "HackerOOT", "Hacker OOT"),
-    ("SoH", "SoH", "Ship of Harkinian"),
+    ("HM64", "HM64", "Harbour Masters"),
 )
 
 
