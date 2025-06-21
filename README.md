@@ -2,6 +2,7 @@
 
 > [!IMPORTANT]
 > This is the updated version of HM's fork of Fast64, the old version of HM's fork is [here](https://github.com/HarbourMasters/fast64/tree/legacy)
+> This plugin is depedent on an old version of the Ocarina of Time decomp project located [here](https://github.com/zeldaret/oot/tree/21cb04db2c858e23c72f8a9ecb5d55448744080f)
 
 This requires Blender 3.2+. Blender 4.0+ is recommended.
 
