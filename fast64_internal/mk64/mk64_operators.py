@@ -2,6 +2,7 @@ import bpy, os, mathutils, math
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
+from pathlib import Path
 from .mk64_model_classes import MK64F3DContext, parse_course_vtx
 from .mk64_course import export_course_c, export_course_xml
 from .mk64_properties import MK64_ImportProperties
@@ -136,9 +137,12 @@ class MK64_ExportCourse(Operator):
             applyRotation([root], math.radians(90), "X")
 
             name = mk64_props.course_export_settings.name
-            export_path = bpy.path.abspath(mk64_props.course_export_settings.export_path)
+            export_path = Path(bpy.path.abspath(mk64_props.course_export_settings.export_path))
 #            internal_path = os.path.join(mk64_props.course_export_settings.internal_game_path, name).replace("\\", "/")
-            internal_path = os.path.join("tracks", name).replace("\\", "/")
+            internal_path = Path(os.path.join("tracks", name).replace("\\", "/"))
+            (full_path := export_path / internal_path).mkdir(parents=True, exist_ok=True)
+            internal_path = internal_path.as_posix()
+
 
             saveTextures = context.scene.saveTextures
             exportSettings = context.scene.fast64.oot.DLExportSettings
