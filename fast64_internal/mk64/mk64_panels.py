@@ -40,11 +40,12 @@ class MK64_ExportCoursePanel(MK64_Panel):
         col = self.layout.column()
         col.prop(context.scene.fast64.mk64, "featureSet")
         col.scale_y = 1.1  # extra padding
-        col.operator(MK64_ExportCourse.bl_idname)
 
         course_settings: MK64_ExportProperties = context.scene.fast64.mk64.course_export_settings
         course_settings.draw_props(col)
         prop_split(col, context.scene.fast64.mk64, "scale", "Scale")
+
+        col.operator(MK64_ExportCourse.bl_idname)
 
 
 class MK64_ObjectPanel(MK64_Panel):
