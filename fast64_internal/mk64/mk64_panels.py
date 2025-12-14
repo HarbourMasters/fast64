@@ -32,7 +32,7 @@ class MK64_ImportCourseDLPanel(MK64_Panel):
 
 
 class MK64_ExportCoursePanel(MK64_Panel):
-    bl_label = "MK64 Export Course"
+    bl_label = "SpaghettiKart Track Export"
     bl_idname = "MK64_PT_export_course"
     bl_context = "objectmode"
 
