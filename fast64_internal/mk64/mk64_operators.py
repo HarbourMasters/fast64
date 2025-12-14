@@ -1,4 +1,4 @@
-import bpy, mathutils, math
+import bpy, os, mathutils, math
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
