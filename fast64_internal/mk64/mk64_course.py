@@ -438,6 +438,8 @@ def export_course_c(obj: bpy.types.Object, context: bpy.types.Context, export_di
 
 def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_dir: Path, internal_path: Path, logging_func):
 
+    export_dir = export_dir / internal_path
+
     inline = context.scene.exportInlineF3D
     mk64_props: MK64_Properties = context.scene.fast64.mk64
     scale = mk64_props.scale
