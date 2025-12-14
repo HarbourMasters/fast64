@@ -138,7 +138,7 @@ class MK64_ExportCourse(Operator):
             name = mk64_props.course_export_settings.name
             export_path = bpy.path.abspath(mk64_props.course_export_settings.export_path)
 #            internal_path = os.path.join(mk64_props.course_export_settings.internal_game_path, name).replace("\\", "/")
-            internal_path = os.path.join("tracks", name)
+            internal_path = os.path.join("tracks", name).replace("\\", "/")
 
             saveTextures = context.scene.saveTextures
             exportSettings = context.scene.fast64.oot.DLExportSettings
