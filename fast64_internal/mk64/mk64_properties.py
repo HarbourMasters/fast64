@@ -60,7 +60,7 @@ class MK64_ExportProperties(PropertyGroup):
 #        if bpy.context.scene.fast64.mk64.featureSet == "HM64":
 #            prop_split(layout, self, "internal_game_path", "internal_game_path")
 
-        prop_split(layout, self, "mods_path", "mods_path")
+        prop_split(layout, self, "export_path", "Mods Path")
 #        prop_split(layout, self, "decomp_path", "decomp_path")
 
 
