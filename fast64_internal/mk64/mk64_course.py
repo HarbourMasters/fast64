@@ -438,21 +438,18 @@ def export_course_c(obj: bpy.types.Object, context: bpy.types.Context, export_di
 
 def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_dir: Path, internal_path: Path, logging_func):
 
+    export_dir = os.path.join(export_dir, internal_path)
+
     inline = context.scene.exportInlineF3D
     mk64_props: MK64_Properties = context.scene.fast64.mk64
     scale = mk64_props.scale
     mat_write_method = GfxMatWriteMethod.WriteDifferingAndRevert if not inline else GfxMatWriteMethod.WriteAll
 
-    print("export course 1")
-
     bpy_course = MK64_BpyCourse(obj)
-    print("export course 1")
 
     mk64_fModel = bpy_course.make_mk64_course_from_bpy(context, scale, mat_write_method)
-    print("export course 12")
-    bpy_course.cleanup_course()
 
-    print("export course 2")
+    bpy_course.cleanup_course()
 
     if inline:
         bleed_gfx = BleedGraphics()
@@ -463,8 +460,6 @@ def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_
     export_data = mk64_fModel.to_xml(export_dir, internal_path, logging_func)
     #staticData = export_data.staticData
     #dynamicData = export_data.dynamicData
-
-    print("export course 3")
 
     #model_data = CData()
     #model_data.source += MODEL_HEADER

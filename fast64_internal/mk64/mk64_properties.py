@@ -57,11 +57,11 @@ class MK64_ExportProperties(PropertyGroup):
     def draw_props(self, layout: UILayout):
         prop_split(layout, self, "name", "Name")
 
-        if bpy.context.scene.fast64.mk64.featureSet == "HM64":
-            prop_split(layout, self, "internal_game_path", "internal_game_path")
+#        if bpy.context.scene.fast64.mk64.featureSet == "HM64":
+#            prop_split(layout, self, "internal_game_path", "internal_game_path")
 
-        prop_split(layout, self, "export_path", "export_path")
-        prop_split(layout, self, "decomp_path", "decomp_path")
+        prop_split(layout, self, "export_path", "Mods Path")
+#        prop_split(layout, self, "decomp_path", "decomp_path")
 
 
 # ------------------------------------------------------------------------
@@ -90,7 +90,7 @@ class MK64_Properties(PropertyGroup):
     course_DL_import_settings: bpy.props.PointerProperty(type=MK64_ImportProperties)
     # exporter settings, merge with above later?
     course_export_settings: bpy.props.PointerProperty(type=MK64_ExportProperties)
-    scale: FloatProperty(name="F3D Blender Scale", default=100, update=on_update_render_settings)
+    scale: FloatProperty(name="F3D Blender Scale", default=25, update=on_update_render_settings)
 
     @staticmethod
     def upgrade_changed_props():
