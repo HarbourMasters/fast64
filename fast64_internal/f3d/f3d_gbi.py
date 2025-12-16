@@ -2548,7 +2548,7 @@ class FModel:
         self.lights[key] = value
 
     def addMesh(self, name, namePrefix, drawLayer, isSkinned, contextObj, dedup=False):
-        final_name = getFMeshName(name, namePrefix, drawLayer, isSkinned)
+        final_name = getFMeshName(self, name, namePrefix, drawLayer, isSkinned)
         if dedup:
             for i in range(1, len(self.meshes) + 2):
                 if final_name in self.meshes:
@@ -3229,7 +3229,7 @@ class FMesh:
         logging_func({"INFO"}, "FMesh.to_xml 2")
 
         # data += "<!-- DrawOverride Start -->\n"
-        for materialTuple, drawOverride in self.drawMatOverrides.items():
+        for drawOverride in self.draw_overrides:
             data += drawOverride.to_xml(modelDirPath)
         # data += "<!-- DrawOverride End -->\n"
 
