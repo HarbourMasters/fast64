@@ -2235,7 +2235,6 @@ class GfxList:
         data += "\treturn glistp;\n}\n\n"
         return data
 
-<<<<<<< HEAD
     def to_xml(self, modelDirPath, objectPath, *args, **kwargs):
         logging_func = kwargs.get("logging_func", empty_logging_func)
 
@@ -2254,10 +2253,7 @@ class GfxList:
 
         return data
 
-    def to_c(self, f3d):
-=======
     def to_c(self, f3d, name_override: Optional[str] = None):
->>>>>>> upstream/main
         data = CData()
         name = name_override if name_override is not None else self.name
 
@@ -2551,16 +2547,6 @@ class FModel:
         fMaterial.usedLights.append(key)
         self.lights[key] = value
 
-<<<<<<< HEAD
-    def addMesh(self, name, namePrefix, drawLayer, isSkinned, contextObj):
-        meshName = getFMeshName(self, name, namePrefix, drawLayer, isSkinned)
-        checkUniqueBoneNames(self, meshName, name)
-        self.meshes[meshName] = FMesh(meshName, self.DLFormat)
-
-        self.onAddMesh(self.meshes[meshName], contextObj)
-
-        return self.meshes[meshName]
-=======
     def addMesh(self, name, namePrefix, drawLayer, isSkinned, contextObj, dedup=False):
         final_name = getFMeshName(name, namePrefix, drawLayer, isSkinned)
         if dedup:
@@ -2571,7 +2557,7 @@ class FModel:
         self.meshes[final_name] = mesh = FMesh(final_name, self.DLFormat)
         self.onAddMesh(mesh, contextObj)
         return mesh
->>>>>>> upstream/main
+
 
     def onAddMesh(self, fMesh, contextObj):
         return
@@ -3221,7 +3207,6 @@ class FMesh:
         for cmd_list in self.draw_overrides:
             cmd_list.save_binary(romfile, f3d, segments)
 
-<<<<<<< HEAD
     # OTRTODO
     def to_xml(self, modelDirPath, objectPath, logging_func):
         data = ""
@@ -3262,10 +3247,7 @@ class FMesh:
 
         return data
 
-    def to_c(self, f3d, gfxFormatter):
-=======
     def to_c(self, f3d: F3D, gfxFormatter: GfxFormatter):
->>>>>>> upstream/main
         staticData = CData()
 
         if self.cullVertexList is not None:

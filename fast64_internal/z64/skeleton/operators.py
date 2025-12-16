@@ -4,18 +4,11 @@ from bpy.utils import register_class, unregister_class
 from bpy.path import abspath
 from mathutils import Matrix
 from ...f3d.f3d_gbi import DLFormat
-from ...utility import PluginError, raisePluginError
+from ...utility import PluginError, ExportUtils, raisePluginError
 from ..utility import getStartBone, getNextBone, getOOTScale
 from ..exporter.skeleton import ootConvertArmatureToC
 from .importer import ootImportSkeletonC
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
-
-
-# Import for HM64 XML export
-def ootConvertArmatureToXML(armatureObj, finalTransform, DLFormat, saveTextures, drawLayer, exportSettings, logging_func):
-    """HM64-specific XML export function"""
-    logging_func({"INFO"}, "ootConvertArmatureToXML not yet implemented for HM64")
-    raise NotImplementedError("XML export for skeletons is not yet implemented")
 
 
 # Copy data from console into python file
@@ -101,53 +94,47 @@ class OOT_ExportSkeleton(Operator):
     # Called on demand (i.e. button press, menu item)
     # Can also be called from operator search menu (Spacebar)
     def execute(self, context):
-        armatureObj = None
-        if context.mode != "OBJECT":
-            object.mode_set(mode="OBJECT")
-        if len(context.selected_objects) == 0:
-            raise PluginError("Armature not selected.")
-        armatureObj = context.active_object
-        if armatureObj.type != "ARMATURE":
-            raise PluginError("Armature not selected.")
+        with ExportUtils() as export_utils:
+            armatureObj = None
+            if context.mode != "OBJECT":
+                object.mode_set(mode="OBJECT")
+            if len(context.selected_objects) == 0:
+                raise PluginError("Armature not selected.")
+            armatureObj = context.active_object
+            if armatureObj.type != "ARMATURE":
+                raise PluginError("Armature not selected.")
 
-        if len(armatureObj.children) == 0 or not isinstance(armatureObj.children[0].data, Mesh):
-            raise PluginError("Armature does not have any mesh children, or " + "has a non-mesh child.")
+            if len(armatureObj.children) == 0 or not isinstance(armatureObj.children[0].data, Mesh):
+                raise PluginError("Armature does not have any mesh children, or " + "has a non-mesh child.")
 
-        obj = armatureObj.children[0]
-        finalTransform = Matrix.Scale(getOOTScale(armatureObj.ootActorScale), 4)
+            obj = armatureObj.children[0]
+            finalTransform = Matrix.Scale(getOOTScale(armatureObj.ootActorScale), 4)
 
-        # Rotation must be applied before exporting skeleton.
-        # For some reason this does not work if done on the duplicate generated later, so we have to do it before then.
-        object.select_all(action="DESELECT")
-        armatureObj.select_set(True)
-        object.transform_apply(location=False, rotation=True, scale=True, properties=False)
-        object.select_all(action="DESELECT")
+            # Rotation must be applied before exporting skeleton.
+            # For some reason this does not work if done on the duplicate generated later, so we have to do it before then.
+            object.select_all(action="DESELECT")
+            armatureObj.select_set(True)
+            object.transform_apply(location=False, rotation=True, scale=True, properties=False)
+            object.select_all(action="DESELECT")
 
-        try:
-            exportSettings: OOTSkeletonExportSettings = context.scene.fast64.oot.skeletonExportSettings
+            try:
+                exportSettings: OOTSkeletonExportSettings = context.scene.fast64.oot.skeletonExportSettings
 
-            saveTextures = context.scene.saveTextures
-            drawLayer = armatureObj.ootDrawLayer
+                saveTextures = context.scene.saveTextures
+                drawLayer = armatureObj.ootDrawLayer
 
-            self.report({"INFO"}, f"ootConvertArmatureTo?? with featureSet = {context.scene.fast64.oot.featureSet}")
-
-            if context.scene.fast64.oot.featureSet == "HM64":
-                ootConvertArmatureToXML(
-                    armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings, self.report
-                )
-            else:
                 ootConvertArmatureToC(
                     armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings
                 )
 
-            self.report({"INFO"}, "Success!")
-            return {"FINISHED"}
+                self.report({"INFO"}, "Success!")
+                return {"FINISHED"}
 
-        except Exception as e:
-            if context.mode != "OBJECT":
-                object.mode_set(mode="OBJECT")
-            raisePluginError(self, e)
-            return {"CANCELLED"}  # must return a set
+            except Exception as e:
+                if context.mode != "OBJECT":
+                    object.mode_set(mode="OBJECT")
+                raisePluginError(self, e)
+                return {"CANCELLED"}  # must return a set
 
 
 oot_skeleton_classes = (

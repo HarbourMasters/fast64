@@ -27,10 +27,16 @@ class OOT_FileSettingsPanel(OOT_Panel):
         if context.scene.fast64.oot.oot_version == "Custom":
             prop_split(col, context.scene.fast64.oot, "oot_version_custom", "Custom Version")
 
-        col.prop(context.scene.fast64.oot, "headerTabAffectsVisibility")
-        col.prop(context.scene.fast64.oot, "featureSet")
+        is_decomp = context.scene.fast64.oot.feature_set == "default"
+        if is_oot:
+            prop_split(col, context.scene.fast64.oot, "feature_set", "Feature Set")
 
-        if context.scene.fast64.oot.featureSet not in {"HackerOOT", "HM64"}:
+        col.prop(context.scene.fast64.oot, "headerTabAffectsVisibility")
+
+        if is_oot and is_decomp:
+            col.prop(context.scene.fast64.oot, "mm_features")
+
+        if game_data.z64.is_mm() or is_decomp:
             col.prop(context.scene.fast64.oot, "useDecompFeatures")
 
         col.prop(context.scene.fast64.oot, "exportMotionOnly")
