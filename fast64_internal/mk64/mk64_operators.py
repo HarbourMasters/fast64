@@ -196,16 +196,14 @@ class MK64_ExportCourse(Operator):
                 applyRotation([root], math.radians(-90), "X")
 
             if context.object and context.mode != prev_mode:
-                restore_mode(context, prev_mode)
+                if not context.object:
+                    return
 
-    def restore_mode(context, prev_mode):
-        if not context.object:
-            return
+                if prev_mode.startswith("EDIT"):
+                    bpy.ops.object.mode_set(mode="EDIT")
+                elif prev_mode in {"OBJECT", "POSE", "SCULPT"}:
+                    bpy.ops.object.mode_set(mode=prev_mode)
 
-        if prev_mode.startswith("EDIT"):
-            bpy.ops.object.mode_set(mode="EDIT")
-        elif prev_mode in {"OBJECT", "POSE", "SCULPT"}:
-            bpy.ops.object.mode_set(mode=prev_mode)
 
 
 mk64_operator_classes = (MK64_ImportCourseDL, MK64_ExportCourse)
