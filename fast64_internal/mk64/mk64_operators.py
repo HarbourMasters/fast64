@@ -107,62 +107,96 @@ class MK64_ExportCourse(Operator):
 
     def execute(self, context):
         mk64_props: MK64_Properties = context.scene.fast64.mk64
-        if context.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
+
+        prev_mode = context.mode
+        root = None
+        rotation_applied = False
+
         try:
-            all_objs = context.selected_objects
-            if len(all_objs) == 0:
-                raise PluginError("No objects selected.")
-            obj = context.selected_objects[0]
-            root = obj
-            if not root.fast64.mk64.obj_type == "Course Root":
-                while root.parent:
-                    root = root.parent
-                    if root.fast64.mk64.obj_type == "Course Root":
-                        break
-            assert root.fast64.mk64.obj_type == "Course Root", PluginError("Object must be a course root")
-
-            scale = mk64_props.scale
-            final_transform = mathutils.Matrix.Diagonal(mathutils.Vector((scale, scale, scale))).to_4x4()
-
-        except Exception as e:
-            if context.mode != "OBJECT":
+            # -----------------------------
+            # Ensure object mode
+            # -----------------------------
+            if context.object and context.mode != "OBJECT":
                 bpy.ops.object.mode_set(mode="OBJECT")
-            raisePluginError(self, e)
-            return {"CANCELLED"}  # must return a set
 
-        finalTransform = 1
+            # -----------------------------
+            # Root resolution (can error)
+            # -----------------------------
+            selected = context.selected_objects
+            if not selected:
+                raise PluginError("No objects selected.")
 
-        try:
+            selected_roots = [
+                obj for obj in selected
+                if obj.type == "EMPTY"
+                and obj.fast64.mk64.obj_type == "Course Root"
+            ]
+
+            if len(selected_roots) > 1:
+                raise PluginError("Multiple Course Roots selected.")
+
+            if selected_roots:
+                root = selected_roots[0]
+            else:
+                course_roots = set()
+                for obj in selected:
+                    current = obj
+                    visited = set()
+                    while current and current not in visited:
+                        visited.add(current)
+                        if (
+                            current.type == "EMPTY"
+                            and current.fast64.mk64.obj_type == "Course Root"
+                        ):
+                            course_roots.add(current)
+                            break
+                        current = current.parent
+
+                if not course_roots:
+                    raise PluginError("No Course Root found.")
+
+                if len(course_roots) > 1:
+                    raise PluginError(
+                        "Multiple Course Roots found. Select one explicitly."
+                    )
+
+                root = course_roots.pop()
+
+            # -----------------------------
+            # Export work
+            # -----------------------------
             applyRotation([root], math.radians(90), "X")
+            rotation_applied = True
 
             name = mk64_props.course_export_settings.name
-            export_path = Path(bpy.path.abspath(mk64_props.course_export_settings.export_path))
-#            internal_path = os.path.join(mk64_props.course_export_settings.internal_game_path, name).replace("\\", "/")
-            internal_path = Path(os.path.join("tracks", name).replace("\\", "/"))
-            (full_path := export_path / internal_path).mkdir(parents=True, exist_ok=True)
-            internal_path = internal_path.as_posix()
+            export_path = Path(bpy.path.abspath(
+                mk64_props.course_export_settings.export_path
+            ))
 
-
-            saveTextures = context.scene.saveTextures
-            exportSettings = context.scene.fast64.oot.DLExportSettings
+            internal_path = Path("tracks") / name
+            (export_path / internal_path).mkdir(parents=True, exist_ok=True)
 
             if context.scene.fast64.mk64.featureSet == "HM64":
-                export_course_xml(obj, context, export_path, internal_path, self.report)
+                export_course_xml(root, context, export_path, internal_path.as_posix(), self.report)
             else:
                 export_course_c(root, context, export_path)
 
             self.report({"INFO"}, "Success!")
-            applyRotation([root], math.radians(-90), "X")
-            return {"FINISHED"}  # must return a set
+            return {"FINISHED"}
 
         except Exception as e:
-            if context.mode != "OBJECT":
-                bpy.ops.object.mode_set(mode="OBJECT")
-            applyRotation([root], math.radians(-90), "X")
-
             raisePluginError(self, e)
-            return {"CANCELLED"}  # must return a set
+            return {"CANCELLED"}
+
+        finally:
+            # -----------------------------
+            # Guaranteed cleanup
+            # -----------------------------
+            if rotation_applied and root:
+                applyRotation([root], math.radians(-90), "X")
+
+            if context.object and context.mode != prev_mode:
+                bpy.ops.object.mode_set(mode=prev_mode)
 
 
 mk64_operator_classes = (MK64_ImportCourseDL, MK64_ExportCourse)
