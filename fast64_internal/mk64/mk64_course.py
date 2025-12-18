@@ -75,6 +75,8 @@ class MK64_BpyCourse:
                 if self.is_mk64_actor(child):
                     self.add_actor(child, parent_transform, fModel)
                 if child.type == "CURVE":
+                    self.add_curve(child, parent_transform, fModel)
+                if child.type == "PATH":
                     self.add_path(child, parent_transform, fModel)
                 if child.children:
                     loop_children(child, fModel, parent_transform @ child.matrix_local)
@@ -93,7 +95,7 @@ class MK64_BpyCourse:
         fModel.actors.append(MK64_Actor(position, mk64_props.actor_type))
         return
 
-    def add_path(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
+    def add_curve(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
         curve_data = obj.data
 
         points = []
@@ -119,6 +121,36 @@ class MK64_BpyCourse:
         if points:
             fModel.path.append(MK64_Path(points))
             return
+
+    def add_path(self, obj: bpy.types.Object, transform: Matrix, fModel: FModel):
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        eval_obj = obj.evaluated_get(depsgraph)
+        eval_curve = eval_obj.data
+    
+        points = []
+    
+        for spline in eval_curve.splines:
+            # Resolution controls sampling density
+            sample_count = spline.resolution_u * spline.point_count_u
+    
+            for i in range(sample_count):
+                t = i / (sample_count - 1)
+    
+                eval_curve.eval_time = t * eval_curve.path_duration
+                eval_obj.update_tag()
+    
+                pos = eval_obj.matrix_world.translation
+    
+                world_pos = transform @ pos
+                points.append((
+                    int(round(world_pos.x)),
+                    int(round(world_pos.y)),
+                    int(round(world_pos.z)),
+                    0,
+                ))
+    
+        if points:
+            fModel.path.append(MK64_Path(points))
 
     # look into speeding this up by calculating just the apprent
     # transform using transformMatrix vs clearing parent and applying
