@@ -109,6 +109,7 @@ class MK64_ExportCourse(Operator):
         mk64_props: MK64_Properties = context.scene.fast64.mk64
 
         prev_mode = context.mode
+        prev_active = context.view_layer.objects.active
         root = None
         rotation_applied = False
 
@@ -196,10 +197,8 @@ class MK64_ExportCourse(Operator):
                 applyRotation([root], math.radians(-90), "X")
 
             if context.object and context.mode != prev_mode:
-                if not context.object:
-                    return
-
-                if prev_mode.startswith("EDIT"):
+                context.view_layer.objects.active = prev_active
+                if prev_mode.startswith("EDIT") and context.object.type in {"MESH", "CURVE", "ARMATURE"}:
                     bpy.ops.object.mode_set(mode="EDIT")
                 elif prev_mode in {"OBJECT", "POSE", "SCULPT"}:
                     bpy.ops.object.mode_set(mode=prev_mode)
