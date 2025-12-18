@@ -103,7 +103,7 @@ class MK64_ImportCourseDL(Operator):
 
 class MK64_ExportCourse(Operator):
     bl_idname = "scene.mk64_export_course"
-    bl_label = "Export Course"
+    bl_label = "Export Track"
 
     def execute(self, context):
         mk64_props: MK64_Properties = context.scene.fast64.mk64
