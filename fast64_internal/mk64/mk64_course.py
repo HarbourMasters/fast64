@@ -307,19 +307,17 @@ class MK64_fModel(FModel):
         if not self.track_sections:
             return
         
+        lines.append("<TrackSections XMLSucks=\"1\">")
         for i, section in enumerate(self.track_sections):
 
             sections = "\n\t".join([
                 f"<Section gfx_path=\"{internal_path}/{section.gfx_list_name}\" surface=\"{SURFACE_TYPE_ENUM[section.surface_type]}\" section=\"{section.section_id:#04x}\" flags=\"{section.flags:#04x}\" />"
-                for section in self.track_sections
             ])
 
             lines.extend((
-                f"<TrackSections XMLSucks=\"1\">",
                 f"\t{sections}",
-                "</TrackSections>"
             ))
-
+        lines.append("</TrackSections>")
         data = "\n".join(lines)
         writeXMLData(data, os.path.join(export_dir, "data_track_sections"))
 
