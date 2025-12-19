@@ -59,7 +59,6 @@ class MK64_BpyCourse:
         Creates a MK64_fModel class with all model data ready to exported to c
         also generates lists for items, pathing and collision (in future)
         """
-
         fModel = MK64_fModel(self.root, mat_write_method)
         # create duplicate objects to export from
         transform = Matrix.Diagonal(Vector((scale, scale, scale))).to_4x4()
@@ -77,9 +76,9 @@ class MK64_BpyCourse:
                     self.add_actor(child, parent_transform, fModel)
                 if child.type == "CURVE":
                     splines = child.data.splines
-    #                    if not splines:
-    #                        return
-                    
+                    if not splines:
+                        return
+
                     if len(splines) > 1:
                         self.report(
                             {'WARNING'},
@@ -433,7 +432,6 @@ class MK64_Path:
         return "\n".join(lines)
     
     def to_xml(self):
-        print("PATH TO XML TEST")
         lines = []
         for x, y, z, pid in self.points:
             lines.append(f"{{ {x}, {y}, {z}, {pid} }},")
