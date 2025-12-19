@@ -53,12 +53,22 @@ class MK64_BpyCourse:
 
     def __init__(self, course_root: bpy.types.Object):
         self.root = course_root
+        self.log_file = os.path.join(os.path.expanduser("~"), "mk64_debug.txt")
 
-    def make_mk64_course_from_bpy(self, context: bpy.Types.Context, scale: float, mat_write_method: GfxMatWriteMethod):
+    def debug(self, message: str):
+        """Append a message to the log file."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        with open(self.log_file, "a") as f:
+            f.write(f"[{timestamp}] {message}\n")
+
+    def make_mk64_course_from_bpy(self, context: bpy.Types.Context, scale: float, mat_write_method: GfxMatWriteMethod,  logging_func):
         """
         Creates a MK64_fModel class with all model data ready to exported to c
         also generates lists for items, pathing and collision (in future)
         """
+
+        logging_func({'INFO'}, "IS IT WORKING?!?!?!?")
+
         fModel = MK64_fModel(self.root, mat_write_method)
         # create duplicate objects to export from
         transform = Matrix.Diagonal(Vector((scale, scale, scale))).to_4x4()
@@ -69,13 +79,34 @@ class MK64_BpyCourse:
 
         # retrieve data for items and pathing
         def loop_children(obj, fModel, parent_transform):
+            logging_func({'INFO'},"LOOPING OVER OBJECTS!")
             for child in obj.children:
                 if child.type == "MESH":
                     self.export_f3d_from_obj(context, child, fModel, parent_transform @ child.matrix_local)
                 if self.is_mk64_actor(child):
                     self.add_actor(child, parent_transform, fModel)
                 if child.type == "CURVE":
-                    self.add_path(child, parent_transform, fModel)
+                    splines = child.data.splines
+    #                    if not splines:
+    #                        return
+                    
+                    if len(splines) > 1:
+                        self.report(
+                            {'WARNING'},
+                            f"Curve '{child.name}' has multiple splines. Only the first will be exported."
+                        )
+
+                    spline = splines[0]
+                    logging_func({'INFO'}, f"Checking child: {child.name}, type: {child.type}")
+                    logging_func({'INFO'}, f"spline type: {spline.type}")
+
+                    if spline.type == 'BEZIER':
+                        logging_func({'INFO'},"FOUND BEZIER")
+                        self.add_curve(child, parent_transform, fModel)
+                    elif spline.type == 'NURBS':
+                        logging_func({'INFO'},"FOUND NURBS")
+                        self.add_path(child, parent_transform, fModel, logging_func)
+
                 if child.children:
                     loop_children(child, fModel, parent_transform @ child.matrix_local)
 
@@ -93,7 +124,7 @@ class MK64_BpyCourse:
         fModel.actors.append(MK64_Actor(position, mk64_props.actor_type))
         return
 
-    def add_path(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
+    def add_curve(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
         curve_data = obj.data
 
         points = []
@@ -119,6 +150,35 @@ class MK64_BpyCourse:
         if points:
             fModel.path.append(MK64_Path(points))
             return
+
+    def add_path(self, obj: bpy.types.Object, transform: Matrix, fModel: FModel, logging_func):
+        logging_func({'INFO'},"MAKING PATH")
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+
+        logging_func({'INFO'},"GOT GRAPH")
+        eval_obj = obj.evaluated_get(depsgraph)
+        logging_func({'INFO'},"EVALULATE GRAPH")
+        mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=bpy.context.evaluated_depsgraph_get())
+        logging_func({'INFO'},"OBJ TO MESH")
+        if not mesh:
+            logging_func({'INFO'},"NO MESH")
+            return
+
+        points = []
+        logging_func({'INFO'},"Mesh Len " + str(len(mesh.vertices)))
+        for v in mesh.vertices:
+            world_pos = transform @ eval_obj.matrix_world @ v.co
+            points.append((
+                int(round(world_pos.x)),
+                int(round(world_pos.y)),
+                int(round(world_pos.z)),
+                0,
+            ))
+
+        eval_obj.to_mesh_clear()
+
+        if points:
+            fModel.path.append(MK64_Path(points))
 
     # look into speeding this up by calculating just the apprent
     # transform using transformMatrix vs clearing parent and applying
@@ -393,6 +453,7 @@ class MK64_Path:
         return "\n".join(lines)
     
     def to_xml(self):
+        print("PATH TO XML TEST")
         lines = []
         for x, y, z, pid in self.points:
             lines.append(f"{{ {x}, {y}, {z}, {pid} }},")
@@ -447,7 +508,8 @@ def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_
 
     bpy_course = MK64_BpyCourse(obj)
 
-    mk64_fModel = bpy_course.make_mk64_course_from_bpy(context, scale, mat_write_method)
+    logging_func({'INFO'}, "EXPORT_XML")
+    mk64_fModel = bpy_course.make_mk64_course_from_bpy(context, scale, mat_write_method, logging_func)
 
     bpy_course.cleanup_course()
 
