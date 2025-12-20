@@ -56,12 +56,6 @@ class MK64_BpyCourse:
         self.root = course_root
         self.log_file = os.path.join(os.path.expanduser("~"), "mk64_debug.txt")
 
-    def debug(self, message: str):
-        """Append a message to the log file."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        with open(self.log_file, "a") as f:
-            f.write(f"[{timestamp}] {message}\n")
-
     def make_mk64_course_from_bpy(self, context: bpy.Types.Context, scale: float, mat_write_method: GfxMatWriteMethod,  logging_func):
         """
         Creates a MK64_fModel class with all model data ready to exported to c
@@ -98,14 +92,10 @@ class MK64_BpyCourse:
                         )
 
                     spline = splines[0]
-                    logging_func({'INFO'}, f"Checking child: {child.name}, type: {child.type}")
-                    logging_func({'INFO'}, f"spline type: {spline.type}")
 
                     if spline.type == 'BEZIER':
-                        logging_func({'INFO'},"FOUND BEZIER")
                         self.add_curve(child, parent_transform, fModel)
                     elif spline.type == 'NURBS':
-                        logging_func({'INFO'},"FOUND NURBS")
                         self.add_path(child, parent_transform, fModel, logging_func)
 
                 if child.children:
@@ -153,20 +143,15 @@ class MK64_BpyCourse:
             return
 
     def add_path(self, obj: bpy.types.Object, transform: Matrix, fModel: FModel, logging_func):
-        logging_func({'INFO'},"MAKING PATH")
         depsgraph = bpy.context.evaluated_depsgraph_get()
 
-        logging_func({'INFO'},"GOT GRAPH")
         eval_obj = obj.evaluated_get(depsgraph)
-        logging_func({'INFO'},"EVALULATE GRAPH")
         mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=bpy.context.evaluated_depsgraph_get())
-        logging_func({'INFO'},"OBJ TO MESH")
         if not mesh:
-            logging_func({'INFO'},"NO MESH")
             return
 
         points = []
-        logging_func({'INFO'},"Mesh Len " + str(len(mesh.vertices)))
+
         for v in mesh.vertices:
             world_pos = transform @ eval_obj.matrix_world @ v.co
             points.append((
@@ -515,7 +500,6 @@ def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_
 
     bpy_course = MK64_BpyCourse(obj)
 
-    logging_func({'INFO'}, "EXPORT_XML")
     mk64_fModel = bpy_course.make_mk64_course_from_bpy(context, scale, mat_write_method, logging_func)
 
     bpy_course.cleanup_course()
