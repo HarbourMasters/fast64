@@ -1,11 +1,11 @@
 import bpy
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, PointerProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, PointerProperty, FloatVectorProperty
 from bpy.types import PropertyGroup, UILayout
 from bpy.utils import register_class, unregister_class
 from ..utility import prop_split
 from ..f3d.f3d_material import ootEnumDrawLayers
 
-from .mk64_constants import enum_surface_types, enum_actor_types
+from .mk64_constants import enum_surface_types, enum_clip_types, enum_draw_layer_types, enum_actor_types
 
 from ..render_settings import on_update_render_settings
 
@@ -118,9 +118,11 @@ class MK64_ObjectProperties(PropertyGroup):
     actor_type: EnumProperty(name="Actor Type", items=enum_actor_types)
 
     # for mesh objects
-    has_col: BoolProperty(name="Has Collision", default=True)
-    col_type: EnumProperty(name="Collision Type", items=enum_surface_types, default="SURFACE_DEFAULT")
+    surface_type: EnumProperty(name="Collision Type", items=enum_surface_types, default="SURFACE_DEFAULT")
     section_id: IntProperty(name="section_id", default=255, min=0, max=255)
+    clip_type: EnumProperty(name="clip_type", items=enum_clip_types, default="CLIP_DEFAULT")
+    draw_layer: EnumProperty(name="draw_layer", items=enum_draw_layer_types, default="DRAW_OPAQUE")
+    location: FloatVectorProperty(name="Location", default=(0,0,0), size=3, description="location")
 
 
 class MK64_CurveProperties(PropertyGroup):
