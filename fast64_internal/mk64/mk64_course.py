@@ -54,7 +54,7 @@ class MK64_BpyCourse:
     def __init__(self, course_root: bpy.types.Object):
         self.root = course_root
 
-    def make_mk64_course_from_bpy(self, context: bpy.Types.Context, scale: float, mat_write_method: GfxMatWriteMethod):
+    def make_mk64_course_from_bpy(self, context: bpy.Types.Context, scale: float, mat_write_method: GfxMatWriteMethod,  logging_func):
         """
         Creates a MK64_fModel class with all model data ready to exported to c
         also generates lists for items, pathing and collision (in future)
@@ -75,7 +75,23 @@ class MK64_BpyCourse:
                 if self.is_mk64_actor(child):
                     self.add_actor(child, parent_transform, fModel)
                 if child.type == "CURVE":
-                    self.add_path(child, parent_transform, fModel)
+                    splines = child.data.splines
+                    if not splines:
+                        return
+
+                    if len(splines) > 1:
+                        self.report(
+                            {'WARNING'},
+                            f"Curve '{child.name}' has multiple splines. Only the first will be exported."
+                        )
+
+                    spline = splines[0]
+
+                    if spline.type == 'BEZIER':
+                        self.add_curve(child, parent_transform, fModel)
+                    elif spline.type == 'NURBS':
+                        self.add_path(child, parent_transform, fModel, logging_func)
+
                 if child.children:
                     loop_children(child, fModel, parent_transform @ child.matrix_local)
 
@@ -93,7 +109,7 @@ class MK64_BpyCourse:
         fModel.actors.append(MK64_Actor(position, mk64_props.actor_type))
         return
 
-    def add_path(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
+    def add_curve(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
         curve_data = obj.data
 
         points = []
@@ -119,6 +135,29 @@ class MK64_BpyCourse:
         if points:
             fModel.path.append(MK64_Path(points))
             return
+
+    def add_path(self, obj: bpy.types.Object, transform: Matrix, fModel: FModel, logging_func):
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+
+        eval_obj = obj.evaluated_get(depsgraph)
+        mesh = eval_obj.to_mesh(preserve_all_data_layers=True, depsgraph=bpy.context.evaluated_depsgraph_get())
+        if not mesh:
+            return
+
+        points = []
+        for v in mesh.vertices:
+            world_pos = transform @ eval_obj.matrix_world @ v.co
+            points.append((
+                int(round(world_pos.x)),
+                int(round(world_pos.y)),
+                int(round(world_pos.z)),
+                0,
+            ))
+
+        eval_obj.to_mesh_clear()
+
+        if points:
+            fModel.path.append(MK64_Path(points))
 
     # look into speeding this up by calculating just the apprent
     # transform using transformMatrix vs clearing parent and applying
@@ -268,19 +307,17 @@ class MK64_fModel(FModel):
         if not self.track_sections:
             return
         
+        lines.append("<TrackSections XMLSucks=\"1\">")
         for i, section in enumerate(self.track_sections):
 
             sections = "\n\t".join([
                 f"<Section gfx_path=\"{internal_path}/{section.gfx_list_name}\" surface=\"{SURFACE_TYPE_ENUM[section.surface_type]}\" section=\"{section.section_id:#04x}\" flags=\"{section.flags:#04x}\" />"
-                for section in self.track_sections
             ])
 
             lines.extend((
-                f"<TrackSections XMLSucks=\"1\">",
                 f"\t{sections}",
-                "</TrackSections>"
             ))
-
+        lines.append("</TrackSections>")
         data = "\n".join(lines)
         writeXMLData(data, os.path.join(export_dir, "data_track_sections"))
 
@@ -447,7 +484,7 @@ def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_
 
     bpy_course = MK64_BpyCourse(obj)
 
-    mk64_fModel = bpy_course.make_mk64_course_from_bpy(context, scale, mat_write_method)
+    mk64_fModel = bpy_course.make_mk64_course_from_bpy(context, scale, mat_write_method, logging_func)
 
     bpy_course.cleanup_course()
 
