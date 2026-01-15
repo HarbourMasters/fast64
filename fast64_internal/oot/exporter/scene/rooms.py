@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from mathutils import Matrix
 from bpy.types import Object
-from ....utility import PluginError, CData, indent
+from ....utility import PluginError, CData, indent, writeXMLData
 from ...oot_utility import getObjectList
 from ...oot_model_classes import OOTModel
 from ..room import Room
@@ -97,3 +97,17 @@ class RoomEntries:
 
         roomList.source += "};\n\n"
         return roomList
+
+    def getXML(self, useDummyRoomList: bool, dirPath):
+        """Returns the XML ``str`` containing the room list data"""
+        
+        data = "<RoomList>\n"
+        for entry in self.entries:
+            filePath = os.join(dirPath, entry.name)
+            ## TODO: figure out VromStart/VromEnd
+            entryPathData = indent * 1 + f"<RoomEntry Path='{filePath}' VromStart='0' VromEnd='0'/>\n"
+            data += entryPathData
+            
+            #writeXMLData()
+        data += "</RoomList>\n"
+        return data
