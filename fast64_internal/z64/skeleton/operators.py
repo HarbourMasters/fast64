@@ -6,7 +6,7 @@ from mathutils import Matrix
 from ...f3d.f3d_gbi import DLFormat
 from ...utility import PluginError, ExportUtils, raisePluginError
 from ..utility import getStartBone, getNextBone, getOOTScale
-from ..exporter.skeleton import ootConvertArmatureToC
+from ..exporter.skeleton import ootConvertArmatureToXML
 from .importer import ootImportSkeletonC
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
 
@@ -123,7 +123,7 @@ class OOT_ExportSkeleton(Operator):
                 saveTextures = context.scene.saveTextures
                 drawLayer = armatureObj.ootDrawLayer
 
-                ootConvertArmatureToC(
+                ootConvertArmatureToXML(
                     armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings
                 )
 
@@ -135,6 +135,7 @@ class OOT_ExportSkeleton(Operator):
                     object.mode_set(mode="OBJECT")
                 raisePluginError(self, e)
                 return {"CANCELLED"}  # must return a set
+
 
 
 oot_skeleton_classes = (

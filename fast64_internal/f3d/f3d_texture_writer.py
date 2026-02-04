@@ -1006,9 +1006,13 @@ def saveTextureLoadOnly(
             loadCommand = DPLoadTile(loadtile, sl, tl, sh, th)
 
     if not omitSetTextureImage:
+        gfxOut.commands.append(DPTileSync())
         gfxOut.commands.append(DPSetTextureImage(fmt, siz, wid, fImage))
+    elif not omitSetTile:
+        gfxOut.commands.append(DPTileSync())
     if not omitSetTile:
         gfxOut.commands.append(DPSetTile(fmt, siz, line, tmem, loadtile, 0, nocm, 0, 0, nocm, 0, 0))
+    gfxOut.commands.append(DPLoadSync())
     gfxOut.commands.append(loadCommand)
 
 
@@ -1062,6 +1066,7 @@ def saveTextureTile(
 
     tileSizeCommand.fMaterial = fMaterial
     if not omitSetTile:
+        gfxOut.commands.append(DPPipeSync())
         gfxOut.commands.append(tileCommand)
     gfxOut.commands.append(tileSizeCommand)
 
@@ -1083,12 +1088,18 @@ def savePaletteLoad(
 ):
     assert 0 <= palAddr < 256 and (palAddr & 0xF) == 0
     palFmt = texFormatOf[palFormat]
+    loadTileIndex = f3d.G_TX_LOADTILE
     nocm = ("G_TX_WRAP", "G_TX_NOMIRROR")
+    lutMode = "G_TT_RGBA16" if palFmt == "G_IM_FMT_RGBA" else "G_TT_IA16"
     gfxOut.commands.extend(
         [
+            DPSetTextureLUT(lutMode),
             DPSetTextureImage(palFmt, "G_IM_SIZ_16b", 1, fPalette),
-            DPSetTile("0", "0", 0, 256 + palAddr, loadtile, 0, nocm, 0, 0, nocm, 0, 0),
-            DPLoadTLUTCmd(loadtile, palLen - 1),
+            DPTileSync(),
+            DPSetTile("0", "0", 0, 256 + palAddr, loadTileIndex, 0, nocm, 0, 0, nocm, 0, 0),
+            DPLoadSync(),
+            DPLoadTLUTCmd(loadTileIndex, palLen - 1),
+            DPPipeSync(),
         ]
     )
 

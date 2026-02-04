@@ -197,6 +197,16 @@ def writeFile(filepath, data):
     datafile.close()
 
 
+def get_internal_asset_path(settings, folderName):
+    internal_path = getattr(settings, "internalPath", "").strip()
+    if internal_path:
+        return internal_path.replace("\\", "/")
+    fallback = getattr(settings, "customAssetIncludeDir", "").strip()
+    if fallback:
+        return fallback.replace("\\", "/")
+    return f"assets/objects/{folderName}"
+
+
 def checkObjectReference(obj, title):
     if obj.name not in bpy.context.view_layer.objects:
         raise PluginError(
@@ -227,11 +237,24 @@ def parentObject(parent, child):
     bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
 
 
-def getFMeshName(vertexGroup, namePrefix, drawLayer, isSkinned):
-    fMeshName = toAlnum(namePrefix + ("_" if namePrefix != "" else "") + vertexGroup)
+def getFMeshName(fModel, vertexGroup, namePrefix, drawLayer, isSkinned, forceSkeletonName=False):
+    canMessBones = len(fModel.meshes) > 0
+    useSkeletonName = forceSkeletonName or not canMessBones
+    if useSkeletonName:
+        skeletonCandidate = None
+        if isinstance(fModel.name, str):
+            skeletonCandidate = toAlnum(fModel.name)
+        if not skeletonCandidate and namePrefix is not None:
+            skeletonCandidate = toAlnum(namePrefix)
+        if not skeletonCandidate:
+            skeletonCandidate = vertexGroup
+        fMeshName = skeletonCandidate
+    else:
+        fMeshName = vertexGroup
     if isSkinned:
         fMeshName += "_skinned"
-    fMeshName += "_mesh"
+    if not useSkeletonName:
+        fMeshName += "_mesh"
     if drawLayer is not None:
         fMeshName += "_layer_" + str(drawLayer)
     return fMeshName
@@ -392,6 +415,12 @@ def propertyGroupEquals(oldProp, newProp):
             equivalent &= isEquivalent
 
     return equivalent
+
+
+def writeXMLData(data, xmlPath):
+    xmlFile = open(xmlPath, "w", newline="\n", encoding="utf-8")
+    xmlFile.write(data)
+    xmlFile.close()
 
 
 def writeCData(data, headerPath, sourcePath):

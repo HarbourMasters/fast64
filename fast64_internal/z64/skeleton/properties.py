@@ -69,7 +69,12 @@ class OOTSkeletonExportSettings(PropertyGroup):
     customAssetIncludeDir: StringProperty(
         name="Asset Include Directory",
         default="assets/objects/object_geldb",
-        description="Used in #include for including image files",
+        description="Legacy include path storage (fallback for compatibility).",
+    )
+    internalPath: StringProperty(
+        name="Internal Game Path",
+        default="",
+        description="Path written in XML references (leave empty to use the folder-derived default).",
     )
     optimize: BoolProperty(
         name="Optimize",
@@ -86,13 +91,13 @@ class OOTSkeletonExportSettings(PropertyGroup):
             b.label(icon="LIBRARY_DATA_BROKEN", text="Do not draw anything in SkelAnime")
             b.label(text="callbacks or cull limbs, will be corrupted.")
         layout.prop(self, "isCustom")
+        prop_split(layout, self, "internalPath", "Internal Path")
         layout.label(text="Object name used for export.", icon="INFO")
         layout.prop(self, "isCustomFilename")
         if self.isCustomFilename:
             prop_split(layout, self, "filename", "Filename")
         if self.isCustom:
             prop_split(layout, self, "folder", "Object" if not self.isCustom else "Folder")
-            prop_split(layout, self, "customAssetIncludeDir", "Asset Include Path")
             prop_split(layout, self, "customPath", "Path")
         else:
             prop_split(layout, self, "mode", "Mode")

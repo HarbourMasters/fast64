@@ -27,6 +27,11 @@ class OOTDLExportSettings(PropertyGroup):
         default="assets/objects/gameplay_keep",
         description="Used in #include for including image files",
     )
+    internalPath: StringProperty(
+        name="Internal Game Path",
+        default="",
+        description="Path written inside XML references (leave blank to derive from the folder).",
+    )
 
     def draw_props(self, layout: UILayout):
         layout.label(text="Object name used for export.", icon="INFO")
@@ -35,7 +40,6 @@ class OOTDLExportSettings(PropertyGroup):
             prop_split(layout, self, "filename", "Filename")
         prop_split(layout, self, "folder", "Object" if not self.isCustom else "Folder")
         if self.isCustom:
-            prop_split(layout, self, "customAssetIncludeDir", "Asset Include Path")
             prop_split(layout, self, "customPath", "Path")
         else:
             prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
@@ -45,6 +49,7 @@ class OOTDLExportSettings(PropertyGroup):
                 prop_split(box, self, "flipbookArrayIndex2D", "Flipbook Index")
 
         layout.prop(self, "isCustom")
+        prop_split(layout, self, "internalPath", "Internal Path")
         layout.prop(self, "removeVanillaData")
 
 
