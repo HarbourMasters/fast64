@@ -278,13 +278,12 @@ def maybeSaveSingleLargeTextureSetup(
 
 
 def getTextureNamesFromBasename(baseName: str, texOrPalFormat: str, parent: Union[FModel, FTexRect], isPalette: bool):
-    suffix = getTextureSuffixFromFormat(texOrPalFormat)
-    imageName = parent.name + "_" + baseName + "_"
+    sanitizedName = toAlnum(baseName)
+    imageName = sanitizedName
     if isPalette:
-        imageName += "pal_"
-    imageName += suffix
-    imageName = checkDuplicateTextureName(parent, toAlnum(imageName))
-    filename = baseName + (f"" if (baseName.endswith(suffix)) else f".{suffix}") + (".pal" if isPalette else ".inc.c")
+        imageName += "_pal"
+    imageName = checkDuplicateTextureName(parent, imageName)
+    filename = baseName + (".pal" if isPalette else ".inc.c")
     return imageName, filename
 
 
