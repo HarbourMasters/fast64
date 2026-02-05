@@ -16,7 +16,9 @@ class OOTDLExportSettings(PropertyGroup):
     folder: StringProperty(name="DL Folder", default="gameplay_keep")
     customPath: StringProperty(name="Custom DL Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
-        name="Use Custom Path", description="Determines whether or not to export to an explicitly specified folder"
+        name="Use Custom Path",
+        description="Determines whether or not to export to an explicitly specified folder",
+        default=True,
     )
     removeVanillaData: BoolProperty(name="Replace Vanilla DLs")
     actorOverlayName: StringProperty(name="Overlay", default="")
@@ -27,29 +29,19 @@ class OOTDLExportSettings(PropertyGroup):
         default="assets/objects/gameplay_keep",
         description="Used in #include for including image files",
     )
-    internalPath: StringProperty(
-        name="Internal Game Path",
-        default="",
-        description="Path written inside XML references (leave blank to derive from the folder).",
-    )
 
     def draw_props(self, layout: UILayout):
         layout.label(text="Object name used for export.", icon="INFO")
         layout.prop(self, "isCustomFilename")
         if self.isCustomFilename:
             prop_split(layout, self, "filename", "Filename")
-        prop_split(layout, self, "folder", "Object" if not self.isCustom else "Folder")
-        if self.isCustom:
-            prop_split(layout, self, "customPath", "Path")
-        else:
-            prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
-            layout.prop(self, "flipbookUses2DArray")
-            if self.flipbookUses2DArray:
-                box = layout.box().column()
-                prop_split(box, self, "flipbookArrayIndex2D", "Flipbook Index")
-
-        layout.prop(self, "isCustom")
-        prop_split(layout, self, "internalPath", "Internal Path")
+        prop_split(layout, self, "folder", "Internal Path")
+        prop_split(layout, self, "customPath", "Path")
+        prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
+        layout.prop(self, "flipbookUses2DArray")
+        if self.flipbookUses2DArray:
+            box = layout.box().column()
+            prop_split(box, self, "flipbookArrayIndex2D", "Flipbook Index")
         layout.prop(self, "removeVanillaData")
 
 

@@ -9,7 +9,7 @@ from ...f3d_writer import ootProcessVertexGroup, writeTextureArraysNew, writeTex
 from ...model_classes import OOTModel, OOTGfxFormatter
 from ...skeleton.constants import ootSkeletonImportDict
 from ...skeleton.properties import OOTSkeletonExportSettings
-from ...skeleton.utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices, ootRemoveSkeleton
+from ...skeleton.utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices
 from .classes import OOTDLReference, OOTLimb, OOTSkeleton
 
 from ....utility import (
@@ -226,10 +226,9 @@ def ootConvertArmatureToC(
     drawLayer: str,
     settings: OOTSkeletonExportSettings,
 ):
-    if settings.mode != "Generic" and not settings.isCustom:
+    if settings.mode != "Generic":
         importInfo = ootSkeletonImportDict[settings.mode]
         skeletonName = importInfo.skeletonName
-        filename = skeletonName
         folderName = importInfo.folderName
         overlayName = importInfo.actorOverlayName
         flipbookUses2DArray = importInfo.flipbookArrayIndex2D is not None
@@ -237,21 +236,20 @@ def ootConvertArmatureToC(
         isLink = importInfo.isLink
     else:
         skeletonName = toAlnum(originalArmatureObj.name)
-        filename = settings.filename if settings.isCustomFilename else skeletonName
         folderName = settings.folder
-        overlayName = settings.actorOverlayName if not settings.isCustom else None
+        overlayName = settings.actorOverlayName
         flipbookUses2DArray = settings.flipbookUses2DArray
         flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
         isLink = False
 
+    filename = skeletonName
+
     exportPath = bpy.path.abspath(settings.customPath)
     isCustomExport = settings.isCustom
-    removeVanillaData = settings.removeVanillaData
-    optimize = settings.optimize
 
     fModel = OOTModel(skeletonName, DLFormat, drawLayer)
     skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, optimize
+        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
     )
 
     if originalArmatureObj.ootSkeleton.LOD is not None:
@@ -262,7 +260,7 @@ def ootConvertArmatureToC(
             skeletonName + "_lod",
             not savePNG,
             drawLayer,
-            optimize,
+            False,
         )
     else:
         lodSkeleton = None
@@ -322,8 +320,6 @@ def ootConvertArmatureToC(
     if not isCustomExport:
         writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel)
         addIncludeFiles(folderName, path, filename)
-        if removeVanillaData:
-            ootRemoveSkeleton(path, folderName, skeletonName)
 
 
 def ootConvertArmatureToXML(
@@ -334,7 +330,7 @@ def ootConvertArmatureToXML(
     drawLayer: str,
     settings: OOTSkeletonExportSettings,
 ):
-    if settings.mode != "Generic" and not settings.isCustom:
+    if settings.mode != "Generic":
         importInfo = ootSkeletonImportDict[settings.mode]
         skeletonName = importInfo.skeletonName
         folderName = importInfo.folderName
@@ -345,19 +341,17 @@ def ootConvertArmatureToXML(
     else:
         skeletonName = toAlnum(originalArmatureObj.name)
         folderName = settings.folder
-        overlayName = settings.actorOverlayName if not settings.isCustom else None
+        overlayName = settings.actorOverlayName
         flipbookUses2DArray = settings.flipbookUses2DArray
         flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
         isLink = False
 
     exportPath = bpy.path.abspath(settings.customPath)
     isCustomExport = settings.isCustom
-    removeVanillaData = settings.removeVanillaData
-    optimize = settings.optimize
 
     fModel = OOTModel(skeletonName, DLFormat, drawLayer)
     skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, optimize
+        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
     )
 
     if originalArmatureObj.ootSkeleton.LOD is not None:
@@ -368,7 +362,7 @@ def ootConvertArmatureToXML(
             skeletonName + "_lod",
             not savePNG,
             drawLayer,
-            optimize,
+            False,
         )
     else:
         lodSkeleton = None
@@ -402,5 +396,3 @@ def ootConvertArmatureToXML(
         if not isLink:
             writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel)
         addIncludeFiles(folderName, path, skeletonName)
-        if removeVanillaData:
-            ootRemoveSkeleton(path, folderName, skeletonName)

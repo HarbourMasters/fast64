@@ -97,12 +97,24 @@ default_draw_layers = {
     "OOT": oot_default_draw_layers,
 }
 
+def normalize_hex_pointer(name: str) -> str:
+    stripped = name.strip()
+    if stripped.lower().startswith("0x"):
+        digits = stripped[2:]
+        if len(digits) >= 2 and digits[0] == "0" and digits[1].upper() in "ABCDEF":
+            digits = digits[1:]
+        return "0x" + digits
+    return stripped
+
+
 def format_asset_path(objectPath: str | None, name: str | None) -> str:
     sanitized_path = (objectPath or "").replace("\\", "/").strip("/")
     sanitized_name = (name or "").replace("\\", "/").strip("/")
     if sanitized_path and sanitized_name:
         return f"{sanitized_path}/{sanitized_name}"
     if sanitized_name:
+        if not sanitized_path and sanitized_name.lower().startswith("0x"):
+            return f">{sanitized_name}"
         return sanitized_name
     return sanitized_path
 
@@ -3749,10 +3761,7 @@ class SPDisplayList(GbiMacro):
 
     def to_soh_xml(self, objectPath=""):
         name = self.displayList.name
-        if "0x" in name:
-            path = f">{name}"
-        else:
-            path = format_asset_path(objectPath, name)
+        path = format_asset_path(objectPath, name)
         return f'<CallDisplayList Path="{path}"/>'
 
 
@@ -4927,7 +4936,8 @@ class DPSetTextureImage(GbiMacro):
         return gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr)
 
     def to_soh_xml(self, objectPath=""):
-        imagePath = format_asset_path(objectPath, self.image.name if self.image.name else "")
+        prefix = objectPath if self.image.filename is not None else ""
+        imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
         return (
             f'<SetTextureImage Path="{imagePath}" Format="{self.fmt}" Size="{self.siz}" Width="{self.width}"/>'
         )

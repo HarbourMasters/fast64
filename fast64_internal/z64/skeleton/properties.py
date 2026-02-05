@@ -52,17 +52,14 @@ class OOTSkeletonProperty(PropertyGroup):
 
 
 class OOTSkeletonExportSettings(PropertyGroup):
-    isCustomFilename: BoolProperty(
-        name="Use Custom Filename", description="Override filename instead of basing it off of the Blender name"
-    )
-    filename: StringProperty(name="Filename")
     mode: EnumProperty(name="Mode", items=ootEnumSkeletonImportMode)
     folder: StringProperty(name="Skeleton Folder", default="object_geldb")
     customPath: StringProperty(name="Custom Skeleton Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
-        name="Use Custom Path", description="Determines whether or not to export to an explicitly specified folder"
+        name="Use Custom Path",
+        description="Determines whether or not to export to an explicitly specified folder",
+        default=True,
     )
-    removeVanillaData: BoolProperty(name="Replace Vanilla Skeletons On Export", default=True)
     actorOverlayName: StringProperty(name="Overlay", default="ovl_En_GeldB")
     flipbookUses2DArray: BoolProperty(name="Has 2D Flipbook Array", default=False)
     flipbookArrayIndex2D: IntProperty(name="Index if 2D Array", default=0, min=0)
@@ -71,46 +68,10 @@ class OOTSkeletonExportSettings(PropertyGroup):
         default="assets/objects/object_geldb",
         description="Legacy include path storage (fallback for compatibility).",
     )
-    internalPath: StringProperty(
-        name="Internal Game Path",
-        default="",
-        description="Path written in XML references (leave empty to use the folder-derived default).",
-    )
-    optimize: BoolProperty(
-        name="Optimize",
-        description="Applies various optimizations between the limbs in a skeleton. "
-        + "If enabled, the skeleton limbs must be drawn in their normal order, "
-        + "with nothing in between and no culling, otherwise the mesh will be corrupted.",
-    )
 
     def draw_props(self, layout: UILayout):
-        layout.prop(self, "removeVanillaData")
-        layout.prop(self, "optimize")
-        if self.optimize:
-            b = layout.box().column()
-            b.label(icon="LIBRARY_DATA_BROKEN", text="Do not draw anything in SkelAnime")
-            b.label(text="callbacks or cull limbs, will be corrupted.")
-        layout.prop(self, "isCustom")
-        prop_split(layout, self, "internalPath", "Internal Path")
-        layout.label(text="Object name used for export.", icon="INFO")
-        layout.prop(self, "isCustomFilename")
-        if self.isCustomFilename:
-            prop_split(layout, self, "filename", "Filename")
-        if self.isCustom:
-            prop_split(layout, self, "folder", "Object" if not self.isCustom else "Folder")
-            prop_split(layout, self, "customPath", "Path")
-        else:
-            prop_split(layout, self, "mode", "Mode")
-            if self.mode == "Generic":
-                prop_split(layout, self, "folder", "Object" if not self.isCustom else "Folder")
-                prop_split(layout, self, "actorOverlayName", "Overlay")
-                layout.prop(self, "flipbookUses2DArray")
-                if self.flipbookUses2DArray:
-                    box = layout.box().column()
-                    prop_split(box, self, "flipbookArrayIndex2D", "Flipbook Index")
-            elif self.mode == "Adult Link" or self.mode == "Child Link":
-                layout.label(text="Requires enabling NON_MATCHING in Makefile.", icon="ERROR")
-                layout.label(text="Preserve all bone deform toggles if modifying an imported skeleton.", icon="ERROR")
+        prop_split(layout, self, "folder", "Internal Path")
+        prop_split(layout, self, "customPath", "Path")
 
 
 class OOTSkeletonImportSettings(PropertyGroup):
