@@ -1315,7 +1315,7 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
     useDict = all_combiner_uses(f3dMat)
 
     defaults = create_or_get_world(bpy.context.scene).rdp_defaults
-    saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
+    fMaterial.mat_only_DL.commands.append(DPPipeSync())
 
     # Checking for f3dMat.rdp_settings.g_lighting here will prevent accidental exports,
     # There may be some edge case where this isn't desired.
@@ -1328,8 +1328,6 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
         else:
             fLights = saveLightsDefinition(fModel, fMaterial, f3dMat, materialName + "_lights")
             fMaterial.mat_only_DL.commands.extend([SPSetLights(fLights)])
-
-    fMaterial.mat_only_DL.commands.append(DPPipeSync())
 
     if fMaterial.revert is not None:
         fMaterial.revert.commands.append(DPPipeSync())
@@ -1379,6 +1377,8 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
                     f3dMat.combiner1.D_alpha,
                 )
             )
+
+    saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
 
     if f3dMat.set_ao:
         fMaterial.mat_only_DL.commands.append(
@@ -1459,7 +1459,7 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
     nodes = material.node_tree.nodes
     if useDict["Primitive"] and f3dMat.set_prim:
         color = exportColor(f3dMat.prim_color[0:3]) + [scaleToU8(f3dMat.prim_color[3])]
-        fMaterial.mat_only_DL.commands.append(
+        fMaterial.texture_DL.commands.append(
             DPSetPrimColor(scaleToU8(f3dMat.prim_lod_min), scaleToU8(f3dMat.prim_lod_frac), *color)
         )
 

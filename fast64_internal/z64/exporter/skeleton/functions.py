@@ -386,11 +386,9 @@ def ootConvertArmatureToXML(
 
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
     includeDir = get_internal_asset_path(settings, folderName)
-    exportData = fModel.to_soh_xml(path, includeDir)
+    fModel.to_soh_xml(path, includeDir)
     skeletonXML = skeleton.toSohXML(path, includeDir)
-
-    data = exportData + skeletonXML
-    writeXMLData(data, os.path.join(path, skeletonName))
+    writeXMLData(skeletonXML, os.path.join(path, skeletonName))
 
     if not isCustomExport:
         if not isLink:

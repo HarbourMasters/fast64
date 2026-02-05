@@ -2706,11 +2706,11 @@ class FModel:
             data.append(self.materialRevert.to_c(self.f3d))
         return data
 
-    def to_soh_xml(self, modelDirPath, objectPath):
+    def to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True):
         data = ""
 
         for mesh in self.meshes.values():
-            data += mesh.to_soh_xml(modelDirPath, objectPath)
+            data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices)
 
         for lod in self.LODGroups.values():
             data += lod.to_soh_xml(modelDirPath)
@@ -3104,23 +3104,37 @@ class FMesh:
         for cmd_list in self.draw_overrides:
             cmd_list.save_binary(romfile, f3d, segments)
 
-    def to_soh_xml(self, modelDirPath, objectPath):
-        data = ""
-
-        if self.cullVertexList is not None:
-            data += self.cullVertexList.to_soh_xml()
-            writeXMLData(data, os.path.join(modelDirPath, self.cullVertexList.name))
+    def to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True):
+        if include_cull_vertices and self.cullVertexList is not None:
+            cullData = self.cullVertexList.to_soh_xml()
+            writeXMLData(cullData, os.path.join(modelDirPath, self.cullVertexList.name))
 
         for triGroup in self.triangleGroups:
-            data += triGroup.to_soh_xml(modelDirPath, objectPath)
+            triGroup.to_soh_xml(modelDirPath, objectPath)
 
         for drawOverride in self.draw_overrides:
-            data += drawOverride.to_soh_xml(modelDirPath)
+            overrideData = drawOverride.to_soh_xml(modelDirPath)
+            writeXMLData(overrideData, os.path.join(modelDirPath, drawOverride.name))
 
-        drawData = self.draw.to_soh_xml(modelDirPath, objectPath)
+        def command_xml(command):
+            if isinstance(command, (SPDisplayList, SPBranchList, DPSetTextureImage)):
+                return "\t" + command.to_soh_xml(objectPath) + "\n"
+            return "\t" + command.to_soh_xml() + "\n"
+
+        call_lines = []
+        other_lines = []
+        for command in self.draw.commands:
+            if isinstance(command, (SPVertex, SPCullDisplayList)):
+                continue
+            line = command_xml(command)
+            if isinstance(command, (SPDisplayList, SPBranchList)):
+                call_lines.append(line)
+            else:
+                other_lines.append(line)
+
+        drawData = "<DisplayList Version=\"0\">\n" + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
         writeXMLData(drawData, os.path.join(modelDirPath, self.draw.name))
-
-        return data
+        return drawData
 
     def to_c(self, f3d: F3D, gfxFormatter: GfxFormatter):
         staticData = CData()
@@ -3176,7 +3190,6 @@ class FTriGroup:
 
         triListData = self.triList.to_soh_xml(modelDirPath, objectPath)
         writeXMLData(triListData, os.path.join(modelDirPath, self.triList.name))
-
         return ""
 
     def to_c(self, f3d, gfxFormatter):
@@ -3986,6 +3999,9 @@ class SPCullDisplayList(GbiMacro):
         else:
             words = _SHIFTL(f3d.G_CULLDL, 24, 8) | ((0x0F & (self.vstart)) * 40), ((0x0F & ((self.vend) + 1)) * 40)
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
+
+    def to_soh_xml(self, objectPath=""):
+        return f'<CullDisplayList Start="{self.vstart}" End="{self.vend}"/>'
 
 
 @dataclass(unsafe_hash=True)

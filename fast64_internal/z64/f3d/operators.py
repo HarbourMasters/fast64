@@ -147,7 +147,7 @@ def ootConvertMeshToXML(
 
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
     includeDir = get_internal_asset_path(settings, folderName)
-    exportData = fModel.to_soh_xml(path, includeDir)
+    exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False)
 
     writeXMLData(exportData, os.path.join(path, name))
 

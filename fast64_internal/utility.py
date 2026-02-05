@@ -198,11 +198,14 @@ def writeFile(filepath, data):
 
 
 def get_internal_asset_path(settings, folderName):
+    folder_path = (folderName or "").replace("\\", "/").strip("/")
+    if folder_path:
+        if not folder_path.startswith("objects/"):
+            folder_path = f"objects/{folder_path}"
+        return folder_path
     fallback = getattr(settings, "customAssetIncludeDir", "").strip()
     if fallback:
         return fallback.replace("\\", "/")
-    if folderName:
-        return folderName.replace("\\", "/")
     return ""
 
 
