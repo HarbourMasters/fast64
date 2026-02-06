@@ -5290,7 +5290,7 @@ def mat_register():
     savePresets()
 
     Scene.f3d_type = bpy.props.EnumProperty(
-        name="Microcode", items=enumF3D, default="F3D", update=update_all_material_nodes
+        name="Microcode", items=enumF3D, default="F3DEX2/LX2", update=update_all_material_nodes
     )
     Scene.packed_normals_algorithm = bpy.props.EnumProperty(name="Packed normals alg", items=enumPackedNormalsAlgorithm)
 
