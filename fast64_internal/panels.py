@@ -41,7 +41,7 @@ class SM64_Panel(bpy.types.Panel):
 class OOT_Panel(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Z64"
+    bl_category = "OOT"
     bl_options = {"DEFAULT_CLOSED"}
 
     @classmethod
