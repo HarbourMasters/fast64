@@ -5065,6 +5065,9 @@ class DPSetEnvColor(GbiMacro):
     def to_binary(self, f3d, segments):
         return sDPRGBColor(f3d.G_SETENVCOLOR, self.r, self.g, self.b, self.a)
 
+    def to_soh_xml(self, objectPath=""):
+        return f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"/>'
+
 
 @dataclass(unsafe_hash=True)
 class DPSetBlendColor(GbiMacro):
