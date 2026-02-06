@@ -1,11 +1,55 @@
 from bpy.types import PropertyGroup, Object, World, Material, UILayout
-from bpy.props import PointerProperty, StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty
+from bpy.props import PointerProperty, StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty
 from bpy.utils import register_class, unregister_class
 
 from ...f3d.f3d_material import update_world_default_rendermode
 from ...f3d.f3d_parser import ootEnumDrawLayers
 from ...utility import prop_split
 from ..utility import is_hackeroot
+
+LIMB_MATRIX_OPTIONS = (
+    ("none", "None", ""),
+    ("head", "Head (0x0D0001C0)", ">0x0D0001C0"),
+    ("hat", "Hat (0x0D000200)", ">0x0D000200"),
+    ("left_shoulder", "Left Shoulder (0x0D000280)", ">0x0D000280"),
+    ("left_arm", "Left Arm (0x0D0002C0)", ">0x0D0002C0"),
+    ("left_hand", "Left Hand (0x0D000300)", ">0x0D000300"),
+    ("right_shoulder", "Right Shoulder (0x0D000340)", ">0x0D000340"),
+    ("right_arm", "Right Arm (0x0D000380)", ">0x0D000380"),
+    ("right_hand", "Right Hand (0x0D0003C0)", ">0x0D0003C0"),
+    ("chest", "Chest (0x0D000440)", ">0x0D000440"),
+    ("collar", "Collar (0x0D000240)", ">0x0D000240"),
+    ("waist", "Waist (0x0D000000)", ">0x0D000000"),
+    ("right_thigh", "Right Thigh (0x0D000040)", ">0x0D000040"),
+    ("right_leg", "Right Leg (0x0D000080)", ">0x0D000080"),
+    ("right_foot", "Right Foot (0x0D0000C0)", ">0x0D0000C0"),
+    ("left_thigh", "Left Thigh (0x0D000100)", ">0x0D000100"),
+    ("left_leg", "Left Leg (0x0D000140)", ">0x0D000140"),
+    ("left_foot", "Left Foot (0x0D000180)", ">0x0D000180"),
+)
+LIMB_MATRIX_PATHS = {key: path for key, _label, path in LIMB_MATRIX_OPTIONS}
+
+
+class OOTDLMatrixCallPair(PropertyGroup):
+    limb: EnumProperty(
+        name="Limb",
+        items=LIMB_MATRIX_OPTIONS,
+        default="none",
+    )
+    call_dl: StringProperty(
+        name="Call DL",
+        default="",
+        description="Display list path to emit after the matrix entry",
+    )
+    internal_path: StringProperty(
+        name="Internal Path",
+        default="",
+        description="Optional internal path prefix used when writing the call display list",
+    )
+
+    @property
+    def matrix_path(self) -> str:
+        return LIMB_MATRIX_PATHS.get(self.limb, "")
 
 
 class OOTDLExportSettings(PropertyGroup):
@@ -29,20 +73,33 @@ class OOTDLExportSettings(PropertyGroup):
         default="assets/objects/gameplay_keep",
         description="Used in #include for including image files",
     )
+    extra_matrix_calls: CollectionProperty(type=OOTDLMatrixCallPair)
+    extra_matrix_calls_index: IntProperty(default=0)
 
     def draw_props(self, layout: UILayout):
-        layout.label(text="Object name used for export.", icon="INFO")
-        layout.prop(self, "isCustomFilename")
-        if self.isCustomFilename:
-            prop_split(layout, self, "filename", "Filename")
         prop_split(layout, self, "folder", "Internal Path")
         prop_split(layout, self, "customPath", "Path")
         prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
-        layout.prop(self, "flipbookUses2DArray")
-        if self.flipbookUses2DArray:
-            box = layout.box().column()
-            prop_split(box, self, "flipbookArrayIndex2D", "Flipbook Index")
-        layout.prop(self, "removeVanillaData")
+        box = layout.box()
+        box.label(text="Matrix Path + CallDisplayList", icon="PLUS")
+        row = box.row()
+        row.template_list(
+            "OOT_UL_matrix_call_pairs",
+            "",
+            self,
+            "extra_matrix_calls",
+            self,
+            "extra_matrix_calls_index",
+            rows=3,
+        )
+        ops = row.column(align=True)
+        ops.operator("fast64.oot_add_matrix_call", icon="ADD", text="")
+        ops.operator("fast64.oot_remove_matrix_call", icon="REMOVE", text="")
+        if self.extra_matrix_calls:
+            active = self.extra_matrix_calls[self.extra_matrix_calls_index]
+            box.prop(active, "limb")
+            box.prop(active, "internal_path", text="Internal Path")
+            box.prop(active, "call_dl", text="Call Display List")
 
 
 class OOTDLImportSettings(PropertyGroup):
@@ -173,6 +230,7 @@ class OOTDefaultRenderModesProperty(PropertyGroup):
 
 
 oot_dl_writer_classes = (
+    OOTDLMatrixCallPair,
     OOTDLExportSettings,
     OOTDLImportSettings,
     OOTDynamicMaterialDrawLayerProperty,

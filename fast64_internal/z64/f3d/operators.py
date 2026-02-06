@@ -18,7 +18,7 @@ from ..model_classes import OOTF3DContext, ootGetIncludedAssetData
 from ..texture_array import ootReadTextureArrays
 from ..model_classes import OOTModel, OOTGfxFormatter
 from ..f3d_writer import ootReadActorScale, writeTextureArraysNew, writeTextureArraysExisting
-from .properties import OOTDLImportSettings, OOTDLExportSettings
+from .properties import OOTDLImportSettings, OOTDLExportSettings, LIMB_MATRIX_PATHS
 
 from ..utility import (
     OOTObjectCategorizer,
@@ -29,6 +29,32 @@ from ..utility import (
     getOOTScale,
     get_internal_asset_path,
 )
+
+
+def build_extra_xml_entries(settings: "OOTDLExportSettings") -> str:
+    entries: list[str] = []
+    for entry in settings.extra_matrix_calls:
+        matrix_path = LIMB_MATRIX_PATHS.get(entry.limb, "")
+        if matrix_path:
+            entries.append(f'\t<Matrix Path="{matrix_path}" Param="G_MTX_LOAD"/>')
+        call = entry.call_dl.strip()
+        if call:
+            internal_path = entry.internal_path.strip()
+            if internal_path:
+                prefix = internal_path.rstrip("/")
+                if prefix:
+                    # avoid duplicating prefix if user already typed full path
+                    if not (call.startswith(prefix + "/") or call == prefix):
+                        call = call.lstrip("/")
+                        call = f"{prefix}/{call}" if call else prefix
+                    else:
+                        call = call
+            else:
+                call = call
+            entries.append(f'\t<CallDisplayList Path="{call}"/>')
+    if not entries:
+        return ""
+    return "\n".join(entries) + "\n"
 
 
 class OOTF3DGfxFormatter(OOTGfxFormatter):
@@ -148,6 +174,14 @@ def ootConvertMeshToXML(
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
     includeDir = get_internal_asset_path(settings, folderName)
     exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False)
+    extra_xml = build_extra_xml_entries(settings)
+    if extra_xml:
+        display_start = exportData.find("\n")
+        if display_start != -1:
+            insert_point = display_start + 1
+            exportData = exportData[:insert_point] + extra_xml + exportData[insert_point:]
+        else:
+            exportData = extra_xml + exportData
 
     writeXMLData(exportData, os.path.join(path, name))
 

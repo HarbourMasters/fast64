@@ -1,5 +1,5 @@
 import bpy
-from bpy.types import Panel, Mesh, Armature
+from bpy.types import Panel, Mesh, Armature, Operator, UIList
 from bpy.utils import register_class, unregister_class
 from ...panels import OOT_Panel
 from ...utility import prop_split
@@ -10,6 +10,48 @@ from .properties import (
     OOTDynamicMaterialProperty,
     OOTDefaultRenderModesProperty,
 )
+
+
+class OOT_UL_MatrixCallPairs(UIList):
+    bl_idname = "OOT_UL_matrix_call_pairs"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        label = item.matrix_path if item.matrix_path else "No matrix"
+        row = layout.row(align=True)
+        row.label(text=label, icon="MESH_TORUS")
+
+
+class FAST64_OT_AddMatrixCall(Operator):
+    bl_idname = "fast64.oot_add_matrix_call"
+    bl_label = "Add Matrix Call"
+    bl_description = "Add a new matrix-call pair to the list"
+
+    def execute(self, context):
+        settings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
+        entry = settings.extra_matrix_calls.add()
+        settings.extra_matrix_calls_index = len(settings.extra_matrix_calls) - 1
+        entry.limb = "none"
+        entry.call_dl = ""
+        entry.internal_path = settings.folder
+        return {"FINISHED"}
+
+
+class FAST64_OT_RemoveMatrixCall(Operator):
+    bl_idname = "fast64.oot_remove_matrix_call"
+    bl_label = "Remove Matrix Call"
+    bl_description = "Remove the selected matrix-call pair"
+
+    @classmethod
+    def poll(cls, context):
+        settings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
+        return len(settings.extra_matrix_calls) > 0
+
+    def execute(self, context):
+        settings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
+        index = settings.extra_matrix_calls_index
+        settings.extra_matrix_calls.remove(index)
+        settings.extra_matrix_calls_index = max(0, min(index, len(settings.extra_matrix_calls) - 1))
+        return {"FINISHED"}
 
 
 class OOT_DisplayListPanel(Panel):
@@ -125,12 +167,18 @@ oot_dl_writer_panel_classes = (
     OOT_ExportDLPanel,
 )
 
+oot_dl_writer_support_classes = (
+    OOT_UL_MatrixCallPairs,
+    FAST64_OT_AddMatrixCall,
+    FAST64_OT_RemoveMatrixCall,
+)
+
 
 def f3d_panels_register():
-    for cls in oot_dl_writer_panel_classes:
+    for cls in (*oot_dl_writer_panel_classes, *oot_dl_writer_support_classes):
         register_class(cls)
 
 
 def f3d_panels_unregister():
-    for cls in oot_dl_writer_panel_classes:
+    for cls in reversed((*oot_dl_writer_panel_classes, *oot_dl_writer_support_classes)):
         unregister_class(cls)
