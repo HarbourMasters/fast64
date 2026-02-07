@@ -94,7 +94,7 @@ ootSkeletonImportDict = OrderedDict(
             "gDarkLinkSkel",
             "object_torch2",
             "ovl_En_Torch2",
-            1,
+            2,
             [
                 (0.0, 3.640000104904175, 2.7481240749693825e-07),
                 (1.570796251296997, -7.16093850883226e-15, 1.570796251296997),
