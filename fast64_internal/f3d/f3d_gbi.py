@@ -110,11 +110,13 @@ def normalize_hex_pointer(name: str) -> str:
 def format_asset_path(objectPath: str | None, name: str | None) -> str:
     sanitized_path = (objectPath or "").replace("\\", "/").strip("/")
     sanitized_name = (name or "").replace("\\", "/").strip("/")
-    if sanitized_path and sanitized_name:
-        return f"{sanitized_path}/{sanitized_name}"
     if sanitized_name:
-        if not sanitized_path and sanitized_name.lower().startswith("0x"):
-            return f">{sanitized_name}"
+        if sanitized_name.lower().startswith("0x"):
+            digits = sanitized_name[2:]
+            digits = digits if digits.startswith("0") else "0" + digits
+            return f">0x{digits.upper()}"
+        if sanitized_path:
+            return f"{sanitized_path}/{sanitized_name}"
         return sanitized_name
     return sanitized_path
 
