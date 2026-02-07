@@ -357,6 +357,24 @@ def applySkeletonRestPose(boneData: list[tuple[float, float, float]], armatureOb
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     selectSingleObject(armatureObj)
+    bpy.ops.object.mode_set(mode="POSE")
+
+    startBoneName = getStartBone(armatureObj)
+    boneStack = [startBoneName]
+
+    index = 0
+    while len(boneStack) > 0:
+        bone, boneStack = getNextBone(boneStack, armatureObj)
+        poseBone = armatureObj.pose.bones[bone.name]
+        if index == 0:
+            poseBone.location = mathutils.Vector(boneData[index])
+
+        poseBone.rotation_mode = "XYZ"
+        poseBone.rotation_euler = mathutils.Euler(boneData[index + 1])
+        index += 1
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.armature_apply_w_mesh()
 
 
 def setOriginAtObject(target_obj: bpy.types.Object, mesh_obj: bpy.types.Object):
