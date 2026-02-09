@@ -2321,8 +2321,8 @@ def importMeshC(
     f3dContext: F3DContext,
     callClearMaterial: bool = True,
 ) -> bpy.types.Object:
-    mesh = bpy.data.meshes.new(name + "_mesh")
-    obj = bpy.data.objects.new(name + "_mesh", mesh)
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(obj)
 
     transformMatrix = mathutils.Matrix.Scale(1 / scale, 4)
