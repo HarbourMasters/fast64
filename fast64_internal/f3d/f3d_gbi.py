@@ -2817,6 +2817,8 @@ class FModel:
 
             # remove '.inc.c'
             imageFileName = fImage.filename[:-6] + ".png"
+            if getattr(fImage, "skip_export", False):
+                continue
 
             image = imageKey.image
             isPacked = image.packed_file is not None
@@ -2842,6 +2844,9 @@ class FModel:
             if isinstance(key, FPaletteKey):
                 continue
             if not isinstance(key, FImageKey):
+                continue
+
+            if getattr(texture, "skip_export", False):
                 continue
 
             image = key.image
@@ -3513,6 +3518,7 @@ class FImage:
     startAddress: int = field(init=False, compare=False, default=0)
     isLargeTexture: bool = field(init=False, compare=False, default=False)
     converted: bool = field(init=False, compare=False, default=False)
+    skip_export: bool = field(init=False, compare=False, default=False)
 
     @property
     def aligner_name(self):

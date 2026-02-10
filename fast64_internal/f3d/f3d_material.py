@@ -2986,6 +2986,11 @@ class TextureProperty(PropertyGroup):
         min=1,
         max=255,
     )
+    is_vanilla_texture: bpy.props.BoolProperty(
+        name="Is Vanilla Texture?",
+        description="Check this if you are using a vanilla texture, this simply does not export a texture image.",
+        default=False,
+    )
     custom_palette_name: bpy.props.StringProperty(
         name="TLUT Name",
         description="Override the TLUT name used when exporting CI textures",
@@ -3072,6 +3077,7 @@ class TextureProperty(PropertyGroup):
         if self.custom_palette_name:
             data["customTLUTName"] = self.custom_palette_name
         data["paletteColorCount"] = self.palette_color_count
+        data["isVanillaTexture"] = self.is_vanilla_texture
         return data
 
     def from_dict(self, data: dict):
@@ -3091,6 +3097,7 @@ class TextureProperty(PropertyGroup):
             self.reference_from_dict(data["reference"])
         self.custom_palette_name = data.get("customTLUTName", self.custom_palette_name)
         self.palette_color_count = data.get("paletteColorCount", self.palette_color_count)
+        self.is_vanilla_texture = data.get("isVanillaTexture", self.is_vanilla_texture)
 
     def key(self):
         return (
@@ -3178,6 +3185,9 @@ def ui_image(
             row.prop(textureProp, "custom_palette_name", text="TLUT Name")
             row = prop_input.row(align=True)
             row.prop(textureProp, "palette_color_count", text="Color Count")
+        if not textureProp.use_tex_reference:
+            row = prop_input.row(align=True)
+            row.prop(textureProp, "is_vanilla_texture", text="Is Vanilla Texture?")
 
         if textureProp.use_tex_reference:
             width, height = textureProp.tex_reference_size[0], textureProp.tex_reference_size[1]

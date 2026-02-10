@@ -351,6 +351,8 @@ def saveOrGetPaletteDefinition(
         palBaseName, palFmt, parent, True, skip_pal_suffix
     )
     fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", 1, palLen, filename)
+    if texProp:
+        fPalette.skip_export = texProp.is_vanilla_texture
 
     parent.addTexture(paletteKey, fPalette, fMaterial)
     return paletteKey, fPalette
@@ -383,6 +385,8 @@ def saveOrGetTextureDefinition(
     imageName, filename = getTextureNamesFromProp(texProp, parent)
     fImage = FImage(imageName, texFormat, bitSize, image.size[0], image.size[1], filename)
     fImage.isLargeTexture = isLarge
+    if texProp:
+        fImage.skip_export = texProp.is_vanilla_texture
 
     parent.addTexture(imageKey, fImage, fMaterial)
     return imageKey, fImage
@@ -626,7 +630,9 @@ class TexInfo:
             )
 
         # Write texture data
-        if convertTextureData:
+        texProp = self.texProp
+        should_write_data = convertTextureData and not (texProp and texProp.is_vanilla_texture)
+        if should_write_data:
             if self.loadPal and not self.isPalRef:
                 writePaletteData(fPalette, self.pal)
             if self.isTexRef:
