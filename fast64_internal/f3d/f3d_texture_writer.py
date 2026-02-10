@@ -277,11 +277,18 @@ def maybeSaveSingleLargeTextureSetup(
 # Functions for texture and palette definitions
 
 
-def getTextureNamesFromBasename(baseName: str, texOrPalFormat: str, parent: Union[FModel, FTexRect], isPalette: bool):
+def getTextureNamesFromBasename(
+    baseName: str,
+    texOrPalFormat: str,
+    parent: Union[FModel, FTexRect],
+    isPalette: bool,
+    skip_pal_suffix: bool = False,
+):
     sanitizedName = toAlnum(baseName)
     imageName = sanitizedName
     if isPalette:
-        imageName += "_pal"
+        if not skip_pal_suffix:
+            imageName += "_pal"
     imageName = checkDuplicateTextureName(parent, imageName)
     filename = baseName + (".pal" if isPalette else ".inc.c")
     return imageName, filename
@@ -323,6 +330,7 @@ def saveOrGetPaletteDefinition(
     images: list[bpy.types.Image],
     palBaseName: str,
     palLen: int,
+    skip_pal_suffix: bool = False,
 ) -> tuple[FPaletteKey, FImage]:
     texFmt = texProp.tex_format
     palFmt = texProp.ci_format
@@ -339,7 +347,9 @@ def saveOrGetPaletteDefinition(
         # print(f"Palette already exists")
         return paletteKey, fPalette
 
-    paletteName, filename = getTextureNamesFromBasename(palBaseName, palFmt, parent, True)
+    paletteName, filename = getTextureNamesFromBasename(
+        palBaseName, palFmt, parent, True, skip_pal_suffix
+    )
     fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", 1, palLen, filename)
 
     parent.addTexture(paletteKey, fPalette, fMaterial)
@@ -410,6 +420,7 @@ class TexInfo:
     # Internal parameters--copies of passed parameters
     texProp: Optional[TextureProperty] = None
     indexInMat: int = -1
+    custom_palette_requested: bool = False
 
     def fromMat(self, index: int, f3dMat: F3DMaterialProperty) -> bool:
         useDict = all_combiner_uses(f3dMat)
@@ -527,8 +538,18 @@ class TexInfo:
     def getPaletteName(self):
         if not self.useTex or self.isPalRef:
             return None
+        self.custom_palette_requested = False
+        if self.texProp is not None:
+            custom_name = getattr(self.texProp, "custom_palette_name", "")
+            if custom_name:
+                stripped = custom_name.strip()
+                if stripped:
+                    self.custom_palette_requested = True
+                    return stripped
         if self.flipbook is not None:
+            self.custom_palette_requested = False
             return self.flipbook.name
+        self.custom_palette_requested = False
         return getImageName(self.texProp.tex)
 
     def setup_single_tex(self, is_ci: bool, use_large_tex: bool):
@@ -570,14 +591,33 @@ class TexInfo:
         fMaterial.imageKey[self.indexInMat] = imageKey
         if self.loadPal:
             _, fPalette = saveOrGetPaletteDefinition(
-                fMaterial, fModel, self.texProp, self.isPalRef, self.palDependencies, self.palBaseName, self.palLen
+                fMaterial,
+                fModel,
+                self.texProp,
+                self.isPalRef,
+                self.palDependencies,
+                self.palBaseName,
+                self.palLen,
+                self.custom_palette_requested,
             )
 
         # Write loads
         loadGfx = fMaterial.texture_DL
         f3d = fModel.f3d
         if self.loadPal:
-            savePaletteLoad(loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d)
+            override = (
+                self.texProp.palette_color_count if self.texProp is not None else None
+            )
+            savePaletteLoad(
+                loadGfx,
+                fPalette,
+                self.palFormat,
+                self.palAddr,
+                self.palLen,
+                5 - self.indexInMat,
+                f3d,
+                override,
+            )
         if self.doTexLoad:
             saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
         if self.doTexTile:
@@ -1084,12 +1124,17 @@ def savePaletteLoad(
     palLen: int,
     loadtile: int,
     f3d: F3D,
+    count_override: int | None = None,
 ):
     assert 0 <= palAddr < 256 and (palAddr & 0xF) == 0
     palFmt = texFormatOf[palFormat]
     loadTileIndex = f3d.G_TX_LOADTILE
     nocm = ("G_TX_WRAP", "G_TX_NOMIRROR")
     lutMode = "G_TT_RGBA16" if palFmt == "G_IM_FMT_RGBA" else "G_TT_IA16"
+    load_count = palLen - 1
+    if count_override is not None:
+        load_count = count_override
+    load_count = max(0, min(load_count, 255))
     gfxOut.commands.extend(
         [
             DPSetTextureLUT(lutMode),
@@ -1097,7 +1142,7 @@ def savePaletteLoad(
             DPTileSync(),
             DPSetTile("0", "0", 0, 256 + palAddr, loadTileIndex, 0, nocm, 0, 0, nocm, 0, 0),
             DPLoadSync(),
-            DPLoadTLUTCmd(loadTileIndex, palLen - 1),
+            DPLoadTLUTCmd(loadTileIndex, load_count),
             DPPipeSync(),
         ]
     )

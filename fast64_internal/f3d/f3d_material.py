@@ -2979,6 +2979,17 @@ class TextureProperty(PropertyGroup):
         min=1,
         default=16,
     )
+    palette_color_count: bpy.props.IntProperty(
+        name="Color Count",
+        default=255,
+        min=1,
+        max=255,
+    )
+    custom_palette_name: bpy.props.StringProperty(
+        name="TLUT Name",
+        description="Override the TLUT name used when exporting CI textures",
+        default="",
+    )
 
     menu: bpy.props.BoolProperty()
     tex_set: bpy.props.BoolProperty(
@@ -3057,6 +3068,9 @@ class TextureProperty(PropertyGroup):
         }
         if self.use_tex_reference:
             data["reference"] = self.reference_to_dict()
+        if self.custom_palette_name:
+            data["customTLUTName"] = self.custom_palette_name
+        data["paletteColorCount"] = self.palette_color_count
         return data
 
     def from_dict(self, data: dict):
@@ -3074,6 +3088,8 @@ class TextureProperty(PropertyGroup):
         self.use_tex_reference = "reference" in data
         if self.use_tex_reference:
             self.reference_from_dict(data["reference"])
+        self.custom_palette_name = data.get("customTLUTName", self.custom_palette_name)
+        self.palette_color_count = data.get("paletteColorCount", self.palette_color_count)
 
     def key(self):
         return (
@@ -3155,6 +3171,12 @@ def ui_image(
 
             if tex is not None:
                 prop_input.label(text="Size: " + str(tex.size[0]) + " x " + str(tex.size[1]))
+
+        if not textureProp.use_tex_reference and textureProp.tex_format[:2] == "CI":
+            row = prop_input.row(align=True)
+            row.prop(textureProp, "custom_palette_name", text="Custom TLUT Name")
+            row = prop_input.row(align=True)
+            row.prop(textureProp, "palette_color_count", text="Color Count")
 
         if textureProp.use_tex_reference:
             width, height = textureProp.tex_reference_size[0], textureProp.tex_reference_size[1]
