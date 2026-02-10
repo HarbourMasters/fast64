@@ -2981,6 +2981,7 @@ class TextureProperty(PropertyGroup):
     )
     palette_color_count: bpy.props.IntProperty(
         name="Color Count",
+        description="Total color count used by the image texture, for vanilla TLUTs this can usually be left at 255.",
         default=255,
         min=1,
         max=255,
@@ -3174,7 +3175,7 @@ def ui_image(
 
         if not textureProp.use_tex_reference and textureProp.tex_format[:2] == "CI":
             row = prop_input.row(align=True)
-            row.prop(textureProp, "custom_palette_name", text="Custom TLUT Name")
+            row.prop(textureProp, "custom_palette_name", text="TLUT Name")
             row = prop_input.row(align=True)
             row.prop(textureProp, "palette_color_count", text="Color Count")
 
