@@ -2816,9 +2816,14 @@ class FModel:
             imageKey: FImageKey
 
             # remove '.inc.c'
-            imageFileName = fImage.filename[:-6] + ".png"
             if getattr(fImage, "skip_export", False):
                 continue
+            imageFileName = fImage.filename[:-6] + ".png"
+            internal_path = getattr(fImage, "internal_path", "")
+            targetPath = resolve_internal_export_path(exportPath, internal_path, imageFileName)
+            targetDir = os.path.dirname(bpy.path.abspath(targetPath))
+            if targetDir and not os.path.exists(targetDir):
+                os.makedirs(targetDir, exist_ok=True)
 
             image = imageKey.image
             isPacked = image.packed_file is not None
@@ -2826,7 +2831,7 @@ class FModel:
                 image.pack()
             oldpath = image.filepath
             try:
-                image.filepath = bpy.path.abspath(os.path.join(exportPath, imageFileName))
+                image.filepath = bpy.path.abspath(targetPath)
                 image.save()
                 texturesSaved += 1
                 if not isPacked:
@@ -2882,14 +2887,19 @@ class FModel:
                 )
 
             bpy.path.abspath(image.filepath)
+            internal_path = getattr(texture, "internal_path", "")
+            targetPath = bpy.path.abspath(resolve_internal_export_path(exportPath, internal_path, imageFileName))
+            targetDir = os.path.dirname(targetPath)
+            if targetDir and not os.path.exists(targetDir):
+                os.makedirs(targetDir, exist_ok=True)
 
             isPacked = image.packed_file is not None
             if not isPacked:
                 image.pack()
             oldpath = image.filepath
             try:
-                image.filepath = bpy.path.abspath(os.path.join(exportPath, imageFileName))
-                with open(image.filepath, "wb") as file:
+                image.filepath = targetPath
+                with open(targetPath, "wb") as file:
                     file.write(
                         pack(
                             "<IIIQIQIQQQIIIIIffI",
@@ -3519,6 +3529,7 @@ class FImage:
     isLargeTexture: bool = field(init=False, compare=False, default=False)
     converted: bool = field(init=False, compare=False, default=False)
     skip_export: bool = field(init=False, compare=False, default=False)
+    internal_path: str = field(init=False, compare=False, default="")
 
     @property
     def aligner_name(self):
@@ -4960,7 +4971,7 @@ class DPSetTextureImage(GbiMacro):
         return gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr)
 
     def to_soh_xml(self, objectPath=""):
-        prefix = objectPath if self.image.filename is not None else ""
+        prefix = self.image.internal_path if self.image.internal_path else (objectPath if self.image.filename is not None else "")
         imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
         return (
             f'<SetTextureImage Path="{imagePath}" Format="{self.fmt}" Size="{self.siz}" Width="{self.width}"/>'

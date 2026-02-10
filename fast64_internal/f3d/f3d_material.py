@@ -2991,6 +2991,11 @@ class TextureProperty(PropertyGroup):
         description="Check this if you are using a vanilla texture, this simply does not export a texture image.",
         default=False,
     )
+    texture_internal_path: bpy.props.StringProperty(
+        name="Internal Path",
+        description="Points the texture to a separate internal path. Leave this blank to use the normal export path. Best used for vanilla textures that are present in a separate internal path.",
+        default="",
+    )
     custom_palette_name: bpy.props.StringProperty(
         name="TLUT Name",
         description="Override the TLUT name used when exporting CI textures",
@@ -3078,6 +3083,8 @@ class TextureProperty(PropertyGroup):
             data["customTLUTName"] = self.custom_palette_name
         data["paletteColorCount"] = self.palette_color_count
         data["isVanillaTexture"] = self.is_vanilla_texture
+        if self.texture_internal_path:
+            data["internalPath"] = self.texture_internal_path
         return data
 
     def from_dict(self, data: dict):
@@ -3098,6 +3105,7 @@ class TextureProperty(PropertyGroup):
         self.custom_palette_name = data.get("customTLUTName", self.custom_palette_name)
         self.palette_color_count = data.get("paletteColorCount", self.palette_color_count)
         self.is_vanilla_texture = data.get("isVanillaTexture", self.is_vanilla_texture)
+        self.texture_internal_path = data.get("internalPath", self.texture_internal_path)
 
     def key(self):
         return (
@@ -3188,6 +3196,8 @@ def ui_image(
         if not textureProp.use_tex_reference:
             row = prop_input.row(align=True)
             row.prop(textureProp, "is_vanilla_texture", text="Is Vanilla Texture?")
+            row = prop_input.row(align=True)
+            row.prop(textureProp, "texture_internal_path", text="Internal Path")
 
         if textureProp.use_tex_reference:
             width, height = textureProp.tex_reference_size[0], textureProp.tex_reference_size[1]

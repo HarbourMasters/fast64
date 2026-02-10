@@ -197,6 +197,33 @@ def writeFile(filepath, data):
     datafile.close()
 
 
+def sanitize_internal_asset_path(path: str) -> str:
+    """Normalize internal asset paths used when exporting textures."""
+    cleaned = (path or "").replace("\\", "/").strip("/")
+    if not cleaned:
+        return ""
+    return "/".join(segment for segment in cleaned.split("/") if segment)
+
+
+def resolve_internal_export_path(export_path: str, internal_path: str, file_name: str) -> str:
+    """Drop into the export root sibling for a custom internal path."""
+    internal_clean = sanitize_internal_asset_path(internal_path)
+    if not internal_clean:
+        return os.path.join(export_path, file_name)
+
+    export_path_obj = Path(export_path)
+    base_dir = export_path_obj
+    while base_dir.name not in {"objects", "assets"} and base_dir != base_dir.parent:
+        base_dir = base_dir.parent
+    if base_dir.name == "objects" and base_dir != base_dir.parent:
+        base_dir = base_dir.parent
+    elif base_dir.name not in {"objects", "assets"}:
+        base_dir = export_path_obj
+
+    target_dir = base_dir / internal_clean
+    return str(target_dir / file_name)
+
+
 def get_internal_asset_path(settings, folderName):
     folder_path = (folderName or "").replace("\\", "/").strip("/")
     if folder_path:

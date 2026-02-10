@@ -1,6 +1,7 @@
 from typing import Union, Optional
 from dataclasses import dataclass, field
 import bpy
+import os
 from math import ceil, floor
 
 from .f3d_enums import *
@@ -18,6 +19,7 @@ from .f3d_gbi import _DPLoadTextureBlock
 from .flipbook import TextureFlipbook
 
 from ..utility import *
+
 
 
 def UVtoSTLarge(obj, loopIndex, uv_data, texDimensions):
@@ -345,12 +347,18 @@ def saveOrGetPaletteDefinition(
     fPalette = parent.getTextureAndHandleShared(paletteKey)
     if fPalette is not None:
         # print(f"Palette already exists")
+        if texProp and texProp.texture_internal_path:
+            fPalette.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
+        if texProp:
+            fPalette.skip_export = texProp.is_vanilla_texture
         return paletteKey, fPalette
 
     paletteName, filename = getTextureNamesFromBasename(
         palBaseName, palFmt, parent, True, skip_pal_suffix
     )
     fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", 1, palLen, filename)
+    if texProp:
+        fPalette.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
         fPalette.skip_export = texProp.is_vanilla_texture
 
@@ -380,11 +388,17 @@ def saveOrGetTextureDefinition(
     fImage = parent.getTextureAndHandleShared(imageKey)
     if fImage is not None:
         # print(f"Image already exists")
+        if texProp and texProp.texture_internal_path:
+            fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
+        if texProp:
+            fImage.skip_export = texProp.is_vanilla_texture
         return imageKey, fImage
 
     imageName, filename = getTextureNamesFromProp(texProp, parent)
     fImage = FImage(imageName, texFormat, bitSize, image.size[0], image.size[1], filename)
     fImage.isLargeTexture = isLarge
+    if texProp:
+        fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
         fImage.skip_export = texProp.is_vanilla_texture
 
