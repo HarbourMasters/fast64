@@ -2927,11 +2927,18 @@ class FModel:
                 texturesSaved += 1
                 if not isPacked:
                     old_dir = ""
+                    unpack_path = oldpath or targetPath
                     if oldpath:
                         old_dir = os.path.dirname(bpy.path.abspath(oldpath))
+                    else:
+                        old_dir = os.path.dirname(bpy.path.abspath(targetPath))
                     if old_dir and not os.path.exists(old_dir):
                         os.makedirs(old_dir, exist_ok=True)
-                    image.unpack()
+                    image.filepath = unpack_path
+                    try:
+                        image.unpack()
+                    except RuntimeError:
+                        pass
             except Exception as exc:
                 image.filepath = oldpath
                 raise Exception(str(exc))
