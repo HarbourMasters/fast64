@@ -60,6 +60,10 @@ class OOTSkeletonExportSettings(PropertyGroup):
         description="Determines whether or not to export to an explicitly specified folder",
         default=True,
     )
+    filename: StringProperty(name="File Name", default="")
+    isCustomFilename: BoolProperty(name="Custom File Name", default=False)
+    removeVanillaData: BoolProperty(name="Replace Vanilla Skeletons On Export", default=False)
+    optimize: BoolProperty(name="Optimize Skeleton Export", default=False)
     actorOverlayName: StringProperty(name="Overlay", default="ovl_En_GeldB")
     flipbookUses2DArray: BoolProperty(name="Has 2D Flipbook Array", default=False)
     flipbookArrayIndex2D: IntProperty(name="Index if 2D Array", default=0, min=0)

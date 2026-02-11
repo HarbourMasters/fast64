@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Sequence, Union, Tuple
 from dataclasses import dataclass, fields, field
 from struct import pack
+import struct
+import re
 import bpy, os, enum, copy
 
 from ..utility import *
@@ -62,6 +64,13 @@ dlTypeEnum = [
 
 # 1-8 for F3DEX2 etc., 1-10 for F3DEX3
 lightIndex = {f"LIGHT_{n}": n for n in range(1, 11)}
+
+bitSizeDict = {
+    "G_IM_SIZ_4b": 4,
+    "G_IM_SIZ_8b": 8,
+    "G_IM_SIZ_16b": 16,
+    "G_IM_SIZ_32b": 32,
+}
 
 # tuple of max buffer size, max load count.
 vertexBufferSize = {
@@ -2170,6 +2179,60 @@ class VtxList:
         romfile.seek(self.startAddress)
         romfile.write(self.to_binary())
 
+    def textureTypeO2R(self) -> int:
+        bitSize = bitSizeDict[self.bitSize]
+        if self.fmt == "G_IM_FMT_RGBA":
+            if bitSize == 32:
+                return 1  # RGBA32bpp
+            if bitSize == 16:
+                return 2  # RGBA16bpp
+
+        if self.fmt == "G_IM_FMT_CI":
+            if bitSize == 4:
+                return 3  # Palette4bpp
+            if bitSize == 8:
+                return 4  # Palette8bpp
+
+        if self.fmt == "G_IM_FMT_I":
+            if bitSize == 4:
+                return 5  # Grayscale4bpp
+            if bitSize == 8:
+                return 6  # Grayscale8bpp
+
+        if self.fmt == "G_IM_FMT_IA":
+            if bitSize == 4:
+                return 7  # GrayscaleAlpha4bpp
+            if bitSize == 8:
+                return 8  # GrayscaleAlpha8bpp
+            if bitSize == 16:
+                return 9  # GrayscaleAlpha16bpp
+
+        return 0  # Error
+
+    def toO2R(self, folderPath: str, segments: dict | None = None):
+        data = bytearray(0)
+
+        print(f"VtxList.toO2R {self.name} ({len(self.vertices)} vertices).")
+
+        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F415252, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
+        data.extend(struct.pack("<II", 25, len(self.vertices)))
+
+        for vert in self.vertices:
+            data.extend(
+                struct.pack(
+                    "<hhhhhhBBBB",
+                    vert.position[0],
+                    vert.position[1],
+                    vert.position[2],
+                    vert.packedNormal,
+                    vert.uv[0],
+                    vert.uv[1],
+                    *vert.colorOrNormal,
+                )
+            )
+
+        return data
+
     def size(self):
         return len(self.vertices) * VTX_SIZE
 
@@ -2287,6 +2350,39 @@ class GfxList:
                 data += "\t" + command.to_soh_xml() + "\n"
 
         data += "</DisplayList>\n\n"
+
+        return data
+
+    def toO2R(self, folderPath: str, segments: dict | None = None):
+        data = bytearray(0)
+
+        print(f"GfxList.toO2R {self.name} ({len(self.commands)} commands).")
+
+        data.extend(struct.pack("<I", 1))
+        data.extend(struct.pack(">IIQIQIQQQI", 0x4F444C54, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
+
+        data.extend(struct.pack(
+            ">bBHI",
+            4,
+            0xFF,
+            0xFFFF,
+            0xFFFFFFFF,
+        ))
+
+        data.extend(struct.pack(">II", 0x33 << 24, 0xBEEFBEEF))
+
+        dlPath = os.path.join(folderPath, self.name)
+        dlPath = dlPath.replace("\\", "/")
+        hash = int(crc64(dlPath), 16)
+        data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
+
+        f3d = get_F3D_GBI()
+        segments = {} if segments is None else segments
+        for command in self.commands:
+            if hasattr(command, "toO2R"):
+                data.extend(command.toO2R(folderPath))
+            else:
+                data.extend(command.to_binary(f3d, segments))
 
         return data
 
@@ -3614,6 +3710,49 @@ class FImage:
         romfile.seek(self.startAddress)
         romfile.write(self.to_binary())
 
+    def textureTypeO2R(self) -> int:
+        bitSize = bitSizeDict[self.bitSize]
+        if self.fmt == "G_IM_FMT_RGBA":
+            if bitSize == 32:
+                return 1  # RGBA32bpp
+            if bitSize == 16:
+                return 2  # RGBA16bpp
+
+        if self.fmt == "G_IM_FMT_CI":
+            if bitSize == 4:
+                return 3  # Palette4bpp
+            if bitSize == 8:
+                return 4  # Palette8bpp
+
+        if self.fmt == "G_IM_FMT_I":
+            if bitSize == 4:
+                return 5  # Grayscale4bpp
+            if bitSize == 8:
+                return 6  # Grayscale8bpp
+
+        if self.fmt == "G_IM_FMT_IA":
+            if bitSize == 4:
+                return 7  # GrayscaleAlpha4bpp
+            if bitSize == 8:
+                return 8  # GrayscaleAlpha8bpp
+            if bitSize == 16:
+                return 9  # GrayscaleAlpha16bpp
+
+        return 0  # Error
+
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(
+            f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes"
+        )
+
+        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F544558, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
+        data.extend(struct.pack("<IIII", self.textureTypeO2R(), self.width, self.height, len(self.data)))
+        data.extend(self.data)
+
+        return data
+
 
 # second arg of Dma is a pointer.
 def gsDma0p(c, s, l):
@@ -3702,16 +3841,53 @@ class SPMatrix(GbiMacro):
     param: int
 
     def to_binary(self, f3d, segments):
-        matPtr = int(self.matrix, 16)
+        matPtr = self._resolve_matrix_address()
         if f3d.F3DEX_GBI_2:
-            return gsDma2p(f3d.G_MTX, matPtr, MTX_SIZE, self.param ^ f3d.G_MTX_PUSH, 0)
+            param_val = self._resolve_param(f3d)
+            return gsDma2p(f3d.G_MTX, matPtr, MTX_SIZE, param_val ^ f3d.G_MTX_PUSH, 0)
         else:
-            return gsDma1p(f3d.G_MTX, matPtr, MTX_SIZE, self.param)
+            param_val = self._resolve_param(f3d)
+            return gsDma1p(f3d.G_MTX, matPtr, MTX_SIZE, param_val)
+
+    def _resolve_param(self, f3d):
+        param_val = self.param
+        if isinstance(param_val, str):
+            if hasattr(f3d, param_val):
+                return getattr(f3d, param_val)
+            try:
+                return int(param_val, 0)
+            except ValueError:
+                pass
+        return param_val
+
+    def _resolve_matrix_address(self):
+        address = self.matrix
+        if isinstance(address, str):
+            address = address.lstrip(">")
+            try:
+                return int(address, 0)
+            except ValueError:
+                pass
+        return address
 
     def to_soh_xml(self, objectPath=""):
         name = self.matrix
         path = f"{objectPath}/{name}" if objectPath else f">{name}"
         return f'<Matrix Path="{path}" Param="{self.param}"/>'
+
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPMatrix.toO2R {self.matrix}")
+
+        matPtr = self._resolve_matrix_address()
+        if isinstance(matPtr, int):
+            matPtr = (matPtr & 0x0FFFFFFF) + 1
+
+        f3d = get_F3D_GBI()
+        data.extend(gsDma2p(f3d.G_MTX, matPtr, MTX_SIZE, 0x02 ^ f3d.G_MTX_PUSH, 0))
+
+        return data
 
 
 # TODO: Divide vertlist into sections
@@ -3752,7 +3928,26 @@ class SPVertex(GbiMacro):
                 header += "segmented_to_virtual(" + self.vertList.name + " + " + str(self.offset) + ")"
             else:
                 header += self.vertList.name + " + " + str(self.offset)
-            return header + ", " + str(self.count) + ", " + str(self.index) + ")"
+        return header + ", " + str(self.count) + ", " + str(self.index) + ")"
+
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPVertex.toO2R {self.vertList.name} {self.offset} {self.count} {self.index}")
+
+        words = (
+            _SHIFTL(0x32, 24, 8) | _SHIFTL(self.count, 12, 8) | _SHIFTL(self.index + self.count, 1, 7),
+            self.offset * VTX_SIZE,
+        )
+
+        data.extend(words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big"))
+
+        vertPath = os.path.join(folderPath, self.vertList.name)
+        vertPath = vertPath.replace("\\", "/")
+        hash_val = int(crc64(vertPath), 16)
+        data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
+
+        return data
 
     def to_soh_xml(self, objectPath=""):
         baseStr = "<LoadVertices Path=\"{parent}/{vertexPath}\" VertexBufferIndex=\"{bufferIndex}\" VertexOffset=\"{vertexOffset}\" Count=\"{count}\"/>"
@@ -3808,6 +4003,20 @@ class SPDisplayList(GbiMacro):
         path = format_asset_path(objectPath, name)
         return f'<CallDisplayList Path="{path}"/>'
 
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPDisplayList.toO2R {self.displayList.name}")
+
+        data.extend(gsDma1p(0x31, 0, 0, 0x00))
+
+        dlPath = os.path.join(folderPath, self.displayList.name)
+        dlPath = dlPath.replace("\\", "/")
+        hash_val = int(crc64(dlPath), 16)
+        data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
+
+        return data
+
 
 @dataclass(unsafe_hash=True)
 class SPBranchList(GbiMacro):
@@ -3817,6 +4026,20 @@ class SPBranchList(GbiMacro):
     def to_binary(self, f3d, segments):
         dlPtr = int.from_bytes(encodeSegmentedAddr(self.displayList.startAddress, segments), "big")
         return gsDma1p(f3d.G_DL, dlPtr, 0, f3d.G_DL_NOPUSH)
+
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPBranchList.toO2R {self.displayList.name}")
+
+        data.extend(gsDma1p(0x31, 0, 0, 0x01))
+
+        dlPath = os.path.join(folderPath, self.displayList.name)
+        dlPath = dlPath.replace("\\", "/")
+        hash_val = int(crc64(dlPath), 16)
+        data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
+
+        return data
 
 
 @dataclass(unsafe_hash=True)
@@ -4981,6 +5204,28 @@ class DPSetTextureImage(GbiMacro):
         siz = f3d.G_IM_SIZ_VARS[self.siz]
         imagePtr = int.from_bytes(encodeSegmentedAddr(self.image.startAddress, segments), "big")
         return gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr)
+
+    def toO2R(self, folderPath: str):
+        print(f"DPSetTextureImage.toO2R {self.image.name}")
+
+        data = bytearray(0)
+
+        f3d = get_F3D_GBI()
+        fmt = f3d.G_IM_FMT_VARS[self.fmt]
+        siz = f3d.G_IM_SIZ_VARS[self.siz]
+
+        if re.match(r"^0x0(\\d)000000$", self.image.name):
+            imagePtr = int(self.image.name, 16) + 1
+            data.extend(gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr))
+        else:
+            data.extend(gsSetImage(0x20, fmt, siz, self.width, 0))
+
+            imagePath = os.path.join(folderPath, self.image.name)
+            imagePath = imagePath.replace("\\", "/")
+            hash_val = int(crc64(imagePath), 16)
+            data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
+
+        return data
 
     def to_soh_xml(self, objectPath=""):
         prefix = self.image.internal_path if self.image.internal_path else (objectPath if self.image.filename is not None else "")

@@ -4,6 +4,7 @@ from ...utility import prop_split
 from ...panels import OOT_Panel
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
 from .operators import OOT_ImportSkeleton, OOT_ExportSkeleton
+from .mm.operators import MM_ExportSkeleton
 
 
 class OOT_SkeletonPanel(Panel):
@@ -52,6 +53,9 @@ class OOT_BonePanel(Panel):
         context.bone.ootBone.draw_props(col)
 
 
+from .mm.operators import MM_ExportSkeleton
+
+
 class OOT_ExportSkeletonPanel(OOT_Panel):
     bl_idname = "Z64_PT_export_skeleton"
     bl_label = "Skeleton Exporter"
@@ -59,7 +63,8 @@ class OOT_ExportSkeletonPanel(OOT_Panel):
     # called every frame
     def draw(self, context):
         col = self.layout.column()
-        col.operator(OOT_ExportSkeleton.bl_idname)
+        operator_class = MM_ExportSkeleton if context.scene.gameEditorMode == "MM" else OOT_ExportSkeleton
+        col.operator(operator_class.bl_idname)
         exportSettings: OOTSkeletonExportSettings = context.scene.fast64.oot.skeletonExportSettings
         exportSettings.draw_props(col)
 
