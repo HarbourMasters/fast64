@@ -34,10 +34,14 @@ from ...utility import (
 )
 
 
-def _normalize_folder_for_path(folderName: str, keep_objects_prefix: bool = False) -> str:
+def _normalize_folder_for_path(
+    folderName: str, keep_objects_prefix: bool = False, ensure_objects_prefix: bool = False
+) -> str:
     folder_path = sanitize_internal_asset_path(folderName)
     if folder_path.startswith("objects/") and not keep_objects_prefix:
         folder_path = folder_path[len("objects/") :]
+    if ensure_objects_prefix and folder_path and not folder_path.startswith("objects/"):
+        folder_path = "objects/" + folder_path
     return folder_path
 
 
@@ -307,7 +311,9 @@ def ootConvertArmatureToC(
     else:
         data.header += "\n"
 
-    folder_path_for_export = _normalize_folder_for_path(folderName, isCustomExport)
+    folder_path_for_export = _normalize_folder_for_path(
+        folderName, keep_objects_prefix=isCustomExport, ensure_objects_prefix=isCustomExport
+    )
     if not folder_path_for_export:
         folder_path_for_export = sanitize_internal_asset_path(folderName)
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folder_path_for_export, True, True)
@@ -394,7 +400,9 @@ def ootConvertArmatureToXML(
             limbList[i].lodDL = lodLimbList[i].DL
             limbList[i].isFlex |= lodLimbList[i].isFlex
 
-    folder_path_for_export = _normalize_folder_for_path(folderName, isCustomExport)
+    folder_path_for_export = _normalize_folder_for_path(
+        folderName, keep_objects_prefix=isCustomExport, ensure_objects_prefix=isCustomExport
+    )
     if not folder_path_for_export:
         folder_path_for_export = sanitize_internal_asset_path(folderName)
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folder_path_for_export, False, True)
