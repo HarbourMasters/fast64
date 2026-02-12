@@ -20,7 +20,8 @@ from ....utility import (
     writeCData,
     toAlnum,
     cleanupDuplicatedObjects,
-    crc64
+    crc64,
+    get_internal_asset_path,
 )
 
 from ...utility import (
@@ -389,6 +390,7 @@ def ootConvertArmatureToO2R(
     exportFolderPath = os.path.join(exportPath, folderPath)
     if not os.path.exists(exportFolderPath):
         os.makedirs(exportFolderPath)
+    objectPath = get_internal_asset_path(settings, folderName)
 
     # dict[Union[FImageKey, FPaletteKey], FImage]
     for _, fImage in fModel.textures.items():
@@ -404,6 +406,10 @@ def ootConvertArmatureToO2R(
         if fMaterial.revert is not None:
             with open(os.path.join(exportFolderPath, fMaterial.revert.name), "wb") as f:
                 f.write(fMaterial.revert.toO2R(folderPath))
+
+    for _, (fMaterial, _) in fModel.materials.items():
+        if fMaterial is not None:
+            fMaterial.to_soh_xml(exportFolderPath, objectPath)
 
     # dict[str, FMesh]
     for name, mesh in fModel.meshes.items():
