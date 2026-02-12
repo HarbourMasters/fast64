@@ -46,10 +46,11 @@ def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -
     searchedPaths = currentPaths[:]
 
     print("Included paths:")
+    extracted_path = f"{bpy.context.scene.fast64.oot.get_extracted_path()}/"
 
     # search assets
     for includeMatch in re.finditer(r"\#include\s*\"(assets/objects/(.*?))\.h\"", data):
-        path = os.path.join(basePath, includeMatch.group(1) + ".c")
+        path = os.path.join(basePath, extracted_path + includeMatch.group(1) + ".c")
         if path in searchedPaths:
             continue
         searchedPaths.append(path)
@@ -58,7 +59,7 @@ def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -
         print(path)
 
         for subIncludeMatch in re.finditer(r"\#include\s*\"(((?![/\"]).)*)\.c\"", subIncludeData):
-            subPath = os.path.join(os.path.dirname(path), subIncludeMatch.group(1) + ".c")
+            subPath = os.path.join(os.path.dirname(path), extracted_path + subIncludeMatch.group(1) + ".c")
             if subPath in searchedPaths:
                 continue
             searchedPaths.append(subPath)
@@ -415,6 +416,9 @@ class OOTF3DContext(F3DContext):
             try:
                 pointer = hexOrDecInt(name)
             except:
+                if name == "&gLinkHumanSheathedKokiriSwordMtx":
+                    self.matrixData[name] = mathutils.Matrix.Identity(4)
+                    self.limbToBoneName[name] = name
                 F3DContext.setCurrentTransform(self, name, flagList)
             else:
                 if pointer >> 24 == 0x01:
