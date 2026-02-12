@@ -21,7 +21,7 @@ from ...f3d_writer import ootReadActorScale
 from ...model_classes import OOTF3DContext, ootGetIncludedAssetData
 from ...utility import OOTEnum, ootGetObjectPath, getOOTScale, ootGetObjectHeaderPath, ootGetEnums, ootStripComments
 from ...texture_array import ootReadTextureArrays
-from ..constants import ootSkeletonImportDict
+from ..constants import find_skeleton_import_info
 from ..properties import OOTSkeletonImportSettings
 from ..utility import ootGetLimb, ootGetLimbs, ootGetSkeleton, applySkeletonRestPose, get_anim_names
 from ...tools.quick_import import quick_import_exec
@@ -250,7 +250,9 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     isCustomImport = importSettings.isCustom
 
     if importSettings.mode != "Generic" and not importSettings.isCustom:
-        importInfo = ootSkeletonImportDict[importSettings.mode]
+        importInfo = find_skeleton_import_info(importSettings.mode, bpy.context.scene.gameEditorMode)
+        if importInfo is None:
+            raise PluginError(f"Unknown skeleton import mode '{importSettings.mode}'")
         skeletonName = importInfo.skeletonName
         folderName = importInfo.folderName
         overlayName = importInfo.actorOverlayName
