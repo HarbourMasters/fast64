@@ -1,7 +1,7 @@
 import bpy
 from bpy.types import Panel, Mesh, Armature, Operator, UIList
 from bpy.utils import register_class, unregister_class
-from ...panels import OOT_Panel
+from ...panels import MM_Panel, OOT_Panel
 from ...utility import prop_split
 from .operators import OOT_ImportDL, OOT_ExportDL
 from .properties import (
@@ -64,7 +64,7 @@ class OOT_DisplayListPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"} and (
+        return context.scene.gameEditorMode == "OOT" and (
             context.object is not None and isinstance(context.object.data, Mesh)
         )
 
@@ -90,6 +90,24 @@ class OOT_DisplayListPanel(Panel):
         # box.prop(obj.ootDynamicTransform, "billboard")
 
 
+class MM_DisplayListPanel(MM_Panel):
+    bl_label = "Display List Inspector"
+    bl_idname = "OBJECT_PT_OOT_DL_Inspector_mm"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "object"
+    bl_options = {"HIDE_HEADER"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.gameEditorMode == "MM" and (
+            context.object is not None and isinstance(context.object.data, Mesh)
+        )
+
+    def draw(self, context):
+        OOT_DisplayListPanel.draw(self, context)
+
+
 class OOT_MaterialPanel(Panel):
     bl_label = "OOT Material"
     bl_idname = "MATERIAL_PT_OOT_Material_Inspector"
@@ -100,7 +118,7 @@ class OOT_MaterialPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.material is not None and context.scene.gameEditorMode in {"OOT", "MM"}
+        return context.material is not None and context.scene.gameEditorMode == "OOT"
 
     def draw(self, context):
         layout = self.layout
@@ -123,6 +141,22 @@ class OOT_MaterialPanel(Panel):
         dynMatProps.draw_props(col.box().column(), mat, drawLayer)
 
 
+class MM_MaterialPanel(MM_Panel):
+    bl_label = "OOT Material"
+    bl_idname = "MATERIAL_PT_OOT_Material_Inspector_mm"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "material"
+    bl_options = {"HIDE_HEADER"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.material is not None and context.scene.gameEditorMode == "MM"
+
+    def draw(self, context):
+        OOT_MaterialPanel.draw(self, context)
+
+
 class OOT_DrawLayersPanel(Panel):
     bl_label = "OOT Draw Layers"
     bl_idname = "WORLD_PT_OOT_Draw_Layers_Panel"
@@ -133,7 +167,7 @@ class OOT_DrawLayersPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"}
+        return context.scene.gameEditorMode == "OOT"
 
     def draw(self, context):
         world = context.scene.world
@@ -141,6 +175,22 @@ class OOT_DrawLayersPanel(Panel):
             return
         ootDefaultRenderModeProp: OOTDefaultRenderModesProperty = world.ootDefaultRenderModes
         ootDefaultRenderModeProp.draw_props(self.layout)
+
+
+class MM_DrawLayersPanel(MM_Panel):
+    bl_label = "OOT Draw Layers"
+    bl_idname = "WORLD_PT_OOT_Draw_Layers_Panel_mm"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "world"
+    bl_options = {"HIDE_HEADER"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.gameEditorMode == "MM"
+
+    def draw(self, context):
+        OOT_DrawLayersPanel.draw(self, context)
 
 
 class OOT_ExportDLPanel(OOT_Panel):
@@ -160,11 +210,23 @@ class OOT_ExportDLPanel(OOT_Panel):
         importSettings.draw_props(col)
 
 
+class MM_ExportDLPanel(MM_Panel):
+    bl_idname = "Z64_PT_export_dl_mm"
+    bl_label = "DL Exporter"
+
+    def draw(self, context):
+        OOT_ExportDLPanel.draw(self, context)
+
+
 oot_dl_writer_panel_classes = (
     OOT_DisplayListPanel,
     OOT_MaterialPanel,
     OOT_DrawLayersPanel,
     OOT_ExportDLPanel,
+    MM_DisplayListPanel,
+    MM_MaterialPanel,
+    MM_DrawLayersPanel,
+    MM_ExportDLPanel,
 )
 
 oot_dl_writer_support_classes = (

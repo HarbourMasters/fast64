@@ -1,5 +1,5 @@
 from bpy.utils import register_class, unregister_class
-from ....panels import OOT_Panel
+from ....panels import MM_Panel, OOT_Panel
 from .properties import CutsceneCmdCameraShotProperty, CutsceneCmdCameraShotPointProperty
 
 
@@ -38,6 +38,21 @@ class OOT_CSMotionCameraShotPanel(OOT_Panel):
 
 
 classes = (OOT_CSMotionCameraShotPanel,)
+
+
+class MM_CSMotionCameraShotPanel(MM_Panel):
+    bl_label = "Cutscene Motion Camera Shot Controls"
+    bl_idname = "Z64_PT_camera_shot_panel_mm"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "object"
+    bl_options = {"HIDE_HEADER"}
+
+    def draw(self, context):
+        OOT_CSMotionCameraShotPanel.draw(self, context)
+
+
+classes = (*classes, MM_CSMotionCameraShotPanel)
 
 
 def csMotion_panels_register():

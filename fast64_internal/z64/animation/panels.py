@@ -1,7 +1,7 @@
 from bpy.types import Panel, Armature
 from bpy.utils import register_class, unregister_class
 from ...utility import prop_split
-from ...panels import OOT_Panel
+from ...panels import MM_Panel, OOT_Panel
 from .operators import OOT_ExportAnim, OOT_ImportAnim
 from .properties import OOTAnimExportSettingsProperty, OOTAnimImportSettingsProperty, OOTLinkTextureAnimProperty
 
@@ -49,9 +49,18 @@ class OOT_ExportAnimPanel(OOT_Panel):
         importSettings.draw_props(col)
 
 
+class MM_ExportAnimPanel(MM_Panel):
+    bl_idname = "Z64_PT_export_anim_mm"
+    bl_label = "Animation Exporter"
+
+    def draw(self, context):
+        OOT_ExportAnimPanel.draw(self, context)
+
+
 panels = (
     OOT_LinkAnimPanel,
     OOT_ExportAnimPanel,
+    MM_ExportAnimPanel,
 )
 
 

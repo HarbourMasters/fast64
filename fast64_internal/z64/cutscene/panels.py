@@ -2,7 +2,7 @@ from bpy.utils import register_class, unregister_class
 from bpy.types import Scene
 from bpy.props import BoolProperty
 from ...utility import prop_split
-from ...panels import OOT_Panel
+from ...panels import MM_Panel, OOT_Panel
 from .operators import OOT_ExportCutscene, OOT_ExportAllCutscenes, OOT_ImportCutscene
 
 
@@ -61,9 +61,29 @@ class OOT_CutscenePanel(OOT_Panel):
         import_box.operator(OOT_ImportCutscene.bl_idname)
 
 
+class MM_OoT_PreviewSettingsPanel(MM_Panel):
+    bl_idname = "Z64_PT_preview_settings_mm"
+    bl_label = "CS Preview Settings"
+
+    def draw(self, context):
+        OoT_PreviewSettingsPanel.draw(self, context)
+
+
+class MM_OOT_CutscenePanel(MM_Panel):
+    bl_idname = "Z64_PT_export_cutscene_mm"
+    bl_label = "Cutscene Exporter"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+
+    def draw(self, context):
+        OOT_CutscenePanel.draw(self, context)
+
+
 oot_cutscene_panel_classes = (
     OoT_PreviewSettingsPanel,
     OOT_CutscenePanel,
+    MM_OoT_PreviewSettingsPanel,
+    MM_OOT_CutscenePanel,
 )
 
 

@@ -1,5 +1,5 @@
 from bpy.utils import register_class, unregister_class
-from ...panels import OOT_Panel
+from ...panels import MM_Panel, OOT_Panel
 from .operators import (
     OOT_AddWaterBox,
     OOT_AddDoor,
@@ -30,8 +30,17 @@ class OoT_ToolsPanel(OOT_Panel):
         col.operator(Z64_AddAnimatedMaterial.bl_idname)
 
 
+class MM_OoT_ToolsPanel(MM_Panel):
+    bl_idname = "Z64_PT_tools_mm"
+    bl_label = "Tools"
+
+    def draw(self, context):
+        OoT_ToolsPanel.draw(self, context)
+
+
 oot_operator_panel_classes = [
     OoT_ToolsPanel,
+    MM_OoT_ToolsPanel,
 ]
 
 toolOpsToRegister = [

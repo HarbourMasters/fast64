@@ -1,7 +1,7 @@
 from bpy.types import Armature, Panel
 from bpy.utils import register_class, unregister_class
 from ...utility import prop_split
-from ...panels import OOT_Panel
+from ...panels import MM_Panel, OOT_Panel
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
 from .operators import OOT_ImportSkeleton, OOT_ExportSkeleton
 from .mm.operators import MM_ExportSkeleton
@@ -18,7 +18,7 @@ class OOT_SkeletonPanel(Panel):
     @classmethod
     def poll(cls, context):
         return (
-            context.scene.gameEditorMode in {"OOT", "MM"}
+            context.scene.gameEditorMode == "OOT"
             and hasattr(context, "object")
             and context.object is not None
             and isinstance(context.object.data, Armature)
@@ -44,7 +44,7 @@ class OOT_BonePanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"} and context.bone is not None
+        return context.scene.gameEditorMode == "OOT" and context.bone is not None
 
     # called every frame
     def draw(self, context):
@@ -63,8 +63,22 @@ class OOT_ExportSkeletonPanel(OOT_Panel):
     # called every frame
     def draw(self, context):
         col = self.layout.column()
-        operator_class = MM_ExportSkeleton if context.scene.gameEditorMode == "MM" else OOT_ExportSkeleton
-        col.operator(operator_class.bl_idname)
+        col.operator(OOT_ExportSkeleton.bl_idname)
+        exportSettings: OOTSkeletonExportSettings = context.scene.fast64.oot.skeletonExportSettings
+        exportSettings.draw_props(col)
+
+        col.operator(OOT_ImportSkeleton.bl_idname)
+        importSettings: OOTSkeletonImportSettings = context.scene.fast64.oot.skeletonImportSettings
+        importSettings.draw_props(col)
+
+
+class MM_ExportSkeletonPanel(MM_Panel):
+    bl_idname = "Z64_PT_export_skeleton_mm"
+    bl_label = "MM Skeleton Exporter"
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.operator(MM_ExportSkeleton.bl_idname)
         exportSettings: OOTSkeletonExportSettings = context.scene.fast64.oot.skeletonExportSettings
         exportSettings.draw_props(col)
 
@@ -77,6 +91,7 @@ oot_skeleton_panels = (
     OOT_SkeletonPanel,
     OOT_BonePanel,
     OOT_ExportSkeletonPanel,
+    MM_ExportSkeletonPanel,
 )
 
 
