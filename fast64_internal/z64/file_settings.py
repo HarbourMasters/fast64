@@ -48,6 +48,7 @@ class OOT_FileSettingsPanel(OOT_Panel):
 class MM_FileSettingsPanel(MM_Panel):
     bl_idname = "Z64_PT_file_settings_mm"
     bl_label = "Workspace Settings"
+    bl_options = set()
 
     def draw(self, context):
         OOT_FileSettingsPanel.draw(self, context)
