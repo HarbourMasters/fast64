@@ -337,7 +337,7 @@ def saveOrGetPaletteDefinition(
     texFmt = texProp.tex_format
     palFmt = texProp.ci_format
     palFormat = texFormatOf[palFmt]
-    paletteKey = FPaletteKey(palFmt, images)
+    paletteKey = FPaletteKey(palFmt, palBaseName)
 
     if isPalRef:
         fPalette = FImage(texProp.pal_reference, None, None, 1, palLen, None)

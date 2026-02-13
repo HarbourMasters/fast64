@@ -2445,23 +2445,42 @@ class FGlobalData:
             return self.area_data[self.current_area_index].makeKey()
 
 
+def canonical_image_identity(image: bpy.types.Image | None) -> tuple[str, str, str]:
+    if image is None:
+        return "", "", ""
+    lib_path = ""
+    try:
+        lib_obj = getattr(image, "library", None)
+        if lib_obj is not None:
+            lib_path = lib_obj.filepath or ""
+    except Exception:
+        lib_path = ""
+    return (lib_path, image.filepath or "", image.name or "")
+
+
+def sanitize_palette_base_name(name: str | None) -> str:
+    if not name:
+        return ""
+    return toAlnum(name)
+
+
 class FImageKey:
     def __init__(
         self, image: bpy.types.Image, texFormat: str, palFormat: str, imagesSharingPalette: list[bpy.types.Image] = []
     ):
-        self.image = image
+        self.image_id = canonical_image_identity(image)
         self.texFormat = texFormat
         self.palFormat = palFormat
-        self.imagesSharingPalette = tuple(imagesSharingPalette)
+        self.imagesSharingPalette = tuple(sorted(canonical_image_identity(img) for img in imagesSharingPalette))
 
     def __hash__(self) -> int:
-        return hash((self.image, self.texFormat, self.palFormat, self.imagesSharingPalette))
+        return hash((self.image_id, self.texFormat, self.palFormat, self.imagesSharingPalette))
 
     def __eq__(self, __o: object) -> bool:
         if not isinstance(__o, FImageKey):
             return False
         return (
-            self.image == __o.image
+            self.image_id == __o.image_id
             and self.texFormat == __o.texFormat
             and self.palFormat == __o.palFormat
             and self.imagesSharingPalette == __o.imagesSharingPalette
@@ -2473,17 +2492,17 @@ def getImageKey(texProp: "TextureProperty", useList) -> FImageKey:
 
 
 class FPaletteKey:
-    def __init__(self, palFormat: str, imagesSharingPalette: list[bpy.types.Image] = []):
+    def __init__(self, palFormat: str, paletteName: str | None = None):
         self.palFormat = palFormat
-        self.imagesSharingPalette = tuple(imagesSharingPalette)
+        self.paletteName = sanitize_palette_base_name(paletteName)
 
     def __hash__(self) -> int:
-        return hash((self.palFormat, self.imagesSharingPalette))
+        return hash((self.palFormat, self.paletteName))
 
     def __eq__(self, __o: object) -> bool:
         if not isinstance(__o, FPaletteKey):
             return False
-        return self.palFormat == __o.palFormat and self.imagesSharingPalette == __o.imagesSharingPalette
+        return self.palFormat == __o.palFormat and self.paletteName == __o.paletteName
 
 
 class FModel:
