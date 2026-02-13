@@ -1,4 +1,6 @@
-from bpy.types import PropertyGroup, Object, World, Material, UILayout
+import bpy
+
+from bpy.types import PropertyGroup, Object, World, Material, UILayout, Mesh
 from bpy.props import PointerProperty, StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty
 from bpy.utils import register_class, unregister_class
 
@@ -72,34 +74,64 @@ class OOTDLExportSettings(PropertyGroup):
         name="Asset Include Directory",
         default="assets/objects/gameplay_keep",
         description="Used in #include for including image files",
-    )
-    extra_matrix_calls: CollectionProperty(type=OOTDLMatrixCallPair)
-    extra_matrix_calls_index: IntProperty(default=0)
+      )
 
-    def draw_props(self, layout: UILayout):
-        prop_split(layout, self, "folder", "Internal Path")
-        prop_split(layout, self, "customPath", "Path")
-        prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
-        box = layout.box()
-        box.label(text="Matrix Path + CallDisplayList", icon="PLUS")
-        row = box.row()
+    def draw_props(self, layout: UILayout, context: bpy.types.Context | None = None):
+          prop_split(layout, self, "folder", "Internal Path")
+          prop_split(layout, self, "customPath", "Path")
+          prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
+          owner_info = self._determine_matrix_owner(context)
+          if owner_info:
+              self._draw_matrix_call_section(layout, *owner_info)
+
+    def _determine_matrix_owner(
+          self, context: bpy.types.Context | None
+      ) -> tuple[object, str, str, str, str, str] | None:
+          obj = context.object if context else None
+          if obj is not None and isinstance(obj.data, Mesh):
+              return (
+                  obj,
+                  "oot_matrix_calls",
+                  "oot_matrix_calls_index",
+                  "fast64.oot_add_object_matrix_call",
+                  "fast64.oot_remove_object_matrix_call",
+                  f"Matrix Path + CallDisplayList ({obj.name})",
+              )
+          return None
+
+    def _draw_matrix_call_section(
+        self,
+        layout: UILayout,
+        owner: object,
+        collection_name: str,
+        index_name: str,
+        add_op: str,
+        remove_op: str,
+        title: str,
+    ):
+        matrix_box = layout.box()
+        matrix_box.label(text=title, icon="PLUS")
+        row = matrix_box.row()
         row.template_list(
             "OOT_UL_matrix_call_pairs",
             "",
-            self,
-            "extra_matrix_calls",
-            self,
-            "extra_matrix_calls_index",
+            owner,
+            collection_name,
+            owner,
+            index_name,
             rows=3,
         )
         ops = row.column(align=True)
-        ops.operator("fast64.oot_add_matrix_call", icon="ADD", text="")
-        ops.operator("fast64.oot_remove_matrix_call", icon="REMOVE", text="")
-        if self.extra_matrix_calls:
-            active = self.extra_matrix_calls[self.extra_matrix_calls_index]
-            box.prop(active, "limb")
-            box.prop(active, "internal_path", text="Internal Path")
-            box.prop(active, "call_dl", text="Call Display List")
+        ops.operator(add_op, icon="ADD", text="")
+        ops.operator(remove_op, icon="REMOVE", text="")
+        collection = getattr(owner, collection_name)
+        if collection:
+            index = getattr(owner, index_name)
+            index = max(0, min(index, len(collection) - 1))
+            active = collection[index]
+            matrix_box.prop(active, "limb")
+            matrix_box.prop(active, "internal_path", text="Internal Path")
+            matrix_box.prop(active, "call_dl", text="Call Display List")
 
 
 class OOTDLImportSettings(PropertyGroup):
@@ -249,6 +281,8 @@ def f3d_props_register():
         register_class(cls)
 
     Object.ootDrawLayer = EnumProperty(items=ootEnumDrawLayers, default="Opaque")
+    Object.oot_matrix_calls = CollectionProperty(type=OOTDLMatrixCallPair)
+    Object.oot_matrix_calls_index = IntProperty(default=0)
 
     # Doesn't work since all static meshes are pre-transformed
     # Object.ootDynamicTransform = PointerProperty(type = OOTDynamicTransformProperty)
@@ -263,3 +297,5 @@ def f3d_props_unregister():
 
     del Material.ootMaterial
     del Object.ootObjectMenu
+    del Object.oot_matrix_calls
+    del Object.oot_matrix_calls_index

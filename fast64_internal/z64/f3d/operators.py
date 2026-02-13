@@ -31,9 +31,9 @@ from ..utility import (
 )
 
 
-def build_extra_xml_entries(settings: "OOTDLExportSettings") -> str:
+def build_extra_xml_entries(entries) -> str:
     entries: list[str] = []
-    for entry in settings.extra_matrix_calls:
+    for entry in entries:
         matrix_path = LIMB_MATRIX_PATHS.get(entry.limb, "")
         if matrix_path:
             entries.append(f'\t<Matrix Path="{matrix_path}" Param="G_MTX_LOAD"/>')
@@ -55,6 +55,12 @@ def build_extra_xml_entries(settings: "OOTDLExportSettings") -> str:
     if not entries:
         return ""
     return "\n".join(entries) + "\n"
+
+
+def get_active_matrix_entries(obj: bpy.types.Object, settings: "OOTDLExportSettings"):
+    if obj is not None and hasattr(obj, "oot_matrix_calls") and len(obj.oot_matrix_calls) > 0:
+        return obj.oot_matrix_calls
+    return settings.extra_matrix_calls
 
 
 class OOTF3DGfxFormatter(OOTGfxFormatter):
@@ -174,7 +180,8 @@ def ootConvertMeshToXML(
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
     includeDir = get_internal_asset_path(settings, folderName)
     exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False)
-    extra_xml = build_extra_xml_entries(settings)
+    extra_entries = get_active_matrix_entries(originalObj, settings)
+    extra_xml = build_extra_xml_entries(extra_entries)
     if extra_xml:
         display_start = exportData.find("\n")
         if display_start != -1:

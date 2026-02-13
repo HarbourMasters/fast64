@@ -21,36 +21,41 @@ class OOT_UL_MatrixCallPairs(UIList):
         row.label(text=label, icon="MESH_TORUS")
 
 
-class FAST64_OT_AddMatrixCall(Operator):
-    bl_idname = "fast64.oot_add_matrix_call"
-    bl_label = "Add Matrix Call"
-    bl_description = "Add a new matrix-call pair to the list"
+class FAST64_OT_AddObjectMatrixCall(Operator):
+    bl_idname = "fast64.oot_add_object_matrix_call"
+    bl_label = "Add Matrix Call (Object)"
+    bl_description = "Add a new matrix-call pair to this object"
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and isinstance(context.object.data, Mesh)
 
     def execute(self, context):
+        obj = context.object
         settings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
-        entry = settings.extra_matrix_calls.add()
-        settings.extra_matrix_calls_index = len(settings.extra_matrix_calls) - 1
+        entry = obj.oot_matrix_calls.add()
+        obj.oot_matrix_calls_index = len(obj.oot_matrix_calls) - 1
         entry.limb = "none"
         entry.call_dl = ""
         entry.internal_path = settings.folder
         return {"FINISHED"}
 
 
-class FAST64_OT_RemoveMatrixCall(Operator):
-    bl_idname = "fast64.oot_remove_matrix_call"
-    bl_label = "Remove Matrix Call"
-    bl_description = "Remove the selected matrix-call pair"
+class FAST64_OT_RemoveObjectMatrixCall(Operator):
+    bl_idname = "fast64.oot_remove_object_matrix_call"
+    bl_label = "Remove Matrix Call (Object)"
+    bl_description = "Remove the selected matrix-call pair from this object"
 
     @classmethod
     def poll(cls, context):
-        settings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
-        return len(settings.extra_matrix_calls) > 0
+        obj = context.object
+        return obj is not None and isinstance(obj.data, Mesh) and len(obj.oot_matrix_calls) > 0
 
     def execute(self, context):
-        settings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
-        index = settings.extra_matrix_calls_index
-        settings.extra_matrix_calls.remove(index)
-        settings.extra_matrix_calls_index = max(0, min(index, len(settings.extra_matrix_calls) - 1))
+        obj = context.object
+        index = obj.oot_matrix_calls_index
+        obj.oot_matrix_calls.remove(index)
+        obj.oot_matrix_calls_index = max(0, min(index, len(obj.oot_matrix_calls) - 1))
         return {"FINISHED"}
 
 
@@ -85,10 +90,6 @@ class OOT_DisplayListPanel(Panel):
             actorScaleBox = box.box().column()
             prop_split(actorScaleBox, obj, "ootActorScale", "Actor Scale")
             actorScaleBox.label(text="This applies to actor exports only.", icon="INFO")
-
-        # Doesn't work since all static meshes are pre-transformed
-        # box.prop(obj.ootDynamicTransform, "billboard")
-
 
 class MM_DisplayListPanel(MM_Panel):
     bl_label = "Display List Inspector"
@@ -203,7 +204,7 @@ class OOT_ExportDLPanel(OOT_Panel):
 
         col.operator(OOT_ExportDL.bl_idname)
         exportSettings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
-        exportSettings.draw_props(col)
+        exportSettings.draw_props(col, context)
 
         col.operator(OOT_ImportDL.bl_idname)
         importSettings: OOTDLImportSettings = context.scene.fast64.oot.DLImportSettings
@@ -231,8 +232,8 @@ oot_dl_writer_panel_classes = (
 
 oot_dl_writer_support_classes = (
     OOT_UL_MatrixCallPairs,
-    FAST64_OT_AddMatrixCall,
-    FAST64_OT_RemoveMatrixCall,
+    FAST64_OT_AddObjectMatrixCall,
+    FAST64_OT_RemoveObjectMatrixCall,
 )
 
 
