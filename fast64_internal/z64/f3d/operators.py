@@ -32,11 +32,11 @@ from ..utility import (
 
 
 def build_extra_xml_entries(entries) -> str:
-    entries: list[str] = []
+    xml_lines: list[str] = []
     for entry in entries:
         matrix_path = LIMB_MATRIX_PATHS.get(entry.limb, "")
         if matrix_path:
-            entries.append(f'\t<Matrix Path="{matrix_path}" Param="G_MTX_LOAD"/>')
+            xml_lines.append(f'\t<Matrix Path="{matrix_path}" Param="G_MTX_LOAD"/>')
         call = entry.call_dl.strip()
         if call:
             internal_path = entry.internal_path.strip()
@@ -51,16 +51,16 @@ def build_extra_xml_entries(entries) -> str:
                         call = call
             else:
                 call = call
-            entries.append(f'\t<CallDisplayList Path="{call}"/>')
-    if not entries:
+            xml_lines.append(f'\t<CallDisplayList Path="{call}"/>')
+    if not xml_lines:
         return ""
-    return "\n".join(entries) + "\n"
+    return "\n".join(xml_lines) + "\n"
 
 
 def get_active_matrix_entries(obj: bpy.types.Object, settings: "OOTDLExportSettings"):
     if obj is not None and hasattr(obj, "oot_matrix_calls") and len(obj.oot_matrix_calls) > 0:
         return obj.oot_matrix_calls
-    return settings.extra_matrix_calls
+    return []
 
 
 class OOTF3DGfxFormatter(OOTGfxFormatter):
@@ -158,6 +158,7 @@ def ootConvertMeshToXML(
     overlayName = settings.actorOverlayName
     flipbookUses2DArray = settings.flipbookUses2DArray
     flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
+    matrix_entries = list(get_active_matrix_entries(originalObj, settings))
 
     try:
         obj, allObjs = ootDuplicateHierarchy(originalObj, None, False, OOTObjectCategorizer())
@@ -180,7 +181,7 @@ def ootConvertMeshToXML(
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
     includeDir = get_internal_asset_path(settings, folderName)
     exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False)
-    extra_entries = get_active_matrix_entries(originalObj, settings)
+    extra_entries = matrix_entries
     extra_xml = build_extra_xml_entries(extra_entries)
     if extra_xml:
         display_start = exportData.find("\n")
