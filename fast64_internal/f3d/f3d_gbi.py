@@ -2458,6 +2458,24 @@ def canonical_image_identity(image: bpy.types.Image | None) -> tuple[str, str, s
     return (lib_path, image.filepath or "", image.name or "")
 
 
+def find_image_by_identity(image_id: tuple[str, str, str]) -> bpy.types.Image | None:
+    if not any(image_id):
+        return None
+    for image in bpy.data.images:
+        if canonical_image_identity(image) == image_id:
+            return image
+    return None
+
+
+def get_image_from_image_key(imageKey: FImageKey) -> bpy.types.Image:
+    image = getattr(imageKey, "image", None)
+    if image is None:
+        image = find_image_by_identity(imageKey.image_id)
+    if image is None:
+        raise PluginError(f"Image for texture key {imageKey.image_id} not found.")
+    return image
+
+
 def sanitize_palette_base_name(name: str | None) -> str:
     if not name:
         return ""
@@ -2941,7 +2959,7 @@ class FModel:
             if targetDir and not os.path.exists(targetDir):
                 os.makedirs(targetDir, exist_ok=True)
 
-            image = imageKey.image
+            image = get_image_from_image_key(imageKey)
             isPacked = image.packed_file is not None
             if not isPacked:
                 image.pack()
@@ -2970,7 +2988,7 @@ class FModel:
             if getattr(texture, "skip_export", False):
                 continue
 
-            image = key.image
+            image = get_image_from_image_key(key)
             imageFileName = texture.name
             fmt_code = -1
 
