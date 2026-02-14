@@ -6885,6 +6885,11 @@ material_presets = {
         f"oot_{key}": value + 'f3d_mat.presetName = "Oot " +  f3d_mat.presetName'
         for key, value in homebrew_and_oot.items()
     },
+    "mm": {
+        f"mm_{key}": value + 'f3d_mat.presetName = "MM " +  f3d_mat.presetName'
+        for key, value in homebrew_and_oot.items()
+        if key not in ("shaded_tunic_color_environment_mapped", "shaded_tunic_color_texture")
+    },
     "oot_f3dex3": {
         "oot_cel_4_blend_tex_vcol_ao": oot_cel_4_blend_tex_vcol_ao,
         "oot_cel_blend_tex_vcol_ltcol": oot_cel_blend_tex_vcol_ltcol,

@@ -149,8 +149,16 @@ enumF3DSource = [
 ]
 
 defaultMaterialPresets = {
-    "Shaded Solid": {"SM64": "Shaded Solid", "OOT": "oot_shaded_solid"},
-    "Shaded Texture": {"SM64": "Shaded Texture", "OOT": "oot_shaded_texture"},
+    "Shaded Solid": {
+        "SM64": "Shaded Solid",
+        "OOT": "oot_shaded_solid",
+        "MM": "mm_shaded_solid",
+    },
+    "Shaded Texture": {
+        "SM64": "Shaded Texture",
+        "OOT": "oot_shaded_texture",
+        "MM": "mm_shaded_texture",
+    },
 }
 
 F3D_GEO_MODES = {
@@ -222,10 +230,7 @@ def inherit_light_and_fog():
 
 def getDefaultMaterialPreset(category):
     game = bpy.context.scene.gameEditorMode
-    if game in defaultMaterialPresets[category]:
-        return defaultMaterialPresets[category][game]
-    else:
-        return "Shaded Solid"
+    return defaultMaterialPresets[category].get(game, "Shaded Solid")
 
 
 def update_draw_layer(self, context):
@@ -4232,6 +4237,8 @@ class MATERIAL_MT_f3d_presets(Menu):
                 paths += bpy.utils.preset_paths("f3d/oot")
                 if bpy.context.scene.f3d_type == "F3DEX3":
                     paths += bpy.utils.preset_paths("f3d/oot_f3dex3")
+            elif game == "mm":
+                paths += bpy.utils.preset_paths("f3d/mm")
         self.path_menu(
             paths,
             self.preset_operator,
