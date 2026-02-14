@@ -24,9 +24,7 @@ from ..utility import (
     OOTObjectCategorizer,
     ootDuplicateHierarchy,
     ootCleanupScene,
-    ootGetPath,
     addIncludeFiles,
-    getOOTScale,
     get_internal_asset_path,
 )
 
@@ -63,6 +61,23 @@ def get_active_matrix_entries(obj: bpy.types.Object, settings: "OOTDLExportSetti
     return []
 
 
+def resolve_custom_export_base(settings: "OOTDLExportSettings") -> str:
+    custom_path = (settings.customPath or "").strip()
+    if not custom_path:
+        raise PluginError("Export path is empty.")
+    base_path = bpy.path.abspath(custom_path)
+    if not os.path.exists(base_path):
+        os.makedirs(base_path, exist_ok=True)
+    return base_path
+
+
+def resolve_custom_export_folder(base_path: str, folder_name: str) -> str:
+    folder_path = os.path.join(base_path, folder_name)
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path, exist_ok=True)
+    return folder_path
+
+
 class OOTF3DGfxFormatter(OOTGfxFormatter):
     def __init__(self, scrollMethod):
         OOTGfxFormatter.__init__(self, scrollMethod)
@@ -80,7 +95,7 @@ def ootConvertMeshToC(
     settings: OOTDLExportSettings,
 ):
     folderName = settings.folder
-    exportPath = bpy.path.abspath(settings.customPath)
+    exportPath = resolve_custom_export_base(settings)
     isCustomExport = settings.isCustom
     removeVanillaData = settings.removeVanillaData
     name = toAlnum(originalObj.name)
@@ -120,7 +135,7 @@ def ootConvertMeshToC(
     else:
         data.header += "\n"
 
-    path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
+    path = resolve_custom_export_folder(exportPath, folderName)
     includeDir = get_internal_asset_path(settings, folderName)
     exportData = fModel.to_c(
         TextureExportSettings(False, saveTextures, includeDir, path), OOTF3DGfxFormatter(ScrollMethod.Vertex)
@@ -152,7 +167,7 @@ def ootConvertMeshToXML(
     settings: OOTDLExportSettings,
 ):
     folderName = settings.folder
-    exportPath = bpy.path.abspath(settings.customPath)
+    exportPath = resolve_custom_export_base(settings)
     isCustomExport = settings.isCustom
     name = toAlnum(originalObj.name)
     overlayName = settings.actorOverlayName
@@ -178,7 +193,7 @@ def ootConvertMeshToXML(
         ootCleanupScene(originalObj, allObjs)
         raise Exception(str(e))
 
-    path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
+    path = resolve_custom_export_folder(exportPath, folderName)
     includeDir = get_internal_asset_path(settings, folderName)
     exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False)
     extra_entries = matrix_entries
