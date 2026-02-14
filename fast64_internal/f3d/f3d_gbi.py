@@ -2469,6 +2469,7 @@ class FImageKey:
         self, image: bpy.types.Image, texFormat: str, palFormat: str, imagesSharingPalette: list[bpy.types.Image] = []
     ):
         self.image_id = canonical_image_identity(image)
+        self.image = image
         self.texFormat = texFormat
         self.palFormat = palFormat
         self.imagesSharingPalette = tuple(sorted(canonical_image_identity(img) for img in imagesSharingPalette))
