@@ -2855,6 +2855,7 @@ class FModel:
             data += fMaterial.to_soh_xml(modelDirPath, objectPath)
 
         self.texturesSavedLastExport = self.save_soh_textures(modelDirPath)
+        self.save_soh_palettes(modelDirPath)
         self.freePalettes()
 
         return data
@@ -3078,6 +3079,89 @@ class FModel:
                 raise Exception(str(exc))
             image.filepath = oldpath
         return texturesSaved
+
+    def save_soh_palettes(self, exportPath):
+        palettesSaved = 0
+        for key, texture in self.textures.items():
+            if not isinstance(key, FPaletteKey):
+                continue
+            if getattr(texture, "skip_export", False):
+                continue
+
+            palette_name = texture.filename or texture.name
+            if not palette_name:
+                continue
+            if palette_name.endswith(".inc.c"):
+                palette_filename = palette_name[:-6]
+            else:
+                palette_filename = os.path.splitext(palette_name)[0]
+
+            fmt_code = -1
+            if texture.fmt == "G_IM_FMT_RGBA":
+                if texture.bitSize == "G_IM_SIZ_16b":
+                    fmt_code = 2
+                elif texture.bitSize == "G_IM_SIZ_32b":
+                    fmt_code = 1
+            elif texture.fmt == "G_IM_FMT_CI":
+                if texture.bitSize == "G_IM_SIZ_4b":
+                    fmt_code = 3
+                elif texture.bitSize == "G_IM_SIZ_8b":
+                    fmt_code = 4
+            elif texture.fmt == "G_IM_FMT_I":
+                if texture.bitSize == "G_IM_SIZ_4b":
+                    fmt_code = 5
+                elif texture.bitSize == "G_IM_SIZ_8b":
+                    fmt_code = 6
+            elif texture.fmt == "G_IM_FMT_IA":
+                if texture.bitSize == "G_IM_SIZ_4b":
+                    fmt_code = 7
+                elif texture.bitSize == "G_IM_SIZ_8b":
+                    fmt_code = 8
+                elif texture.bitSize == "G_IM_SIZ_16b":
+                    fmt_code = 9
+
+            if fmt_code == -1:
+                raise PluginError(
+                    f"Unsupported palette format {texture.fmt}/{texture.bitSize} when exporting SOH XML textures."
+                )
+
+            internal_path = getattr(texture, "internal_path", "")
+            targetPath = bpy.path.abspath(resolve_internal_export_path(exportPath, internal_path, palette_filename))
+            targetDir = os.path.dirname(targetPath)
+            if targetDir and not os.path.exists(targetDir):
+                os.makedirs(targetDir, exist_ok=True)
+
+            try:
+                with open(targetPath, "wb") as file:
+                    file.write(
+                        pack(
+                            "<IIIQIQIQQQIIIIIffI",
+                            0,
+                            0x4F544558,
+                            1,
+                            0xDEADBEEFDEADBEEF,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            fmt_code,
+                            texture.width,
+                            texture.height,
+                            0,
+                            1.0,
+                            1.0,
+                            len(texture.data),
+                        )
+                        + texture.data
+                    )
+                palettesSaved += 1
+            except Exception as exc:
+                raise Exception(str(exc))
+
+        return palettesSaved
 
     def freePalettes(self):
         pass
