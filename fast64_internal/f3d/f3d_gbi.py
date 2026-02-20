@@ -4763,6 +4763,9 @@ class SPSetLights(GbiMacro):
         else:
             return GFX_SIZE * (2 + max(len(self.lights.l), 1))
 
+    def to_soh_xml(self, objectPath=""):
+        return ""
+
 
 # F3DEX3 TODO: SPCameraWorld
 
