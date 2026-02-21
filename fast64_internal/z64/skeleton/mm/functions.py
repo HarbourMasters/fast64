@@ -22,6 +22,7 @@ from ....utility import (
     cleanupDuplicatedObjects,
     crc64,
     get_internal_asset_path,
+    resolve_internal_export_path,
 )
 
 from ...utility import (
@@ -396,7 +397,12 @@ def ootConvertArmatureToO2R(
     for _, fImage in fModel.textures.items():
         if getattr(fImage, "skip_export", False):
             continue
-        with open(os.path.join(exportFolderPath, fImage.name), "wb") as f:
+        internal_path = getattr(fImage, "internal_path", "")
+        target_path = resolve_internal_export_path(exportFolderPath, internal_path, fImage.name)
+        target_dir = os.path.dirname(target_path)
+        if target_dir and not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+        with open(target_path, "wb") as f:
             f.write(fImage.toO2R(folderPath))
 
     # dict[Tuple[bpy.types.Material, str, FAreaData], Tuple[FMaterial, Tuple[int, int]]]
