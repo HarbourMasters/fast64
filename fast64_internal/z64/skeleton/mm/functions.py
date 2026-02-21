@@ -394,6 +394,8 @@ def ootConvertArmatureToO2R(
 
     # dict[Union[FImageKey, FPaletteKey], FImage]
     for _, fImage in fModel.textures.items():
+        if getattr(fImage, "skip_export", False):
+            continue
         with open(os.path.join(exportFolderPath, fImage.name), "wb") as f:
             f.write(fImage.toO2R(folderPath))
 
