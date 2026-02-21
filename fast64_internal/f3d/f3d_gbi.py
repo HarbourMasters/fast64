@@ -5621,6 +5621,12 @@ class DPLoadTile(GbiMacro):
     def to_binary(self, f3d, segments):
         return gsDPLoadTileGeneric(f3d.G_LOADTILE, self.tile, self.uls, self.ult, self.lrs, self.lrt)
 
+    def to_soh_xml(self, objectPath=""):
+        return (
+            f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
+            f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
+        )
+
 
 @dataclass(unsafe_hash=True)
 class DPSetTile(GbiMacro):
