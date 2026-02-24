@@ -37,7 +37,6 @@ from .fast64_internal.f3d.f3d_material import (
     check_or_ask_color_management,
 )
 from .fast64_internal.f3d.f3d_writer import f3d_writer_register, f3d_writer_unregister
-from .fast64_internal.f3d.f3d_parser import f3d_parser_register, f3d_parser_unregister
 from .fast64_internal.f3d.flipbook import flipbook_register, flipbook_unregister
 from .fast64_internal.f3d.op_largetexture import op_largetexture_register, op_largetexture_unregister, ui_oplargetexture
 
@@ -465,7 +464,6 @@ def register():
     bsdf_conv_panel_regsiter()
     f3d_writer_register()
     flipbook_register()
-    f3d_parser_register()
     op_largetexture_register()
 
     # ROM
@@ -499,7 +497,6 @@ def unregister():
     op_largetexture_unregister()
     flipbook_unregister()
     f3d_writer_unregister()
-    f3d_parser_unregister()
     sm64_unregister(True)
     oot_unregister(True)
     mk64_unregister(True)

@@ -1875,71 +1875,8 @@ def removeDL(sourcePath, headerPath, DLName):
         writeFile(headerPath, DLDataH)
 
 
-class F3D_ExportDL(bpy.types.Operator):
-    # set bl_ properties
-    bl_idname = "object.f3d_export_dl"
-    bl_label = "Export Display List"
-    bl_options = {"REGISTER", "UNDO", "PRESET"}
-
-    # Called on demand (i.e. button press, menu item)
-    # Can also be called from operator search menu (Spacebar)
-    def execute(self, context):
-        if context.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
-        try:
-            allObjs = context.selected_objects
-            if len(allObjs) == 0:
-                raise PluginError("No objects selected.")
-            obj = context.selected_objects[0]
-            if obj.type != "MESH":
-                raise PluginError("Object is not a mesh.")
-
-            scaleValue = bpy.context.scene.blenderF3DScale
-            finalTransform = mathutils.Matrix.Diagonal(mathutils.Vector((scaleValue, scaleValue, scaleValue))).to_4x4()
-
-        except Exception as e:
-            raisePluginError(self, e)
-            return {"CANCELLED"}
-
-        try:
-            applyRotation([obj], math.radians(90), "X")
-
-            exportPath = bpy.path.abspath(context.scene.DLExportPath)
-            dlFormat = DLFormat.Static if context.scene.DLExportisStatic else DLFormat.Dynamic
-            texDir = bpy.context.scene.DLTexDir
-            savePNG = bpy.context.scene.saveTextures
-            separateTexDef = bpy.context.scene.DLSeparateTextureDef
-            DLName = toAlnum(bpy.context.scene.DLName)
-            matWriteMethod = getWriteMethodFromEnum(context.scene.matWriteMethod)
-
-            exportF3DtoC(
-                exportPath,
-                obj,
-                dlFormat,
-                finalTransform,
-                texDir,
-                savePNG,
-                separateTexDef,
-                DLName,
-                matWriteMethod,
-            )
-
-            self.report({"INFO"}, "Success!")
-
-            applyRotation([obj], math.radians(-90), "X")
-            return {"FINISHED"}  # must return a set
-
-        except Exception as e:
-            if context.mode != "OBJECT":
-                bpy.ops.object.mode_set(mode="OBJECT")
-            applyRotation([obj], math.radians(-90), "X")
-
-            raisePluginError(self, e)
-            return {"CANCELLED"}  # must return a set
-
-
-class F3D_ExportDLPanel(bpy.types.Panel):
-    bl_idname = "F3D_PT_export_dl"
+class Fast64_DLRedirectPanel(bpy.types.Panel):
+    bl_idname = "FAST64_PT_f3d_redirect"
     bl_label = "F3D Exporter"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -1950,26 +1887,13 @@ class F3D_ExportDLPanel(bpy.types.Panel):
     def poll(cls, context):
         return True
 
-    # called every frame
     def draw(self, context):
         col = self.layout.column()
-        col.operator(F3D_ExportDL.bl_idname)
-
-        prop_split(col, context.scene, "DLName", "Name")
-        prop_split(col, context.scene, "DLExportPath", "Export Path")
-        prop_split(col, context.scene, "blenderF3DScale", "Scale")
-        prop_split(col, context.scene, "matWriteMethod", "Material Write Method")
-        col.prop(context.scene, "DLExportisStatic")
-
-        if context.scene.saveTextures:
-            prop_split(col, context.scene, "DLTexDir", "Texture Include Path")
-            col.prop(context.scene, "DLSeparateTextureDef")
+        col.label(text="The DL exporter has been relocated.")
+        col.label(text="Use the DL Exporter in the OOT/MM tab instead.")
 
 
-f3d_writer_classes = (
-    F3D_ExportDL,
-    F3D_ExportDLPanel,
-)
+f3d_writer_classes = (Fast64_DLRedirectPanel,)
 
 
 def f3d_writer_register():

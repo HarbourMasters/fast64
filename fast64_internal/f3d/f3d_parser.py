@@ -2445,28 +2445,8 @@ f3d_parser_classes = (
 
 
 def f3d_parser_register():
-    for cls in f3d_parser_classes:
-        register_class(cls)
-
-    bpy.types.Scene.DLImportName = bpy.props.StringProperty(name="Name")
-    bpy.types.Scene.DLImportPath = bpy.props.StringProperty(name="Directory", subtype="FILE_PATH")
-    bpy.types.Scene.DLImportBasePath = bpy.props.StringProperty(name="Directory", subtype="FILE_PATH")
-    bpy.types.Scene.DLRemoveDoubles = bpy.props.BoolProperty(name="Remove Doubles", default=True)
-    bpy.types.Scene.DLImportNormals = bpy.props.BoolProperty(name="Import Normals", default=True)
-    bpy.types.Scene.DLImportDrawLayer = bpy.props.EnumProperty(name="Draw Layer", items=ootEnumDrawLayers)
-    bpy.types.Scene.DLImportOtherFiles = bpy.props.CollectionProperty(type=ImportFileProperty)
-    bpy.types.Scene.DLImportOtherFilesIndex = bpy.props.IntProperty()
+    pass
 
 
 def f3d_parser_unregister():
-    for cls in reversed(f3d_parser_classes):
-        unregister_class(cls)
-
-    del bpy.types.Scene.DLImportName
-    del bpy.types.Scene.DLImportPath
-    del bpy.types.Scene.DLRemoveDoubles
-    del bpy.types.Scene.DLImportNormals
-    del bpy.types.Scene.DLImportDrawLayer
-    del bpy.types.Scene.DLImportBasePath
-    del bpy.types.Scene.DLImportOtherFiles
-    del bpy.types.Scene.DLImportOtherFilesIndex
+    pass
