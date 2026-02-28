@@ -225,10 +225,9 @@ def resolve_internal_export_path(export_path: str, internal_path: str, file_name
 
 
 def get_internal_asset_path(settings, folderName):
-    folder_path = (folderName or "").replace("\\", "/").strip("/")
+    raw_folder = (folderName or "").replace("\\", "/")
+    folder_path = raw_folder.strip("/")
     if folder_path:
-        if not folder_path.startswith("objects/"):
-            folder_path = f"objects/{folder_path}"
         return folder_path
     fallback = getattr(settings, "customAssetIncludeDir", "").strip()
     if fallback:
