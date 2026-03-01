@@ -67,7 +67,7 @@ from .fast64_internal.gltf_extension import (
 
 # info about add on
 bl_info = {
-    "name": "Fast64",
+    "name": "Fast64 (SoH/2S2H)",
     "version": (2, 5, 0),
     "author": "kurethedead, Jameriquiah",
     "location": "3DView",
