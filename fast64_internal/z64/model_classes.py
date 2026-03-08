@@ -1,5 +1,6 @@
 import bpy
 import os
+from pathlib import Path
 import re
 import mathutils
 
@@ -49,22 +50,29 @@ def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -
     extracted_path = f"{bpy.context.scene.fast64.oot.get_extracted_path()}/"
 
     # search assets
-    for includeMatch in re.finditer(r"\#include\s*\"(assets/objects/(.*?))\.h\"", data):
-        path = os.path.join(basePath, extracted_path + includeMatch.group(1) + ".c")
-        if path in searchedPaths:
-            continue
-        searchedPaths.append(path)
-        subIncludeData = getImportData([path]) + "\n"
-        includeData += subIncludeData
-        print(path)
-
-        for subIncludeMatch in re.finditer(r"\#include\s*\"(((?![/\"]).)*)\.c\"", subIncludeData):
-            subPath = os.path.join(os.path.dirname(path), extracted_path + subIncludeMatch.group(1) + ".c")
-            if subPath in searchedPaths:
+    for includeMatch in re.finditer(r"\#include\s*\"(assets/objects/(.*?)\.h)\"", data):
+        h_p = Path(basePath) / includeMatch.group(1)
+        print("", str(h_p))
+        includeData += getImportData([str(h_p)]) + "\n"
+        for path_p in h_p.parent.glob("*.c"):
+            path = str(path_p)
+            if path in searchedPaths:
                 continue
-            searchedPaths.append(subPath)
-            print(subPath)
-            includeData += getImportData([subPath]) + "\n"
+            searchedPaths.append(path)
+            subIncludeData = getImportData([path]) + "\n"
+            includeData += subIncludeData
+            print(" ", path)
+
+            for subIncludeMatch in re.finditer(r"\#include\s*\"(((?![/\"]).)*\.[ch])\"", subIncludeData):
+                sub_inc_p = Path(path).parent / subIncludeMatch.group(1)
+                subPath = str(sub_inc_p)
+                if subPath in searchedPaths:
+                    continue
+                searchedPaths.append(subPath)
+                print("   ", subPath)
+                includeData += getImportData([subPath]) + "\n"
+
+    print("More included paths:")
 
     # search same directory c includes, both in current path and in included object files
     # these are usually fast64 exported files
