@@ -2134,11 +2134,6 @@ class Vtx:
         signY = 1 if self.uv[1] >= 0 else -1
         uv = [self.uv[0] % (signX * 2**15), self.uv[1] % (signY * 2**15)]
         return (
-    def to_binary(self):
-        signX = 1 if self.uv[0] >= 0 else -1
-        signY = 1 if self.uv[1] >= 0 else -1
-        uv = [self.uv[0] % (signX * 2**15), self.uv[1] % (signY * 2**15)]
-        return (
             self.position[0].to_bytes(2, "big", signed=True)
             + self.position[1].to_bytes(2, "big", signed=True)
             + self.position[2].to_bytes(2, "big", signed=True)
