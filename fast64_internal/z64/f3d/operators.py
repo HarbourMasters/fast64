@@ -196,7 +196,7 @@ def ootConvertMeshToXML(
 
     path = resolve_custom_export_folder(exportPath, folderName)
     includeDir = get_internal_asset_path(settings, folderName)
-    exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False)
+    exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False, combine_root_meshes=True)
     extra_entries = matrix_entries
     extra_xml = build_extra_xml_entries(extra_entries)
     if extra_xml:

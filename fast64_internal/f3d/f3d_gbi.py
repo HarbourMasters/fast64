@@ -2134,6 +2134,11 @@ class Vtx:
         signY = 1 if self.uv[1] >= 0 else -1
         uv = [self.uv[0] % (signX * 2**15), self.uv[1] % (signY * 2**15)]
         return (
+    def to_binary(self):
+        signX = 1 if self.uv[0] >= 0 else -1
+        signY = 1 if self.uv[1] >= 0 else -1
+        uv = [self.uv[0] % (signX * 2**15), self.uv[1] % (signY * 2**15)]
+        return (
             self.position[0].to_bytes(2, "big", signed=True)
             + self.position[1].to_bytes(2, "big", signed=True)
             + self.position[2].to_bytes(2, "big", signed=True)
@@ -2844,11 +2849,28 @@ class FModel:
             data.append(self.materialRevert.to_c(self.f3d))
         return data
 
-    def to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True):
+    def to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True, combine_root_meshes=False):
         data = ""
 
-        for mesh in self.meshes.values():
-            data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices)
+        if combine_root_meshes:
+            combined_call_lines = []
+            combined_other_lines = []
+            for mesh in self.meshes.values():
+                data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices, write_root_draw=False)
+                call_lines, other_lines = mesh.get_soh_root_draw_lines(objectPath)
+                combined_call_lines.extend(call_lines)
+                if call_lines or other_lines:
+                    combined_other_lines = other_lines
+
+            if combined_call_lines or combined_other_lines:
+                data += (
+                    "<DisplayList Version=\"0\">\n"
+                    + "".join(combined_call_lines + combined_other_lines)
+                    + "</DisplayList>\n\n"
+                )
+        else:
+            for mesh in self.meshes.values():
+                data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices)
 
         for lod in self.LODGroups.values():
             data += lod.to_soh_xml(modelDirPath)
@@ -3353,18 +3375,7 @@ class FMesh:
         for cmd_list in self.draw_overrides:
             cmd_list.save_binary(romfile, f3d, segments)
 
-    def to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True):
-        if include_cull_vertices and self.cullVertexList is not None:
-            cullData = self.cullVertexList.to_soh_xml()
-            writeXMLData(cullData, os.path.join(modelDirPath, self.cullVertexList.name))
-
-        for triGroup in self.triangleGroups:
-            triGroup.to_soh_xml(modelDirPath, objectPath)
-
-        for drawOverride in self.draw_overrides:
-            overrideData = drawOverride.to_soh_xml(modelDirPath)
-            writeXMLData(overrideData, os.path.join(modelDirPath, drawOverride.name))
-
+    def get_soh_root_draw_lines(self, objectPath):
         def command_xml(command):
             if isinstance(command, (SPDisplayList, SPBranchList, DPSetTextureImage)):
                 return "\t" + command.to_soh_xml(objectPath) + "\n"
@@ -3381,6 +3392,24 @@ class FMesh:
             else:
                 other_lines.append(line)
 
+        return call_lines, other_lines
+
+    def to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True, write_root_draw=True):
+        if include_cull_vertices and self.cullVertexList is not None:
+            cullData = self.cullVertexList.to_soh_xml()
+            writeXMLData(cullData, os.path.join(modelDirPath, self.cullVertexList.name))
+
+        for triGroup in self.triangleGroups:
+            triGroup.to_soh_xml(modelDirPath, objectPath)
+
+        for drawOverride in self.draw_overrides:
+            overrideData = drawOverride.to_soh_xml(modelDirPath)
+            writeXMLData(overrideData, os.path.join(modelDirPath, drawOverride.name))
+
+        if not write_root_draw:
+            return ""
+
+        call_lines, other_lines = self.get_soh_root_draw_lines(objectPath)
         drawData = "<DisplayList Version=\"0\">\n" + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
         writeXMLData(drawData, os.path.join(modelDirPath, self.draw.name))
         return drawData
