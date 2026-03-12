@@ -485,7 +485,7 @@ def ootGetObjectPath(isCustomExport: bool, exportPath: str, folderName: str, inc
             ootGetPath(
                 exportPath,
                 isCustomExport,
-                f"{extracted}/assets/objects/",
+                f"{extracted}/assets/",
                 folderName,
                 False,
                 False,
@@ -501,7 +501,7 @@ def ootGetObjectHeaderPath(isCustomExport: bool, exportPath: str, folderName: st
         filepath = exportPath
     else:
         filepath = os.path.join(
-            ootGetPath(exportPath, isCustomExport, f"{extracted}/assets/objects/", folderName, False, False),
+            ootGetPath(exportPath, isCustomExport, f"{extracted}/assets/", folderName, False, False),
             folderName + ".h",
         )
     return filepath
