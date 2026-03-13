@@ -242,9 +242,9 @@ class OOT_ImportDL(Operator):
 
             paths = None
 
-            # Check if folderName exists under assets/ (if it is committed)
+            # Check if folderName exists under assets/objects (if it is committed)
             if not isCustomImport:
-                assets_folder = Path(abspath(context.scene.ootDecompPath)) / "assets" / folderName
+                assets_folder = Path(abspath(context.scene.ootDecompPath)) / "assets" / "objects" / folderName
                 if assets_folder.exists():
                     paths = list(map(str, assets_folder.glob("*.[ch]")))
                     if not paths:
