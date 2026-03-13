@@ -339,6 +339,7 @@ def get_shared_tlut_state(parent: Union[FModel, FTexRect], tex_info: "TexInfo") 
     if (
         not tex_info.useTex
         or not tex_info.isTexCI
+        or tex_info.isTexRef
         or tex_info.isPalRef
         or tex_info.flipbook is not None
         or tex_info.pal is None
@@ -724,6 +725,8 @@ class TexInfo:
         should_write_data = convertTextureData and not (texProp and texProp.is_vanilla_texture)
         if should_write_data:
             if self.isTexRef:
+                if self.loadPal and not self.isPalRef:
+                    writePaletteData(fPalette, self.pal)
                 if self.isTexCI:
                     fModel.writeTexRefCITextures(
                         self.flipbook, fMaterial, self.imDependencies, self.pal, self.texFormat, self.palFormat
