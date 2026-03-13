@@ -1878,6 +1878,22 @@ class FSetTileSizeScrollField:
         self.t = 0
         self.interval = 1
 
+    def to_soh_xml(self, tex_index, dimensions):
+        """Export scroll data for a single texture as XML for SOH.
+
+        Args:
+            tex_index: Texture index (0 for TEXEL0, 1 for TEXEL1)
+            dimensions: Tuple of (width, height) in texels
+
+        Returns:
+            XML string with TexScroll element, or empty string if no scrolling
+        """
+        width, height = dimensions
+        if self.s == 0 and self.t == 0:
+            return ""  # No scrolling, don't export
+
+        return f'<TexScroll TexIndex="{tex_index}" S="{self.s}" T="{self.t}" Width="{width}" Height="{height}" Interval="{self.interval}"/>\n'
+
 
 def tile_func(direction: str, speed: int, cmd_num: int):
     if speed == 0 or speed is None:
@@ -3494,6 +3510,36 @@ class FScrollData:
         self.tile_scroll_tex0 = FSetTileSizeScrollField()
         self.tile_scroll_tex1 = FSetTileSizeScrollField()
 
+    def has_scroll_data(self):
+        """Check if any tile scroll data is present.
+
+        Returns:
+            True if either texture has non-zero scroll values
+        """
+        return (
+            self.tile_scroll_tex0.s != 0 or self.tile_scroll_tex0.t != 0 or
+            self.tile_scroll_tex1.s != 0 or self.tile_scroll_tex1.t != 0
+        )
+
+    def to_soh_xml(self):
+        """Export all tile scroll data as XML for SOH.
+
+        Returns:
+            XML string with TexScroll elements for each texture that has scrolling,
+            or empty string if no scrolling is present
+        """
+        data = ""
+
+        # Export tex0 scroll if present
+        if self.tile_scroll_tex0.s != 0 or self.tile_scroll_tex0.t != 0:
+            data += "\t\t" + self.tile_scroll_tex0.to_soh_xml(0, self.dimensions)
+
+        # Export tex1 scroll if present
+        if self.tile_scroll_tex1.s != 0 or self.tile_scroll_tex1.t != 0:
+            data += "\t\t" + self.tile_scroll_tex1.to_soh_xml(1, self.dimensions)
+
+        return data
+
 
 def get_f3d_mat_from_version(material: bpy.types.Material):
     return material.f3d_mat if material.mat_ver > 3 else material
@@ -3591,6 +3637,10 @@ class FMaterial:
 
         if self.material.tag.Export:
             matData = self.material.to_soh_xml(modelDirPath, objectPath)
+            # Insert scroll data before closing DisplayList tag if present
+            if self.scrollData.has_scroll_data():
+                scrollData = self.scrollData.to_soh_xml()
+                matData = matData.replace("</DisplayList>", scrollData + "</DisplayList>")
             writeXMLData(matData, os.path.join(modelDirPath, self.material.name))
 
         if self.revert is not None and self.revert.tag.Export:
