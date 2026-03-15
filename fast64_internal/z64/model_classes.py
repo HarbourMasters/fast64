@@ -381,6 +381,7 @@ class OOTF3DContext(F3DContext):
         self.dlList = []  # in the order they are rendered
         self.isBillboard = False
         self.flipbooks = {}  # {(segment, draw layer) : TextureFlipbook}
+        self.ignored_dl_names: set[str] = set()
 
         # the new assets system extracts CI textures as PNGs with the TLUT already applied
         # so we need to avoid reading TLUTs as the files don't exist outside the build folder
@@ -439,7 +440,7 @@ class OOTF3DContext(F3DContext):
         try:
             pointer = hexOrDecInt(name)
         except:
-            if name == "gEmptyDL":
+            if name == "gEmptyDL" or name in self.ignored_dl_names:
                 return None
             return name
         else:

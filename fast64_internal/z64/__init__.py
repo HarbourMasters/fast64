@@ -143,8 +143,16 @@ class OOT_Properties(bpy.types.PropertyGroup):
 
         if version == "legacy":
             return "."
-        else:
+        if game_data.z64.is_oot():
             return f"extracted/{version if version != 'Custom' else self.oot_version_custom}"
+
+        if version != "Custom":
+            return f"extracted/{version}"
+
+        custom_path = (self.oot_version_custom or "").replace("\\", "/").strip("/")
+        if "/" in custom_path:
+            return custom_path
+        return f"extracted/{custom_path}"
 
     def is_include_present(self, include_file: str):
         decomp_path = Path(bpy.context.scene.ootDecompPath).resolve()

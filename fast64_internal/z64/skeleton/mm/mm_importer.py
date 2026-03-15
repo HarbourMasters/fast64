@@ -283,6 +283,8 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
 
     f3dContext = OOTF3DContext(get_F3D_GBI(), limbList, basePath)
     f3dContext.mat().draw_layer.oot = drawLayer
+    if importSettings.mode == "Human Link":
+        f3dContext.ignored_dl_names.add("gKokiriSwordHandleDL")
 
     actorScale = None
 
