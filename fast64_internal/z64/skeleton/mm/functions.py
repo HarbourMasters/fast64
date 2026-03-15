@@ -387,7 +387,7 @@ def ootConvertArmatureToO2R(
             limbList[i].lodDL = lodLimbList[i].DL
             limbList[i].isFlex |= lodLimbList[i].isFlex
 
-    folderPath = os.path.join("objects", folderName)
+    folderPath = folderName
     exportFolderPath = os.path.join(exportPath, folderPath)
     if not os.path.exists(exportFolderPath):
         os.makedirs(exportFolderPath)
