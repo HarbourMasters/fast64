@@ -2657,8 +2657,26 @@ class FModel:
         fMaterial.usedLights.append(key)
         self.lights[key] = value
 
-    def addMesh(self, name, namePrefix, drawLayer, isSkinned, contextObj, dedup=False, useSkeletonName=False):
-        final_name = getFMeshName(self, name, namePrefix, drawLayer, isSkinned, forceSkeletonName=useSkeletonName)
+    def addMesh(
+        self,
+        name,
+        namePrefix,
+        drawLayer,
+        isSkinned,
+        contextObj,
+        dedup=False,
+        useSkeletonName=False,
+        disableSkeletonFallback=False,
+    ):
+        final_name = getFMeshName(
+            self,
+            name,
+            namePrefix,
+            drawLayer,
+            isSkinned,
+            forceSkeletonName=useSkeletonName,
+            disableSkeletonFallback=disableSkeletonFallback,
+        )
         if dedup:
             base_name = final_name
             for i in range(1, len(self.meshes) + 2):

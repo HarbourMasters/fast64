@@ -278,11 +278,6 @@ class OOTLimb:
         data.extend(struct.pack("<I", len("")))
 
         if self.DL is not None:
-            shorterSkelName = self.skeletonName
-            if shorterSkelName[-4:] == "Skel":
-                shorterSkelName = shorterSkelName[:-4]
-            self.DL.name = shorterSkelName + self._o2r_limb_suffix(self.index) + "DL"
-
             dlPath = os.path.join(folderPath, self.DL.name)
             # For windows paths, replace backslashes with forward slashes
             dlPath = dlPath.replace("\\", "/")

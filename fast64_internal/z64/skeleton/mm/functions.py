@@ -13,6 +13,29 @@ from ..utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices, o
 from .classes import OOTLimb, OOTSkeleton
 from ...constants import o2rLimbNames
 
+
+def _mm_limb_dl_name(skeleton_name: str, limb_index: int) -> str:
+    shorter = skeleton_name[:-4] if skeleton_name.endswith("Skel") else skeleton_name
+    if 0 <= limb_index < len(o2rLimbNames):
+        suffix = o2rLimbNames[limb_index]
+    else:
+        suffix = f"Limb{limb_index:03}"
+    return shorter + suffix + "DL"
+
+
+def _rename_mm_mesh_resources(mesh, dl_name: str):
+    mesh.name = dl_name
+    mesh.draw.name = dl_name
+    if mesh.cullVertexList is not None:
+        mesh.cullVertexList.name = dl_name + "_vtx_cull"
+    for index, tri_group in enumerate(mesh.triangleGroups):
+        tri_group.vertexList.name = f"{dl_name}_vtx_{index}"
+        tri_group.triList.name = f"{dl_name}_tri_{index}"
+        tri_group.celTriListBaseName = f"{dl_name}_tri_{index}_cel"
+        for cel_index, cel_tri_list in enumerate(tri_group.celTriLists):
+            cel_tri_list.name = f"{tri_group.celTriListBaseName}{cel_index}"
+
+
 from ....utility import (
     PluginError,
     CData,
@@ -90,6 +113,10 @@ def ootProcessBone(
         else:
             # Dummy data, only used so that name is set correctly
             mesh = FMesh(bone.ootBone.customDLName, DLFormat.Static)
+    elif mesh is not None and mesh.draw is not None:
+        skeleton_name = parentLimb.name if isinstance(parentLimb, OOTSkeleton) else parentLimb.skeletonName
+        dl_name = _mm_limb_dl_name(skeleton_name, nextIndex)
+        _rename_mm_mesh_resources(mesh, dl_name)
 
     DL = None
     if mesh is not None:
@@ -420,21 +447,9 @@ def ootConvertArmatureToO2R(
             fMaterial.to_soh_xml(exportFolderPath, objectPath)
 
     # dict[str, FMesh]
-    for name, mesh in fModel.meshes.items():
+    for _, mesh in fModel.meshes.items():
         if mesh.draw is not None:
-            meshName = mesh.name
-            with open(os.path.join(exportFolderPath, meshName), "wb") as f:
-                f.write(mesh.draw.toO2R(folderPath))
-
-            for triGroup in mesh.triangleGroups:
-                if triGroup.triList is not None:
-                    with open(os.path.join(exportFolderPath, triGroup.triList.name), "wb") as f:
-                        f.write(triGroup.triList.toO2R(folderPath))
-
-                if triGroup.vertexList is not None:
-                    vertexListName = triGroup.vertexList.name
-                    with open(os.path.join(exportFolderPath, vertexListName), "wb") as f:
-                        f.write(triGroup.vertexList.toO2R(folderPath))
+            mesh.to_soh_xml(exportFolderPath, objectPath, include_cull_vertices=False)
 
     with open(os.path.join(exportFolderPath, filename), "wb") as f:
         f.write(skeleton.toO2R(folderPath))
@@ -442,7 +457,3 @@ def ootConvertArmatureToO2R(
     for limb in limbList:
         with open(os.path.join(exportFolderPath, limb.o2rName()), "wb") as f:
             f.write(limb.toO2R(folderPath))
-
-        if limb.DL is not None:
-            with open(os.path.join(exportFolderPath, limb.DL.name), "wb") as f:
-                f.write(limb.DL.toO2R(folderPath))

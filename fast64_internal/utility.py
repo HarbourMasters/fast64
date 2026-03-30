@@ -265,9 +265,17 @@ def parentObject(parent, child):
     bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
 
 
-def getFMeshName(fModel, vertexGroup, namePrefix, drawLayer, isSkinned, forceSkeletonName=False):
+def getFMeshName(
+    fModel,
+    vertexGroup,
+    namePrefix,
+    drawLayer,
+    isSkinned,
+    forceSkeletonName=False,
+    disableSkeletonFallback=False,
+):
     canMessBones = len(fModel.meshes) > 0
-    useSkeletonName = forceSkeletonName or not canMessBones
+    useSkeletonName = forceSkeletonName or (not disableSkeletonFallback and not canMessBones)
     if useSkeletonName:
         skeletonCandidate = None
         if isinstance(fModel.name, str):

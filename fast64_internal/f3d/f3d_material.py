@@ -28,7 +28,7 @@ from bpy.types import (
 )
 from bl_operators.presets import AddPresetBase
 from bpy.utils import register_class, unregister_class
-from mathutils import Color
+from mathutils import Color, Vector
 
 from .f3d_enums import *
 from .f3d_gbi import (
@@ -452,9 +452,9 @@ def F3DOrganizeLights(self, context):
             lightList.append(self.f3d_light4)
         if self.f3d_light5 is not None:
             lightList.append(self.f3d_light5)
-        if self.f3d_light5 is not None:
-            lightList.append(self.f3d_light6)
         if self.f3d_light6 is not None:
+            lightList.append(self.f3d_light6)
+        if self.f3d_light7 is not None:
             lightList.append(self.f3d_light7)
 
         self.f3d_light1 = lightList[0] if len(lightList) > 0 else None
@@ -464,6 +464,8 @@ def F3DOrganizeLights(self, context):
         self.f3d_light5 = lightList[4] if len(lightList) > 4 else None
         self.f3d_light6 = lightList[5] if len(lightList) > 5 else None
         self.f3d_light7 = lightList[6] if len(lightList) > 6 else None
+
+        update_light_colors(material, context)
 
 
 def combiner_uses(
@@ -1870,9 +1872,128 @@ def set_output_node_groups(material: Material):
     material.node_tree.links.new(output_node.outputs[0], nodes["Material Output F3D"].inputs[0])
 
 
+def get_named_node_input(node, socket_name: str):
+    return next((socket for socket in node.inputs if socket.name == socket_name), None)
+
+
+def relink_preview_light_socket(material: Material, input_name: str, from_node_name: str):
+    nodes = material.node_tree.nodes
+    shade_node = nodes.get("Shade Color")
+    from_node = nodes.get(from_node_name)
+    if shade_node is None or from_node is None or not from_node.outputs:
+        return
+
+    shade_input = get_named_node_input(shade_node, input_name)
+    if shade_input is not None:
+        link_if_none_exist(material, from_node.outputs[0], shade_input)
+
+
+def relink_preview_reroute_socket(material: Material, socket_name: str):
+    nodes = material.node_tree.nodes
+    target_node = nodes.get(socket_name)
+    scene_props = nodes.get("SceneProperties")
+    if target_node is None or scene_props is None or not target_node.inputs:
+        return
+
+    link_if_none_exist(material, scene_props.outputs[socket_name], target_node.inputs[0])
+
+
+def override_preview_reroute_socket(material: Material, socket_name: str, value):
+    target_node = material.node_tree.nodes.get(socket_name)
+    if target_node is None or not target_node.inputs:
+        return
+
+    remove_first_link_if_exists(material, target_node.inputs[0].links)
+    target_node.inputs[0].default_value = value
+
+
+def get_preview_light_weight(light_data: dict[str, Any]) -> float:
+    color = light_data["color"]
+    return color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
+
+
+def get_preview_light_entries(
+    f3dMat: "F3DMaterialProperty", renderSettings: "Fast64RenderSettings_Properties"
+) -> list[dict[str, Any]]:
+    default_dirs = [Vector(renderSettings.light0Direction), Vector(renderSettings.light1Direction)]
+    default_sizes = [float(renderSettings.light0SpecSize), float(renderSettings.light1SpecSize)]
+    entries: list[dict[str, Any]] = []
+
+    for light_index in range(7):
+        light = getattr(f3dMat, f"f3d_light{light_index + 1}")
+        if light is None:
+            continue
+
+        color = [float(light.color[0]), float(light.color[1]), float(light.color[2]), 1.0]
+        light_objects = [
+            obj for obj in bpy.context.scene.objects if obj.type == "LIGHT" and obj.data == getattr(light, "original", light)
+        ]
+        if not light_objects:
+            light_objects = [None]
+
+        for obj in light_objects:
+            direction = default_dirs[light_index % 2]
+            if obj is not None:
+                direction = Vector(getObjDirectionVec(obj, True))
+            entries.append(
+                {
+                    "color": color.copy(),
+                    "direction": direction.normalized() if direction.length_squared != 0 else default_dirs[0],
+                    "size": default_sizes[light_index % 2],
+                }
+            )
+
+    return entries
+
+
+def compress_preview_lights(light_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(light_entries) <= 2:
+        return light_entries
+
+    sorted_entries = sorted(light_entries, key=get_preview_light_weight, reverse=True)
+    buckets = []
+    for entry in sorted_entries[:2]:
+        weight = max(get_preview_light_weight(entry), 0.001)
+        buckets.append(
+            {
+                "color": entry["color"].copy(),
+                "direction": entry["direction"].copy(),
+                "direction_accum": entry["direction"] * weight,
+                "size_total": entry["size"] * weight,
+                "weight_total": weight,
+            }
+        )
+
+    for entry in sorted_entries[2:]:
+        weight = max(get_preview_light_weight(entry), 0.001)
+        bucket_index = (
+            0
+            if entry["direction"].dot(buckets[0]["direction"]) >= entry["direction"].dot(buckets[1]["direction"])
+            else 1
+        )
+        bucket = buckets[bucket_index]
+        for i in range(3):
+            bucket["color"][i] = min(1.0, bucket["color"][i] + entry["color"][i])
+        bucket["direction_accum"] += entry["direction"] * weight
+        bucket["size_total"] += entry["size"] * weight
+        bucket["weight_total"] += weight
+
+    compressed = []
+    for bucket in buckets:
+        direction = bucket["direction_accum"]
+        compressed.append(
+            {
+                "color": bucket["color"],
+                "direction": direction.normalized() if direction.length_squared != 0 else bucket["direction"],
+                "size": bucket["size_total"] / bucket["weight_total"],
+            }
+        )
+    return compressed
+
 def update_light_colors(material, context):
     f3dMat: "F3DMaterialProperty" = material.f3d_mat
     nodes = material.node_tree.nodes
+    renderSettings: "Fast64RenderSettings_Properties" = context.scene.fast64.renderSettings
 
     if f3dMat.use_default_lighting and f3dMat.set_ambient_from_light:
         amb = Color(f3dMat.default_light_color[:3])
@@ -1892,13 +2013,37 @@ def update_light_colors(material, context):
         # TODO: feature to toggle gamma correction
         light0 = f3dMat.default_light_color
         light1 = [0.0, 0.0, 0.0, 1.0]
+        light0_direction = Vector(renderSettings.light0Direction)
+        light1_direction = Vector(renderSettings.light1Direction)
+        light0_size = float(renderSettings.light0SpecSize)
+        light1_size = float(renderSettings.light1SpecSize)
         if not f3dMat.use_default_lighting:
-            light0 = f3dMat.f3d_light1.color if f3dMat.f3d_light1 is not None else [1.0, 1.0, 1.0, 1.0]
-            light1 = f3dMat.f3d_light2.color if f3dMat.f3d_light2 is not None else light1
+            preview_lights = compress_preview_lights(get_preview_light_entries(f3dMat, renderSettings))
+            if preview_lights:
+                light0 = preview_lights[0]["color"]
+                light0_direction = preview_lights[0]["direction"]
+                light0_size = preview_lights[0]["size"]
+            else:
+                light0 = [1.0, 1.0, 1.0, 1.0]
+
+            if len(preview_lights) > 1:
+                light1 = preview_lights[1]["color"]
+                light1_direction = preview_lights[1]["direction"]
+                light1_size = preview_lights[1]["size"]
 
         nodes["Shade Color"].inputs["AmbientColor"].default_value = s_rgb_alpha_1_tuple(f3dMat.ambient_light_color)
         nodes["Shade Color"].inputs["Light0Color"].default_value = s_rgb_alpha_1_tuple(light0)
         nodes["Shade Color"].inputs["Light1Color"].default_value = s_rgb_alpha_1_tuple(light1)
+        if f3dMat.set_lights and not f3dMat.use_default_lighting:
+            override_preview_reroute_socket(material, "Light0Dir", tuple(light0_direction))
+            override_preview_reroute_socket(material, "Light0Size", light0_size)
+            override_preview_reroute_socket(material, "Light1Dir", tuple(light1_direction))
+            override_preview_reroute_socket(material, "Light1Size", light1_size)
+        else:
+            relink_preview_reroute_socket(material, "Light0Dir")
+            relink_preview_reroute_socket(material, "Light0Size")
+            relink_preview_reroute_socket(material, "Light1Dir")
+            relink_preview_reroute_socket(material, "Light1Size")
     else:
         nodes["Shade Color"].inputs["AmbientColor"].default_value = (0.5, 0.5, 0.5, 1.0)
         nodes["Shade Color"].inputs["Light0Color"].default_value = (1.0, 1.0, 1.0, 1.0)
@@ -1906,6 +2051,10 @@ def update_light_colors(material, context):
         link_if_none_exist(material, nodes["AmbientColorOut"].outputs[0], nodes["Shade Color"].inputs["AmbientColor"])
         link_if_none_exist(material, nodes["Light0ColorOut"].outputs[0], nodes["Shade Color"].inputs["Light0Color"])
         link_if_none_exist(material, nodes["Light1ColorOut"].outputs[0], nodes["Shade Color"].inputs["Light1Color"])
+        relink_preview_reroute_socket(material, "Light0Dir")
+        relink_preview_reroute_socket(material, "Light0Size")
+        relink_preview_reroute_socket(material, "Light1Dir")
+        relink_preview_reroute_socket(material, "Light1Size")
 
 
 def update_color_node(combiner_inputs, color: Color, prefix: str):
@@ -5442,3 +5591,4 @@ enumMaterialPresets = [
         "Vertex Colored Texture (No Vertex Alpha)",
     ),
 ]
+
