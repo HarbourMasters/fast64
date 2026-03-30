@@ -63,7 +63,7 @@ def ootAddLimbRecursively(
     enums: List["OOTEnum"],
 ):
     limbName = f3dContext.getLimbName(limbIndex)
-    boneName = f3dContext.getBoneName(limbIndex)
+    defaultBoneName = f3dContext.getBoneName(limbIndex)
     matchResult = ootGetLimb(skeletonData, limbName, False)
 
     isLOD = matchResult.lastindex > 6
@@ -72,6 +72,9 @@ def ootAddLimbRecursively(
         dlName = matchResult.group(7)
     else:
         dlName = matchResult.group(6)
+
+    loadDL = dlName != "NULL"
+    boneName = dlName if loadDL else defaultBoneName
 
     # Animations override the root translation, so we just ignore importing them as well.
     if limbIndex == 0:
@@ -94,7 +97,7 @@ def ootAddLimbRecursively(
 
     currentTransform = parentTransform @ mathutils.Matrix.Translation(mathutils.Vector(translation))
     f3dContext.matrixData[limbName] = currentTransform
-    loadDL = dlName != "NULL"
+    f3dContext.limbToBoneName[limbName] = boneName
 
     ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL)
 
@@ -196,7 +199,7 @@ def ootBuildSkeleton(
     )
     for dlEntry in f3dContext.dlList:
         limbName = f3dContext.getLimbName(dlEntry.limbIndex)
-        boneName = f3dContext.getBoneName(dlEntry.limbIndex)
+        boneName = f3dContext.limbToBoneName.get(limbName, f3dContext.getBoneName(dlEntry.limbIndex))
         parseF3D(
             skeletonData,
             dlEntry.dlName,

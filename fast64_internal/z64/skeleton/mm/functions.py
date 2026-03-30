@@ -11,16 +11,15 @@ from ....game_data import game_data
 from ..properties import OOTSkeletonExportSettings
 from ..utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices, ootRemoveSkeleton
 from .classes import OOTLimb, OOTSkeleton
-from ...constants import o2rLimbNames
 
 
-def _mm_limb_dl_name(skeleton_name: str, limb_index: int) -> str:
-    shorter = skeleton_name[:-4] if skeleton_name.endswith("Skel") else skeleton_name
-    if 0 <= limb_index < len(o2rLimbNames):
-        suffix = o2rLimbNames[limb_index]
-    else:
-        suffix = f"Limb{limb_index:03}"
-    return shorter + suffix + "DL"
+def _mm_dl_name_from_bone_name(bone_name: str) -> str:
+    dl_name = bone_name
+    if dl_name.startswith("bone") and len(dl_name) > 8 and dl_name[4:7].isdigit() and dl_name[7] == "_":
+        dl_name = dl_name[8:]
+    if dl_name.endswith("Limb"):
+        dl_name = dl_name[:-4] + "DL"
+    return dl_name
 
 
 def _rename_mm_mesh_resources(mesh, dl_name: str):
@@ -114,9 +113,7 @@ def ootProcessBone(
             # Dummy data, only used so that name is set correctly
             mesh = FMesh(bone.ootBone.customDLName, DLFormat.Static)
     elif mesh is not None and mesh.draw is not None:
-        skeleton_name = parentLimb.name if isinstance(parentLimb, OOTSkeleton) else parentLimb.skeletonName
-        dl_name = _mm_limb_dl_name(skeleton_name, nextIndex)
-        _rename_mm_mesh_resources(mesh, dl_name)
+        _rename_mm_mesh_resources(mesh, _mm_dl_name_from_bone_name(boneName))
 
     DL = None
     if mesh is not None:
