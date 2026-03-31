@@ -382,7 +382,7 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     if actorScale is None:
         actorScale = getOOTScale(importSettings.actorScale)
 
-    isLOD, armatureObj = ootBuildSkeleton(
+    _, armatureObj = ootBuildSkeleton(
         skeletonName,
         overlayName,
         skeletonData,
@@ -396,30 +396,11 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
         flipbookArrayIndex2D,
         f3dContext,
     )
-    if isLOD:
-        isLOD, LODArmatureObj = ootBuildSkeleton(
-            skeletonName,
-            overlayName,
-            skeletonData,
-            actorScale,
-            removeDoubles,
-            importNormals,
-            True,
-            basePath,
-            drawLayer,
-            isLink,
-            flipbookArrayIndex2D,
-            f3dContext,
-        )
-        armatureObj.ootSkeleton.LOD = LODArmatureObj
-        LODArmatureObj.location += mathutils.Vector((10, 0, 0))
 
     f3dContext.deleteMaterialContext()
 
     if importSettings.applyRestPose and restPoseData is not None:
         applySkeletonRestPose(restPoseData, armatureObj)
-        if isLOD:
-            applySkeletonRestPose(restPoseData, LODArmatureObj)
 
     if import_animations:
         if armatureObj is not None:
