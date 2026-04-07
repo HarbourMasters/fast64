@@ -850,6 +850,13 @@ class F3DPanel(Panel):
         prop_input_group.enabled = not material.scale_autoprop
         return inputGroup
 
+    def ui_dynamic_cosmetic_entry(self, f3dMat, layout, enabledProp, nameProp, categoryProp):
+        layout.prop(f3dMat, enabledProp, text="Dynamic Cosmetic Entry")
+        if getattr(f3dMat, enabledProp):
+            dynamicEntry = layout.column()
+            dynamicEntry.prop(f3dMat, nameProp, text="Name")
+            dynamicEntry.prop(f3dMat, categoryProp, text="Category")
+
     def ui_prim(self, material, layout, setName, setProp, showCheckBox):
         f3dMat = material.f3d_mat
         inputGroup = layout.row()
@@ -863,6 +870,13 @@ class F3DPanel(Panel):
         prop_input.prop(f3dMat, "prim_color", text="")
         prop_input.prop(f3dMat, "prim_lod_frac", text="Prim LOD Fraction")
         prop_input.prop(f3dMat, "prim_lod_min", text="Min LOD Ratio")
+        self.ui_dynamic_cosmetic_entry(
+            f3dMat,
+            prop_input,
+            "prim_dynamic_entry",
+            "prim_dynamic_entry_name",
+            "prim_dynamic_entry_category",
+        )
         prop_input.enabled = setProp
         return inputGroup
 
@@ -870,13 +884,21 @@ class F3DPanel(Panel):
         inputGroup = layout.row()
         prop_input_name = inputGroup.column()
         prop_input = inputGroup.column()
+        f3dMat = material.f3d_mat
 
         if showCheckBox:
-            prop_input_name.prop(material.f3d_mat, "set_env", text="Environment Color")
+            prop_input_name.prop(f3dMat, "set_env", text="Environment Color")
         else:
             prop_input_name.label(text="Environment Color")
-        prop_input.prop(material.f3d_mat, "env_color", text="")
-        setProp = material.f3d_mat.set_env
+        prop_input.prop(f3dMat, "env_color", text="")
+        self.ui_dynamic_cosmetic_entry(
+            f3dMat,
+            prop_input,
+            "env_dynamic_entry",
+            "env_dynamic_entry_name",
+            "env_dynamic_entry_category",
+        )
+        setProp = f3dMat.set_env
         prop_input.enabled = setProp
         return inputGroup
 
@@ -4805,6 +4827,12 @@ class F3DMaterialProperty(PropertyGroup):
         default=(1, 1, 1, 1),
         update=get_color_input_update_callback("env_color", "Env"),
     )
+    prim_dynamic_entry: bpy.props.BoolProperty(name="Dynamic Cosmetic Entry", default=False)
+    prim_dynamic_entry_name: bpy.props.StringProperty(name="Dynamic Cosmetic Entry Name")
+    prim_dynamic_entry_category: bpy.props.StringProperty(name="Dynamic Cosmetic Entry Category")
+    env_dynamic_entry: bpy.props.BoolProperty(name="Dynamic Cosmetic Entry", default=False)
+    env_dynamic_entry_name: bpy.props.StringProperty(name="Dynamic Cosmetic Entry Name")
+    env_dynamic_entry_category: bpy.props.StringProperty(name="Dynamic Cosmetic Entry Category")
     key_center: bpy.props.FloatVectorProperty(
         name="Key Center",
         subtype="COLOR",
@@ -5156,6 +5184,9 @@ class F3DMaterialProperty(PropertyGroup):
             data["environment"] = {
                 "set": self.set_env,
                 "color": get_clean_color(self.env_color, include_alpha=True),
+                "dynamicEntry": self.env_dynamic_entry,
+                "dynamicEntryName": self.env_dynamic_entry_name,
+                "dynamicEntryCategory": self.env_dynamic_entry_category,
             }
         if use_dict["Primitive"]:
             data["primitive"] = {
@@ -5163,6 +5194,9 @@ class F3DMaterialProperty(PropertyGroup):
                 "color": get_clean_color(self.prim_color, include_alpha=True),
                 "minLoDRatio": self.prim_lod_min,
                 "loDFraction": self.prim_lod_frac,
+                "dynamicEntry": self.prim_dynamic_entry,
+                "dynamicEntryName": self.prim_dynamic_entry_name,
+                "dynamicEntryCategory": self.prim_dynamic_entry_category,
             }
         if use_dict["Key"]:
             data["chromaKey"] = {
@@ -5195,6 +5229,9 @@ class F3DMaterialProperty(PropertyGroup):
         self.set_env = enviroment.get("set", self.set_env)
         if "color" in enviroment:
             self.env_color = enviroment.get("color")
+        self.env_dynamic_entry = enviroment.get("dynamicEntry", self.env_dynamic_entry)
+        self.env_dynamic_entry_name = enviroment.get("dynamicEntryName", self.env_dynamic_entry_name)
+        self.env_dynamic_entry_category = enviroment.get("dynamicEntryCategory", self.env_dynamic_entry_category)
         primitive = data.get("primitive", {})
         self.set_prim = primitive.get("set", self.set_prim)
         if "color" in primitive:
@@ -5203,6 +5240,9 @@ class F3DMaterialProperty(PropertyGroup):
             primitive.get("minLoDRatio", self.prim_lod_min),
             primitive.get("loDFraction", self.prim_lod_frac),
         )
+        self.prim_dynamic_entry = primitive.get("dynamicEntry", self.prim_dynamic_entry)
+        self.prim_dynamic_entry_name = primitive.get("dynamicEntryName", self.prim_dynamic_entry_name)
+        self.prim_dynamic_entry_category = primitive.get("dynamicEntryCategory", self.prim_dynamic_entry_category)
         key = data.get("chromaKey", {})
         self.set_key = key.get("set", self.set_key)
         if "center" in key:

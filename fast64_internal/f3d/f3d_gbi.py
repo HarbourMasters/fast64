@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Sequence, Union, Tuple
 from dataclasses import dataclass, fields, field
 from struct import pack
+from html import escape
 import struct
 import re
 import bpy, os, enum, copy
@@ -5550,18 +5551,35 @@ def sDPRGBColor(cmd, r, g, b, a):
     return gsDPSetColor(cmd, (_SHIFTL(r, 24, 8) | _SHIFTL(g, 16, 8) | _SHIFTL(b, 8, 8) | _SHIFTL(a, 0, 8)))
 
 
+def getDynamicCosmeticXmlAttrs(cosmeticEntry: str, cosmeticCategory: str):
+    entry = escape(cosmeticEntry.strip(), quote=True) if cosmeticEntry else ""
+    if not entry:
+        return ""
+
+    attrs = f' CosmeticEntry="{entry}"'
+    category = escape(cosmeticCategory.strip(), quote=True) if cosmeticCategory else ""
+    if category:
+        attrs += f' CosmeticCategory="{category}"'
+    return attrs
+
+
 @dataclass(unsafe_hash=True)
 class DPSetEnvColor(GbiMacro):
     r: int
     g: int
     b: int
     a: int
+    cosmeticEntry: str = ""
+    cosmeticCategory: str = ""
 
     def to_binary(self, f3d, segments):
         return sDPRGBColor(f3d.G_SETENVCOLOR, self.r, self.g, self.b, self.a)
 
     def to_soh_xml(self, objectPath=""):
-        return f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"/>'
+        return (
+            f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
+            f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+        )
 
 
 @dataclass(unsafe_hash=True)
@@ -5611,6 +5629,8 @@ class DPSetPrimColor(GbiMacro):
     g: int
     b: int
     a: int
+    cosmeticEntry: str = ""
+    cosmeticCategory: str = ""
 
     def to_binary(self, f3d, segments):
         words = (_SHIFTL(f3d.G_SETPRIMCOLOR, 24, 8) | _SHIFTL(self.m, 8, 8) | _SHIFTL(self.l, 0, 8)), (
@@ -5619,7 +5639,10 @@ class DPSetPrimColor(GbiMacro):
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
     def to_soh_xml(self, objectPath=""):
-        return f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"/>'
+        return (
+            f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
+            f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+        )
 
 
 @dataclass(unsafe_hash=True)
@@ -6496,3 +6519,4 @@ F3DClassesWithPointers = [
     DPLoadTLUT_pal256,
     DPLoadTLUT,
 ]
+
