@@ -53,7 +53,7 @@ class OOTSkeletonProperty(PropertyGroup):
 
 class OOTSkeletonExportSettings(PropertyGroup):
     mode: EnumProperty(name="Mode", items=get_skeleton_mode_items)
-    folder: StringProperty(name="Skeleton Folder", default="object_geldb")
+    folder: StringProperty(name="Skeleton Folder", default="objects/object_geldb")
     customPath: StringProperty(name="Custom Skeleton Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
         name="Use Custom Path",

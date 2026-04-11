@@ -59,7 +59,7 @@ class OOTDLExportSettings(PropertyGroup):
         name="Use Custom Filename", description="Override filename instead of basing it off of the Blender name"
     )
     filename: StringProperty(name="Filename")
-    folder: StringProperty(name="DL Folder", default="gameplay_keep")
+    folder: StringProperty(name="DL Folder", default="objects/gameplay_keep")
     customPath: StringProperty(name="Custom DL Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
         name="Use Custom Path",
