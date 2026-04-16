@@ -26,7 +26,8 @@ from .fast64_internal.z64.props_panel_main import OOT_ObjectProperties
 from .fast64_internal.z64.actor.properties import initOOTActorProperties
 from .fast64_internal.utility_anim import utility_anim_register, utility_anim_unregister, ArmatureApplyWithMeshOperator
 
-from .fast64_internal.mk64 import MK64_Properties, mk64_register, mk64_unregister
+from .fast64_internal.mk64 import mk64_register, mk64_unregister
+from .fast64_internal.mk64.mk64_properties import MK64_ObjectProperties, MK64_Properties
 from .fast64_internal.mk64.mk64_constants import mk64_world_defaults
 
 from .fast64_internal.f3d.f3d_gbi import get_F3D_GBI
