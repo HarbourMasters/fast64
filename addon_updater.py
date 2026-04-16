@@ -68,8 +68,11 @@ class SingletonUpdater:
         self._latest_release = None
         self._use_releases = False
         self._include_branches = False
+        self._include_merge_requests = False
+        self._merge_requests = list()
         self._include_branch_list = ['master']
         self._include_branch_auto_check = False
+        self._branch_update_info = None
         self._manual_only = False
         self._version_min_update = None
         self._version_max_update = None
@@ -305,6 +308,17 @@ class SingletonUpdater:
             raise ValueError("include_branches must be a boolean value")
 
     @property
+    def include_merge_requests(self):
+        return self._include_merge_requests
+
+    @include_merge_requests.setter
+    def include_merge_requests(self, value):
+        try:
+            self._include_merge_requests = bool(value)
+        except:
+            raise ValueError("include_branches must be a boolean value")
+
+    @property
     def json(self):
         if len(self._json) == 0:
             self.set_updater_json()
@@ -414,6 +428,13 @@ class SingletonUpdater:
     def subfolder_path(self, value):
         self._subfolder_path = value
 
+    @property
+    def merge_requests(self):
+        if len(self._merge_requests) == 0:
+            return {}
+        return {
+            mr["id"]: mr["title"] for mr in self._merge_requests
+        }
     @property
     def tags(self):
         if len(self._tags) == 0:
@@ -591,8 +612,27 @@ class SingletonUpdater:
     def form_tags_url(self):
         return self._engine.form_tags_url(self)
 
+    def form_branch_list_url(self):
+        return self._engine.form_branch_list_url(self)
+    
+    def form_mrs_url(self):
+        return self._engine.form_mrs_url(self)
+
     def form_branch_url(self, branch):
         return self._engine.form_branch_url(branch, self)
+    
+    def form_mr_url(self, mr):
+        return self._engine.form_mr_url(mr, self)
+
+    def get_mrs(self):
+        if self._include_merge_requests is False:
+            return
+        request = self.form_mrs_url()
+        self.print_verbose("Getting merge requests from server")
+
+        # get all merge requests, internet call
+        all_mrs = self._engine.parse_mrs(self.get_api(request), self) or []
+        self._merge_requests = [mr for mr in all_mrs if mr["state"] == "open"]
 
     def get_tags(self):
         request = self.form_tags_url()
@@ -1226,6 +1266,79 @@ class SingletonUpdater:
             self._update_ready = None
             self.start_async_check_update(True, callback)
 
+    def _timestamp_to_version_tuple(self, timestamp):
+        if not timestamp:
+            dt = datetime.utcnow()
+        else:
+            ts = timestamp
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            try:
+                dt = datetime.fromisoformat(ts)
+            except Exception:
+                try:
+                    dt = datetime.strptime(ts.split(".")[0], "%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    dt = datetime.utcnow()
+        return (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+
+    def check_branch_commits(self):
+        if not self._include_branch_auto_check or not self._include_branches:
+            return False
+        if not hasattr(self._engine, "form_branch_list_url"):
+            return False
+        branch_request = self.form_branch_list_url()
+        if not branch_request:
+            return False
+        branch_data = self.get_api(branch_request)
+        if not isinstance(branch_data, list):
+            return False
+        branch_map = {
+            entry["name"].lower(): entry
+            for entry in branch_data
+            if isinstance(entry, dict) and entry.get("name")
+        }
+        branch_commits = self._json.setdefault("branch_commits", {})
+        for branch in self._include_branch_list:
+            entry = branch_map.get(branch.lower())
+            if not entry:
+                continue
+            commit = entry.get("commit") or {}
+            if isinstance(commit, dict):
+                sha = commit.get("sha") or commit.get("id")
+            else:
+                sha = None
+            if not sha:
+                continue
+            stored_sha = branch_commits.get(branch)
+            if stored_sha is None:
+                branch_commits[branch] = sha
+                self._json["branch_commits"] = branch_commits
+                self.save_updater_json()
+                continue
+            if stored_sha == sha:
+                continue
+            commit_meta = commit.get("commit") if isinstance(commit, dict) else {}
+            timestamp = None
+            if isinstance(commit_meta, dict):
+                timestamp = (
+                    commit_meta.get("committer", {}).get("date")
+                    or commit_meta.get("author", {}).get("date")
+                )
+            try:
+                link = self.form_branch_url(branch)
+            except Exception:
+                link = None
+            self._update_version = self._timestamp_to_version_tuple(timestamp)
+            self._update_link = link
+            self._branch_update_info = (branch, sha)
+            self._update_ready = True
+            self.print_verbose(
+                f"Detected new commit on branch '{branch}': {sha}")
+            return True
+        self._branch_update_info = None
+        return False
+
     def check_for_update(self, now=False):
         """Check for update not in a syncrhonous manner.
 
@@ -1274,11 +1387,15 @@ class SingletonUpdater:
                     self._update_version,
                     self._update_link)
 
-        # Primary internet call, sets self._tags and self._tag_latest.
+        # Primary internet call, sets self._tags, self._merge_requests and self._tag_latest.
         self.get_tags()
+        self.get_mrs()
 
         self._json["last_check"] = str(datetime.now())
         self.save_updater_json()
+
+        if self.check_branch_commits():
+            return (True, self._update_version, self._update_link)
 
         # Can be () or ('master') in addition to branches, and version tag.
         new_version = self.version_tuple_from_text(self.tag_latest)
@@ -1357,8 +1474,21 @@ class SingletonUpdater:
             self._update_link = link
         if not tg:
             raise ValueError("Version tag not found: " + name)
+        
+    def set_mr(self, id: str):
+        """Assign the merge request name and url to update to"""
+        mr = None
+        for merge_request in self._merge_requests:
+            if id == str(merge_request["id"]):
+                mr = merge_request
+                break
+        if mr:
+            self._update_link = self.form_mr_url(mr)
+            self._update_version = mr["id"]
+        else:
+            raise ValueError("Merge request not found: " + id)
 
-    def run_update(self, force=False, revert_tag=None, clean=False, callback=None):
+    def run_update(self, force=False, revert_tag=None, merge_request=False, clean=False, callback=None):
         """Runs an install, update, or reversion of an addon from online source
 
         Arguments:
@@ -1372,7 +1502,10 @@ class SingletonUpdater:
         self._json["version_text"] = dict()
 
         if revert_tag is not None:
-            self.set_tag(revert_tag)
+            if merge_request:
+                self.set_mr(revert_tag)
+            else:
+                self.set_tag(revert_tag)
             self._update_ready = True
 
         # clear the errors if any
@@ -1444,6 +1577,14 @@ class SingletonUpdater:
                 return res
             # would need to compare against other versions held in tags
 
+        if not self._fake_install and self._branch_update_info:
+            branch_commits = self._json.setdefault("branch_commits", {})
+            branch_name, commit_sha = self._branch_update_info
+            branch_commits[branch_name] = commit_sha
+            self._json["branch_commits"] = branch_commits
+            self.save_updater_json()
+            self._branch_update_info = None
+
         # run the front-end's callback if provided
         if callback:
             callback(self._addon_package)
@@ -1507,6 +1648,8 @@ class SingletonUpdater:
             with open(jpath) as data_file:
                 self._json = json.load(data_file)
                 self.print_verbose("Read in JSON settings from file")
+            if "branch_commits" not in self._json:
+                self._json["branch_commits"] = {}
         else:
             self._json = {
                 "last_check": "",
@@ -1515,7 +1658,8 @@ class SingletonUpdater:
                 "ignore": False,
                 "just_restored": False,
                 "just_updated": False,
-                "version_text": dict()
+                "version_text": dict(),
+                "branch_commits": {}
             }
             self.save_updater_json()
 
@@ -1643,9 +1787,15 @@ class BitbucketEngine:
 
     def form_tags_url(self, updater):
         return self.form_repo_url(updater) + "/refs/tags?sort=-name"
+    
+    def form_mrs_url(self, updater):
+        raise NotImplementedError
 
     def form_branch_url(self, branch, updater):
         return self.get_zip_url(branch, updater)
+    
+    def form_mr_url(self, mr, updater):
+        raise NotImplementedError
 
     def get_zip_url(self, name, updater):
         return "https://bitbucket.org/{user}/{repo}/get/{name}.zip".format(
@@ -1661,6 +1811,9 @@ class BitbucketEngine:
                 "name": tag["name"],
                 "zipball_url": self.get_zip_url(tag["name"], updater)
             } for tag in response["values"]]
+    
+    def parse_mrs(self, response, updater):
+        raise NotImplementedError
 
 
 class GithubEngine:
@@ -1680,14 +1833,28 @@ class GithubEngine:
             return "{}/releases".format(self.form_repo_url(updater))
         else:
             return "{}/tags".format(self.form_repo_url(updater))
+        
+    def form_mrs_url(self, updater):
+        return "{}/pulls".format(self.form_repo_url(updater))
 
     def form_branch_list_url(self, updater):
         return "{}/branches".format(self.form_repo_url(updater))
 
     def form_branch_url(self, branch, updater):
         return "{}/zipball/{}".format(self.form_repo_url(updater), branch)
+    
+    def form_mr_url(self, mr, updater):
+        head = mr["head"]
+        branch_name = head["ref"]
+        repo = head["repo"]["url"]
+        return "{}/zipball/{}".format(repo, branch_name)
 
     def parse_tags(self, response, updater):
+        if response is None:
+            return list()
+        return response
+    
+    def parse_mrs(self, response, updater):
         if response is None:
             return list()
         return response
@@ -1706,6 +1873,9 @@ class GitlabEngine:
 
     def form_tags_url(self, updater):
         return "{}/repository/tags".format(self.form_repo_url(updater))
+    
+    def form_mrs_url(self, updater):
+        raise NotImplementedError
 
     def form_branch_list_url(self, updater):
         # does not validate branch name.
@@ -1717,6 +1887,9 @@ class GitlabEngine:
         # instead of branch zip to get direct path, would need.
         return "{}/repository/archive.zip?sha={}".format(
             self.form_repo_url(updater), branch)
+        
+    def form_mr_url(self, mr, updater):
+        raise NotImplementedError
 
     def get_zip_url(self, sha, updater):
         return "{base}/repository/archive.zip?sha={sha}".format(
@@ -1734,6 +1907,9 @@ class GitlabEngine:
                 "name": tag["name"],
                 "zipball_url": self.get_zip_url(tag["commit"]["id"], updater)
             } for tag in response]
+    
+    def parse_mrs(self, response, updater):
+        raise NotImplementedError
 
 
 # -----------------------------------------------------------------------------

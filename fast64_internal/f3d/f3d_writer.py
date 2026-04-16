@@ -9,6 +9,7 @@ from bpy.utils import register_class, unregister_class
 from .f3d_enums import *
 from .f3d_material import (
     all_combiner_uses,
+    get_tex_basis_size,
     getMaterialScrollDimensions,
     isTexturePointSampled,
     get_textlut_mode,
@@ -16,7 +17,7 @@ from .f3d_material import (
 )
 from .f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingleLargeTextureSetup
 from .f3d_gbi import *
-from .f3d_bleed import BleedGraphics
+from .f3d_bleed import BleedGraphics, get_geo_cmds
 
 from ..utility import *
 
@@ -91,6 +92,7 @@ def check_face_materials(
     obj_name: str,
     material_slots: "bpy.types.bpy_prop_collection[bpy.types.MaterialSlot]",
     faces: "bpy.types.MeshPolygons | bpy.types.MeshLoopTriangles",
+    requires_f3d: bool = True,
 ):
     """
     Check if all faces are correctly assigned to a F3D material
@@ -110,7 +112,9 @@ def check_face_materials(
                 " Assign the faces to a valid slot."
                 f" (0-indexed: slot {material_index}, aka the {material_index+1}th slot)."
             )
-        material = material_slots[material_index].material
+        material = material_slots[material_index]
+        if isinstance(material, bpy.types.MaterialSlot):
+            material = material.material
         if material is None:
             raise PluginError(
                 f"Mesh object {obj_name} has faces"
@@ -118,7 +122,7 @@ def check_face_materials(
                 " Set a material for the slot or assign the faces to an actual material."
                 f" (0-indexed: slot {material_index}, aka the {material_index+1}th slot)."
             )
-        if not material.is_f3d:
+        if requires_f3d and not material.is_f3d:
             raise PluginError(
                 f"Mesh object {obj_name} has faces"
                 f" assigned to a material which is not a F3D material: {material.name}"
@@ -410,44 +414,28 @@ def saveMeshWithLargeTexturesByFaces(
     return currentGroupIndex
 
 
-def empty_logging_func(a, b):
-    pass
-
-
 # Make sure to set original_name before calling this
 # used when duplicating an object
 def saveStaticModel(
     triConverterInfo,
-    fModel,
+    fModel: FModel,
     obj,
     transformMatrix,
-    ownerName,
+    ownerName: str,
     convertTextureData,
-    revertMatAtEnd,
+    revertMatAtEnd: bool,
     drawLayerField,
-    *args,
-    **kwargs,
 ):
-    logging_func = kwargs.get("logging_func", empty_logging_func)
-
-    logging_func({"INFO"}, "saveStaticModel 1")
-
     if len(obj.data.polygons) == 0:
         return None
 
-    logging_func({"INFO"}, "saveStaticModel 2")
-
     # checkForF3DMaterial(obj)
-
-    logging_func({"INFO"}, "saveStaticModel 3")
 
     faces_by_mat = {}
     for face in obj.data.loop_triangles:
         if face.material_index not in faces_by_mat:
             faces_by_mat[face.material_index] = []
         faces_by_mat[face.material_index].append(face)
-
-    logging_func({"INFO"}, "saveStaticModel 4")
 
     # sort by material slot
     faces_by_mat = {
@@ -456,13 +444,9 @@ def saveStaticModel(
         if mat_index in faces_by_mat
     }
 
-    logging_func({"INFO"}, "saveStaticModel 5")
-
-    fMeshes = {}
+    fMeshes: dict[str, FMesh] = {}
     for material_index, faces in faces_by_mat.items():
         material = obj.material_slots[material_index].material
-
-        logging_func({"INFO"}, "saveStaticModel 6")
 
         if drawLayerField is not None and material.mat_ver > 3:
             drawLayer = getattr(material.f3d_mat.draw_layer, drawLayerField)
@@ -471,33 +455,17 @@ def saveStaticModel(
             drawLayer = fModel.getDrawLayerV3(obj)
             drawLayerName = None
 
-        logging_func({"INFO"}, "saveStaticModel 7")
-
         if drawLayer not in fMeshes:
-            logging_func(
-                {"INFO"}, "saveStaticModel 7.11 " + (obj.original_name if obj.original_name is not None else "None")
-            )
-            logging_func({"INFO"}, "saveStaticModel 7.12 " + (ownerName if ownerName is not None else "None"))
-            logging_func({"INFO"}, "saveStaticModel 7.13 " + (drawLayerName if drawLayerName is not None else "None"))
-            logging_func({"INFO"}, "saveStaticModel 7.14 " + (str(obj) if obj is not None else "None"))
             fMesh = fModel.addMesh(obj.original_name, ownerName, drawLayerName, False, obj)
-            logging_func({"INFO"}, "saveStaticModel 7.2")
             fMeshes[drawLayer] = fMesh
-            logging_func({"INFO"}, "saveStaticModel 7.3")
 
             if obj.use_f3d_culling and not fModel.f3d.F3D_OLD_GBI:
-                logging_func({"INFO"}, "saveStaticModel 7.4")
                 addCullCommand(obj, fMesh, transformMatrix, fModel.matWriteMethod)
-                logging_func({"INFO"}, "saveStaticModel 7.5")
         else:
             fMesh = fMeshes[drawLayer]
 
-        logging_func({"INFO"}, "saveStaticModel 8")
-
         checkForF3dMaterialInFaces(obj, material)
         fMaterial, texDimensions = saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData)
-
-        logging_func({"INFO"}, "saveStaticModel 9")
 
         if fMaterial.isTexLarge[0] or fMaterial.isTexLarge[1]:
             saveMeshWithLargeTexturesByFaces(
@@ -530,20 +498,11 @@ def saveStaticModel(
                 None,
             )
 
-        logging_func({"INFO"}, "saveStaticModel 10")
-
-    logging_func({"INFO"}, "saveStaticModel 11")
-
     for drawLayer, fMesh in fMeshes.items():
         if revertMatAtEnd:
             revertMatAndEndDraw(fMesh.draw, [])
         else:
             fModel.endDraw(fMesh, obj)
-
-        logging_func({"INFO"}, "saveStaticModel 12")
-
-    logging_func({"INFO"}, "saveStaticModel 13")
-
     return fMeshes
 
 
@@ -570,18 +529,18 @@ def addCullCommand(obj, fMesh, transformMatrix, matWriteMethod):
         defaults = create_or_get_world(bpy.context.scene).rdp_defaults
         if defaults.g_lighting:
             cullCommands = [
-                SPClearGeometryMode(["G_LIGHTING"]),
+                SPClearGeometryMode({"G_LIGHTING"}),
                 SPVertex(fMesh.cullVertexList, 0, 8, 0),
-                SPSetGeometryMode(["G_LIGHTING"]),
+                SPSetGeometryMode({"G_LIGHTING"}),
                 SPCullDisplayList(0, 7),
             ]
         else:
             cullCommands = [SPVertex(fMesh.cullVertexList, 0, 8, 0), SPCullDisplayList(0, 7)]
     elif matWriteMethod == GfxMatWriteMethod.WriteAll:
         cullCommands = [
-            SPClearGeometryMode(["G_LIGHTING"]),
+            SPClearGeometryMode({"G_LIGHTING"}),
             SPVertex(fMesh.cullVertexList, 0, 8, 0),
-            SPSetGeometryMode(["G_LIGHTING"]),
+            SPSetGeometryMode({"G_LIGHTING"}),
             SPCullDisplayList(0, 7),
         ]
     else:
@@ -933,6 +892,34 @@ class TriangleConverterInfo:
         return self.transformMatrix @ groupMatrix
 
 
+def cel_shading_checks(f3d_mat):
+    cel = f3d_mat.cel_shading
+    if f3d_mat.rdp_settings.zmode != "ZMODE_OPA":
+        raise PluginError("When using cel shading, the zmode in the blender / rendermode must be opaque.")
+    if len(cel.levels) == 0:
+        raise PluginError("Cel shading has no cel levels")
+
+    # Don't want to have to change back and forth arbitrarily between decal and
+    # opaque mode. So if you're using both lighter and darker, need to do those
+    # first before switching to decal.
+    wrote_dark = wrote_light = uses_decal = False
+    for level in cel.levels:
+        if level.threshMode == "Darker":
+            if wrote_dark:
+                uses_decal = True
+                continue
+            wrote_dark = True
+        else:
+            if wrote_light:
+                uses_decal = True
+                continue
+            wrote_light = True
+        if uses_decal:
+            raise PluginError("Must use Lighter and Darker cel levels before duplicating either of them")
+
+    return uses_decal
+
+
 # existingVertexData is used for cases where we want to assume the presence of vertex data
 # loaded in from a previous matrix transform (ex. sm64 skinning)
 class TriangleConverter:
@@ -1069,33 +1056,10 @@ class TriangleConverter:
         cel = f3dMat.cel_shading
         f3d = get_F3D_GBI()
 
-        # Don't want to have to change back and forth arbitrarily between decal and
-        # opaque mode. So if you're using both lighter and darker, need to do those
-        # first before switching to decal.
-        if f3dMat.rdp_settings.zmode != "ZMODE_OPA":
-            raise PluginError(
-                f"Material {self.material.name} with cel shading: zmode in blender / rendermode must be opaque."
-            )
-        wroteLighter = wroteDarker = usesDecal = False
-        if len(cel.levels) == 0:
-            raise PluginError(f"Material {self.material.name} with cel shading has no cel levels")
-        for level in cel.levels:
-            if level.threshMode == "Darker":
-                if wroteDarker:
-                    usesDecal = True
-                elif usesDecal:
-                    raise PluginError(
-                        f"Material {self.material.name}: must use Lighter and Darker cel levels before duplicating either of them"
-                    )
-                wroteDarker = True
-            else:
-                if wroteLighter:
-                    usesDecal = True
-                elif usesDecal:
-                    raise PluginError(
-                        f"Material {self.material.name}: must use Lighter and Darker cel levels before duplicating either of them"
-                    )
-                wroteLighter = True
+        try:
+            usesDecal = cel_shading_checks(f3dMat)
+        except Exception as exc:
+            raise PluginError(f"Material {self.material.name}: {str(exc)}") from exc
 
         # Because this might not be the first tri list in the object with this
         # material, we have to set things even if they were set up already in
@@ -1108,10 +1072,10 @@ class TriangleConverter:
             if usesDecal:
                 if not wroteOpaque:
                     wroteOpaque = True
-                    self.triList.commands.append(SPSetOtherMode("G_SETOTHERMODE_L", 10, 2, ["ZMODE_OPA"]))
+                    self.triList.commands.append(SPSetOtherMode("G_SETOTHERMODE_L", 10, 2, {"ZMODE_OPA"}))
                 if not wroteDecal and (darker and wroteDarker or not darker and wroteLighter):
                     wroteDecal = True
-                    self.triList.commands.append(SPSetOtherMode("G_SETOTHERMODE_L", 10, 2, ["ZMODE_DEC"]))
+                    self.triList.commands.append(SPSetOtherMode("G_SETOTHERMODE_L", 10, 2, {"ZMODE_DEC"}))
             if darker:
                 wroteDarker = True
             else:
@@ -1309,37 +1273,18 @@ defaultLighting = [
 
 def getTexDimensions(material):
     f3dMat = material.f3d_mat
-
-    texDimensions0 = None
-    texDimensions1 = None
     useDict = all_combiner_uses(f3dMat)
-    if useDict["Texture 0"] and f3dMat.tex0.tex_set:
-        if f3dMat.tex0.use_tex_reference:
-            texDimensions0 = f3dMat.tex0.tex_reference_size
-        else:
-            if f3dMat.tex0.tex is None:
-                raise PluginError('In material "' + material.name + '", a texture has not been set.')
-            texDimensions0 = f3dMat.tex0.tex.size[0], f3dMat.tex0.tex.size[1]
-    if useDict["Texture 1"] and f3dMat.tex1.tex_set:
-        if f3dMat.tex1.use_tex_reference:
-            texDimensions1 = f3dMat.tex1.tex_reference_size
-        else:
-            if f3dMat.tex1.tex is None:
-                raise PluginError('In material "' + material.name + '", a texture has not been set.')
-            texDimensions1 = f3dMat.tex1.tex.size[0], f3dMat.tex1.tex.size[1]
 
-    if texDimensions0 is not None and texDimensions1 is not None:
-        texDimensions = texDimensions0 if f3dMat.uv_basis == "TEXEL0" else texDimensions1
-    elif texDimensions0 is not None:
-        texDimensions = texDimensions0
-    elif texDimensions1 is not None:
-        texDimensions = texDimensions1
-    else:
-        texDimensions = [32, 32]
-    return texDimensions
+    if useDict["Texture 0"] and f3dMat.tex0.tex_set and not f3dMat.tex0.tex:
+        raise PluginError('In material "' + material.name + '", texture 0 has not been set.')
+    if useDict["Texture 1"] and f3dMat.tex1.tex_set and not f3dMat.tex1.tex:
+        raise PluginError('In material "' + material.name + '", texture 1 has not been set.')
+
+    return get_tex_basis_size(f3dMat)
 
 
-def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
+@wrap_func_with_error_message(lambda args: (f"In material '{args['material'].name}': "))
+def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
     print(f"Writing material {material.name}")
     if material.mat_ver > 3:
         f3dMat = material.f3d_mat
@@ -1358,8 +1303,6 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     if materialItem is not None:
         return materialItem
 
-    if len(obj.data.materials) == 0:
-        raise PluginError("Mesh must have at least one material.")
     materialName = (
         fModel.name
         + "_"
@@ -1369,15 +1312,12 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     )
 
     if not material.is_f3d:
-        raise PluginError("Material named " + material.name + " is not an F3D material.")
+        raise PluginError("Not an F3D material.")
     fMaterial = fModel.addMaterial(materialName)
     useDict = all_combiner_uses(f3dMat)
 
     defaults = create_or_get_world(bpy.context.scene).rdp_defaults
-    if fModel.f3d.F3DEX_GBI_2:
-        saveGeoModeDefinitionF3DEX2(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod)
-    else:
-        saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod)
+    fMaterial.mat_only_DL.commands.append(DPPipeSync())
 
     # Checking for f3dMat.rdp_settings.g_lighting here will prevent accidental exports,
     # There may be some edge case where this isn't desired.
@@ -1391,8 +1331,8 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
             fLights = saveLightsDefinition(fModel, fMaterial, f3dMat, materialName + "_lights")
             fMaterial.mat_only_DL.commands.extend([SPSetLights(fLights)])
 
-    fMaterial.mat_only_DL.commands.append(DPPipeSync())
-    fMaterial.revert.commands.append(DPPipeSync())
+    if fMaterial.revert is not None:
+        fMaterial.revert.commands.append(DPPipeSync())
 
     fMaterial.getScrollData(material, getMaterialScrollDimensions(f3dMat))
 
@@ -1440,6 +1380,8 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
                 )
             )
 
+    saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
+
     if f3dMat.set_ao:
         fMaterial.mat_only_DL.commands.append(
             SPAmbOcclusion(
@@ -1468,8 +1410,9 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         fMaterial.mat_only_DL.commands.append(SPAttrOffsetZ(f3dMat.attroffs_z))
 
     if f3dMat.set_fog and f3dMat.rdp_settings.using_fog:
-        if f3dMat.use_global_fog and fModel.global_data.getCurrentAreaData() is not None:
-            fogData = fModel.global_data.getCurrentAreaData().fog_data
+        area = fModel.global_data.getCurrentAreaData()
+        if f3dMat.use_global_fog and area and area.fog_data:
+            fogData = area.fog_data
             fog_position = fogData.position
             fog_color = fogData.color
         else:
@@ -1518,13 +1461,25 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     nodes = material.node_tree.nodes
     if useDict["Primitive"] and f3dMat.set_prim:
         color = exportColor(f3dMat.prim_color[0:3]) + [scaleToU8(f3dMat.prim_color[3])]
-        fMaterial.mat_only_DL.commands.append(
-            DPSetPrimColor(scaleToU8(f3dMat.prim_lod_min), scaleToU8(f3dMat.prim_lod_frac), *color)
+        fMaterial.texture_DL.commands.append(
+            DPSetPrimColor(
+                scaleToU8(f3dMat.prim_lod_min),
+                scaleToU8(f3dMat.prim_lod_frac),
+                *color,
+                cosmeticEntry=f3dMat.prim_dynamic_entry_name if f3dMat.prim_dynamic_entry else "",
+                cosmeticCategory=f3dMat.prim_dynamic_entry_category if f3dMat.prim_dynamic_entry else "",
+            )
         )
 
     if useDict["Environment"] and f3dMat.set_env:
         color = exportColor(f3dMat.env_color[0:3]) + [scaleToU8(f3dMat.env_color[3])]
-        fMaterial.mat_only_DL.commands.append(DPSetEnvColor(*color))
+        fMaterial.mat_only_DL.commands.append(
+            DPSetEnvColor(
+                *color,
+                cosmeticEntry=f3dMat.env_dynamic_entry_name if f3dMat.env_dynamic_entry else "",
+                cosmeticCategory=f3dMat.env_dynamic_entry_category if f3dMat.env_dynamic_entry else "",
+            )
+        )
 
     if useDict["Key"] and f3dMat.set_key:
         if material.mat_ver >= 4:
@@ -1575,7 +1530,7 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         fMaterial.material.commands.append(SPEndDisplayList())
 
     # revertMatAndEndDraw(fMaterial.revert)
-    if len(fMaterial.revert.commands) > 1:  # 1 being the pipe sync
+    if fMaterial.revert is not None and len(fMaterial.revert.commands) > 1:  # 1 being the pipe sync
         if fMaterial.DLFormat == DLFormat.Static:
             fMaterial.revert.commands.append(SPEndDisplayList())
     else:
@@ -1601,20 +1556,13 @@ def getLightDefinitions(fModel, material, lightsName=""):
     else:
         lights.a = Ambient(exportColor(material.ambient_light_color))
 
-        if material.f3d_light1 is not None:
-            addLightDefinition(material, material.f3d_light1, lights)
-        if material.f3d_light2 is not None:
-            addLightDefinition(material, material.f3d_light2, lights)
-        if material.f3d_light3 is not None:
-            addLightDefinition(material, material.f3d_light3, lights)
-        if material.f3d_light4 is not None:
-            addLightDefinition(material, material.f3d_light4, lights)
-        if material.f3d_light5 is not None:
-            addLightDefinition(material, material.f3d_light5, lights)
-        if material.f3d_light6 is not None:
-            addLightDefinition(material, material.f3d_light6, lights)
-        if material.f3d_light7 is not None:
-            addLightDefinition(material, material.f3d_light7, lights)
+        for i in range(1, 8):
+            try:
+                light_prop = getattr(material, f"f3d_light{i}")
+                if light_prop is not None:
+                    addLightDefinition(light_prop, lights)
+            except Exception as exc:
+                raise PluginError(f"Failed to get custom light {i}: {exc}") from exc
 
     return lights
 
@@ -1632,7 +1580,7 @@ def saveLightsDefinition(fModel, fMaterial, material, lightsName):
     return lights
 
 
-def addLightDefinition(mat, f3d_light, fLights):
+def addLightDefinition(f3d_light, fLights):
     lightObj = lightDataToObj(f3d_light)
     fLights.l.append(
         Light(
@@ -1642,20 +1590,12 @@ def addLightDefinition(mat, f3d_light, fLights):
     )
 
 
-def saveBitGeoF3DEX2(value, defaultValue, flagName, geo, matWriteMethod):
+def saveBitGeo(value, defaultValue, flagName, set_modes: list[str], clear_modes: list[str], matWriteMethod):
     if value != defaultValue or matWriteMethod == GfxMatWriteMethod.WriteAll:
         if value:
-            geo.setFlagList.append(flagName)
+            set_modes.append(flagName)
         else:
-            geo.clearFlagList.append(flagName)
-
-
-def saveBitGeo(value, defaultValue, flagName, setGeo, clearGeo, matWriteMethod):
-    if value != defaultValue or matWriteMethod == GfxMatWriteMethod.WriteAll:
-        if value:
-            setGeo.flagList.append(flagName)
-        else:
-            clearGeo.flagList.append(flagName)
+            clear_modes.append(flagName)
 
 
 def saveGeoModeCommon(saveFunc: Callable, settings: RDPSettings, defaults: RDPSettings, args: Any):
@@ -1682,43 +1622,25 @@ def saveGeoModeCommon(saveFunc: Callable, settings: RDPSettings, defaults: RDPSe
         saveFunc(settings.g_clipping, defaults.g_clipping, "G_CLIPPING", *args)
 
 
-def saveGeoModeDefinitionF3DEX2(fMaterial, settings, defaults, matWriteMethod):
-    geo = SPGeometryMode([], [])
-    saveGeoModeCommon(saveBitGeoF3DEX2, settings, defaults, (geo, matWriteMethod))
+def saveGeoModeDefinition(fMaterial, settings, defaults, matWriteMethod, is_ex2: bool):
+    set_modes = []
+    clear_modes = []
 
-    if len(geo.clearFlagList) != 0 or len(geo.setFlagList) != 0:
-        if len(geo.clearFlagList) == 0:
-            geo.clearFlagList.append("0")
-        elif len(geo.setFlagList) == 0:
-            geo.setFlagList.append("0")
+    saveGeoModeCommon(saveBitGeo, settings, defaults, (set_modes, clear_modes, matWriteMethod))
 
-        if matWriteMethod == GfxMatWriteMethod.WriteAll:
-            fMaterial.mat_only_DL.commands.append(SPLoadGeometryMode(geo.setFlagList))
-        else:
-            fMaterial.mat_only_DL.commands.append(geo)
-            fMaterial.revert.commands.append(SPGeometryMode(geo.setFlagList, geo.clearFlagList))
+    material, revert = get_geo_cmds(clear_modes, set_modes, is_ex2, matWriteMethod)
+    fMaterial.mat_only_DL.commands.extend(material)
 
-
-def saveGeoModeDefinition(fMaterial, settings, defaults, matWriteMethod):
-    setGeo = SPSetGeometryMode([])
-    clearGeo = SPClearGeometryMode([])
-
-    saveGeoModeCommon(saveBitGeo, settings, defaults, (setGeo, clearGeo, matWriteMethod))
-
-    if len(setGeo.flagList) > 0:
-        fMaterial.mat_only_DL.commands.append(setGeo)
-        if matWriteMethod == GfxMatWriteMethod.WriteDifferingAndRevert:
-            fMaterial.revert.commands.append(SPClearGeometryMode(setGeo.flagList))
-    if len(clearGeo.flagList) > 0:
-        fMaterial.mat_only_DL.commands.append(clearGeo)
-        if matWriteMethod == GfxMatWriteMethod.WriteDifferingAndRevert:
-            fMaterial.revert.commands.append(SPSetGeometryMode(clearGeo.flagList))
+    if fMaterial.revert is not None:
+        fMaterial.revert.commands.extend(revert)
 
 
 def saveModeSetting(fMaterial, value, defaultValue, cmdClass):
     if value != defaultValue:
         fMaterial.mat_only_DL.commands.append(cmdClass(value))
-        fMaterial.revert.commands.append(cmdClass(defaultValue))
+
+        if fMaterial.revert is not None:
+            fMaterial.revert.commands.append(cmdClass(defaultValue))
 
 
 def saveOtherModeHDefinition(fMaterial, settings, tlut, defaults, matWriteMethod, f3d):
@@ -1731,18 +1653,18 @@ def saveOtherModeHDefinition(fMaterial, settings, tlut, defaults, matWriteMethod
 
 
 def saveOtherModeHDefinitionAll(fMaterial, settings, tlut, defaults, f3d):
-    cmd = SPSetOtherMode("G_SETOTHERMODE_H", 4, 20 - f3d.F3D_OLD_GBI, [])
-    cmd.flagList.append(settings.g_mdsft_alpha_dither)
-    cmd.flagList.append(settings.g_mdsft_rgb_dither)
-    cmd.flagList.append(settings.g_mdsft_combkey)
-    cmd.flagList.append(settings.g_mdsft_textconv)
-    cmd.flagList.append(settings.g_mdsft_text_filt)
-    cmd.flagList.append(tlut)
-    cmd.flagList.append(settings.g_mdsft_textlod)
-    cmd.flagList.append(settings.g_mdsft_textdetail)
-    cmd.flagList.append(settings.g_mdsft_textpersp)
-    cmd.flagList.append(settings.g_mdsft_cycletype)
-    cmd.flagList.append(settings.g_mdsft_pipeline)
+    cmd = SPSetOtherMode("G_SETOTHERMODE_H", 4, 20 - f3d.F3D_OLD_GBI, set())
+    cmd.flagList.add(settings.g_mdsft_alpha_dither)
+    cmd.flagList.add(settings.g_mdsft_rgb_dither)
+    cmd.flagList.add(settings.g_mdsft_combkey)
+    cmd.flagList.add(settings.g_mdsft_textconv)
+    cmd.flagList.add(settings.g_mdsft_text_filt)
+    cmd.flagList.add(tlut)
+    cmd.flagList.add(settings.g_mdsft_textlod)
+    cmd.flagList.add(settings.g_mdsft_textdetail)
+    cmd.flagList.add(settings.g_mdsft_textpersp)
+    cmd.flagList.add(settings.g_mdsft_cycletype)
+    cmd.flagList.add(settings.g_mdsft_pipeline)
 
     fMaterial.mat_only_DL.commands.append(cmd)
 
@@ -1763,57 +1685,62 @@ def saveOtherModeHDefinitionIndividual(fMaterial, settings, tlut, defaults):
 
 def saveOtherModeLDefinition(fMaterial, settings, defaults, defaultRenderMode, matWriteMethod, f3d):
     if matWriteMethod == GfxMatWriteMethod.WriteAll:
-        saveOtherModeLDefinitionAll(fMaterial, settings, defaults, f3d)
+        saveOtherModeLDefinitionAll(fMaterial, settings, defaults, defaultRenderMode, f3d)
     elif matWriteMethod == GfxMatWriteMethod.WriteDifferingAndRevert:
         saveOtherModeLDefinitionIndividual(fMaterial, settings, defaults, defaultRenderMode)
     else:
         raise PluginError("Unhandled material write method: " + str(matWriteMethod))
 
 
-def saveOtherModeLDefinitionAll(fMaterial: FMaterial, settings, defaults, f3d):
-    baseLength = 3 if not settings.set_rendermode else 32
-    cmd = SPSetOtherMode("G_SETOTHERMODE_L", 0, baseLength - f3d.F3D_OLD_GBI, [])
-    cmd.flagList.append(settings.g_mdsft_alpha_compare)
-    cmd.flagList.append(settings.g_mdsft_zsrcsel)
-
-    if settings.set_rendermode:
-        flagList, blendList = getRenderModeFlagList(settings, fMaterial)
-        cmd.flagList.extend(flagList)
-        if blendList is not None:
-            cmd.flagList.extend(
-                [
-                    "GBL_c1(" + blendList[0] + ", " + blendList[1] + ", " + blendList[2] + ", " + blendList[3] + ")",
-                    "GBL_c2(" + blendList[4] + ", " + blendList[5] + ", " + blendList[6] + ", " + blendList[7] + ")",
-                ]
-            )
-
-    fMaterial.mat_only_DL.commands.append(cmd)
+def saveOtherModeLDefinitionAll(fMaterial: FMaterial, settings, defaults, defaultRenderMode, f3d):
+    cmd = SPSetOtherMode("G_SETOTHERMODE_L", 0, (32 if settings.set_rendermode else 3) - f3d.F3D_OLD_GBI, set())
+    cmd.flagList.add(settings.g_mdsft_alpha_compare)
+    cmd.flagList.add(settings.g_mdsft_zsrcsel)
 
     if settings.g_mdsft_zsrcsel == "G_ZS_PRIM":
         fMaterial.mat_only_DL.commands.append(DPSetPrimDepth(z=settings.prim_depth.z, dz=settings.prim_depth.dz))
+
+    if settings.set_rendermode:
+        if defaultRenderMode:
+            revert_cmd = SPSetOtherMode(
+                "G_SETOTHERMODE_L",
+                0,
+                32 - f3d.F3D_OLD_GBI,
+                {*defaultRenderMode, defaults.g_mdsft_alpha_compare, defaults.g_mdsft_zsrcsel},
+            )
+
+            if fMaterial.revert is not None:
+                fMaterial.revert.commands.append(revert_cmd)
+        flagList, blender = getRenderModeFlagList(settings, fMaterial)
+        cmd.flagList.update(flagList)
+        if blender is not None:
+            cmd.flagList.add(blender)
+
+    fMaterial.mat_only_DL.commands.append(cmd)
 
 
 def saveOtherModeLDefinitionIndividual(fMaterial, settings, defaults, defaultRenderMode):
     saveModeSetting(fMaterial, settings.g_mdsft_alpha_compare, defaults.g_mdsft_alpha_compare, DPSetAlphaCompare)
-
     saveModeSetting(fMaterial, settings.g_mdsft_zsrcsel, defaults.g_mdsft_zsrcsel, DPSetDepthSource)
 
     if settings.g_mdsft_zsrcsel == "G_ZS_PRIM":
         fMaterial.mat_only_DL.commands.append(DPSetPrimDepth(z=settings.prim_depth.z, dz=settings.prim_depth.dz))
-        fMaterial.revert.commands.append(DPSetPrimDepth())
+
+        if fMaterial.revert is not None:
+            fMaterial.revert.commands.append(DPSetPrimDepth())
 
     if settings.set_rendermode:
-        flagList, blendList = getRenderModeFlagList(settings, fMaterial)
-        renderModeSet = DPSetRenderMode(flagList, blendList)
+        flagList, blender = getRenderModeFlagList(settings, fMaterial)
+        renderModeSet = DPSetRenderMode(flagList, blender)
 
         fMaterial.mat_only_DL.commands.append(renderModeSet)
-        if defaultRenderMode is not None:
+        if defaultRenderMode is not None and fMaterial.revert is not None:
             fMaterial.revert.commands.append(DPSetRenderMode(defaultRenderMode, None))
 
 
 def getRenderModeFlagList(settings, fMaterial):
     flagList = []
-    blendList = None
+    blender = None
     # cycle independent
 
     if not settings.rendermode_advanced_enabled:
@@ -1830,28 +1757,13 @@ def getRenderModeFlagList(settings, fMaterial):
                 cycle2 = "G_RM_NOOP"
             flagList = [settings.rendermode_preset_cycle_1, cycle2]
     else:
+        cycle1 = (settings.blend_p1, settings.blend_a1, settings.blend_m1, settings.blend_b1)
         if settings.g_mdsft_cycletype == "G_CYC_2CYCLE":
-            blendList = [
-                settings.blend_p1,
-                settings.blend_a1,
-                settings.blend_m1,
-                settings.blend_b1,
-                settings.blend_p2,
-                settings.blend_a2,
-                settings.blend_m2,
-                settings.blend_b2,
-            ]
+            blender = RendermodeBlender(
+                cycle1, (settings.blend_p2, settings.blend_a2, settings.blend_m2, settings.blend_b2)
+            )
         else:
-            blendList = [
-                settings.blend_p1,
-                settings.blend_a1,
-                settings.blend_m1,
-                settings.blend_b1,
-                settings.blend_p1,
-                settings.blend_a1,
-                settings.blend_m1,
-                settings.blend_b1,
-            ]
+            blender = RendermodeBlender(cycle1, cycle1)
 
         if settings.aa_en:
             flagList.append("AA_EN")
@@ -1874,14 +1786,16 @@ def getRenderModeFlagList(settings, fMaterial):
         if settings.force_bl:
             flagList.append("FORCE_BL")
 
-    return flagList, blendList
+    return tuple(flagList), blender
 
 
 def saveOtherDefinition(fMaterial, material, defaults):
     settings = material.rdp_settings
     if settings.clip_ratio != defaults.clip_ratio:
         fMaterial.mat_only_DL.commands.append(SPClipRatio(settings.clip_ratio))
-        fMaterial.revert.commands.append(SPClipRatio(defaults.clip_ratio))
+
+        if fMaterial.revert is not None:
+            fMaterial.revert.commands.append(SPClipRatio(defaults.clip_ratio))
 
     if material.set_blend:
         fMaterial.mat_only_DL.commands.append(
@@ -1909,71 +1823,9 @@ def getWriteMethodFromEnum(enumVal):
         return matWriteMethodEnumDict[enumVal]
 
 
-def exportF3DtoXML(
-    dirPath,
-    obj,
-    DLFormat,
-    transformMatrix,
-    texDir,
-    objectPath,
-    savePNG,
-    texSeparate,
-    name,
-    matWriteMethod,
-    logging_func,
-):
-    logging_func({"INFO"}, "exportF3DtoXML 0")
-    fModel = FModel(name, DLFormat, matWriteMethod)
-    logging_func({"INFO"}, "exportF3DtoXML 1")
-    fMesh = exportF3DCommon(obj, fModel, transformMatrix, True, name, DLFormat, not savePNG)
-
-    logging_func({"INFO"}, "exportF3DtoXML 2")
-
-    modelDirPath = os.path.join(dirPath, objectPath)
-
-    logging_func({"INFO"}, "exportF3DtoXML 3")
-
-    if not os.path.exists(modelDirPath):
-        os.makedirs(modelDirPath)
-
-    logging_func({"INFO"}, "exportF3DtoXML 4")
-
-    # gfxFormatter = GfxFormatter(ScrollMethod.Vertex, 64)
-    exportData = fModel.to_xml(modelDirPath, objectPath, logging_func)
-
-    logging_func({"INFO"}, "exportF3DtoXML 5")
-
-    staticData = exportData
-    # dynamicData = exportData.dynamicData
-    # texC = exportData.textureData
-
-    # if DLFormat == DLFormat.Static:
-    # staticData.append(dynamicData)
-    # else:
-    # geoString = writeMaterialFiles(
-    #    dirPath,
-    #    modelDirPath,
-    #    '#include "actors/' + toAlnum(name) + '/header.h"',
-    #    '#include "actors/' + toAlnum(name) + '/material.inc.h"',
-    #    dynamicData.header,
-    #    dynamicData.source,
-    #    "",
-    #    True,
-    # )
-
-    # if texSeparate:
-    # texCFile = open(os.path.join(modelDirPath, "texture.inc.c"), "w", newline="\n")
-    # texCFile.write(texC.source)
-    # texCFile.close()
-
-    writeXMLData(staticData, os.path.join(modelDirPath, "model.xml"))
-
-    logging_func({"INFO"}, "exportF3DtoXML 6")
-
-
 def exportF3DtoC(dirPath, obj, DLFormat, transformMatrix, texDir, savePNG, texSeparate, name, matWriteMethod):
     inline = bpy.context.scene.exportInlineF3D
-    fModel = FModel(name, DLFormat, matWriteMethod if not inline else GfxMatWriteMethod.WriteAll)
+    fModel = FModel(name, DLFormat, matWriteMethod)
     fMeshes = exportF3DCommon(obj, fModel, transformMatrix, True, name, DLFormat, not savePNG)
 
     if inline:
@@ -2037,112 +1889,8 @@ def removeDL(sourcePath, headerPath, DLName):
         writeFile(headerPath, DLDataH)
 
 
-class F3D_ExportDL(bpy.types.Operator):
-    # set bl_ properties
-    bl_idname = "object.f3d_export_dl"
-    bl_label = "Export Display List"
-    bl_options = {"REGISTER", "UNDO", "PRESET"}
-
-    # Called on demand (i.e. button press, menu item)
-    # Can also be called from operator search menu (Spacebar)
-    def execute(self, context):
-        self.report({"INFO"}, "F3D_ExportDL 0")
-        if context.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
-        try:
-            allObjs = context.selected_objects
-            if len(allObjs) == 0:
-                raise PluginError("No objects selected.")
-            self.report({"INFO"}, "F3D_ExportDL 1")
-            obj = context.selected_objects[0]
-            if obj.type != "MESH":
-                raise PluginError("Object is not a mesh.")
-            self.report({"INFO"}, "F3D_ExportDL 2")
-
-            scaleValue = bpy.context.scene.blenderF3DScale
-            finalTransform = mathutils.Matrix.Diagonal(mathutils.Vector((scaleValue, scaleValue, scaleValue))).to_4x4()
-
-        except Exception as e:
-            raisePluginError(self, e)
-            return {"CANCELLED"}
-
-        self.report({"INFO"}, "F3D_ExportDL 3")
-
-        try:
-            applyRotation([obj], math.radians(90), "X")
-
-            self.report({"INFO"}, "F3D_ExportDL 4")
-            exportPath = bpy.path.abspath(context.scene.DLExportPath)
-            dlFormat = DLFormat.Static if context.scene.DLExportisStatic else DLFormat.Dynamic
-            texDir = bpy.context.scene.DLTexDir
-            objectPath = bpy.context.scene.internalObjectPath
-            savePNG = bpy.context.scene.saveTextures
-            separateTexDef = bpy.context.scene.DLSeparateTextureDef
-            DLName = toAlnum(bpy.context.scene.DLName)
-            matWriteMethod = getWriteMethodFromEnum(context.scene.matWriteMethod)
-            self.report({"INFO"}, "F3D_ExportDL 5")
-
-            if bpy.context.scene.fast64.oot.featureSet == "HM64":
-                self.report({"INFO"}, "F3D_ExportDL 6")
-                exportF3DtoXML(
-                    exportPath,
-                    obj,
-                    dlFormat,
-                    finalTransform,
-                    texDir,
-                    objectPath,
-                    savePNG,
-                    separateTexDef,
-                    DLName,
-                    matWriteMethod,
-                    self.report,
-                )
-                self.report({"INFO"}, "F3D_ExportDL 7")
-            elif bpy.context.scene.fast64.mk64.featureSet == "HM64":
-                self.report({"INFO"}, "F3D_ExportDL 6")
-                exportF3DtoXML(
-                    exportPath,
-                    obj,
-                    dlFormat,
-                    finalTransform,
-                    texDir,
-                    objectPath,
-                    savePNG,
-                    separateTexDef,
-                    DLName,
-                    matWriteMethod,
-                    self.report,
-                )
-                self.report({"INFO"}, "F3D_ExportDL 7")
-            else:
-                exportF3DtoC(
-                    exportPath,
-                    obj,
-                    dlFormat,
-                    finalTransform,
-                    texDir,
-                    savePNG,
-                    separateTexDef,
-                    DLName,
-                    matWriteMethod,
-                )
-
-            self.report({"INFO"}, "Success!")
-
-            applyRotation([obj], math.radians(-90), "X")
-            return {"FINISHED"}  # must return a set
-
-        except Exception as e:
-            if context.mode != "OBJECT":
-                bpy.ops.object.mode_set(mode="OBJECT")
-            applyRotation([obj], math.radians(-90), "X")
-
-            raisePluginError(self, e)
-            return {"CANCELLED"}  # must return a set
-
-
-class F3D_ExportDLPanel(bpy.types.Panel):
-    bl_idname = "F3D_PT_export_dl"
+class Fast64_DLRedirectPanel(bpy.types.Panel):
+    bl_idname = "FAST64_PT_f3d_redirect"
     bl_label = "F3D Exporter"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -2153,27 +1901,13 @@ class F3D_ExportDLPanel(bpy.types.Panel):
     def poll(cls, context):
         return True
 
-    # called every frame
     def draw(self, context):
         col = self.layout.column()
-        col.operator(F3D_ExportDL.bl_idname)
-
-        prop_split(col, context.scene, "DLName", "Name")
-        prop_split(col, context.scene, "internalObjectPath", "Internal Game Path")
-        prop_split(col, context.scene, "DLExportPath", "Export Path")
-        prop_split(col, context.scene, "blenderF3DScale", "Scale")
-        prop_split(col, context.scene, "matWriteMethod", "Material Write Method")
-        col.prop(context.scene, "DLExportisStatic")
-
-        if context.scene.saveTextures:
-            prop_split(col, context.scene, "DLTexDir", "Texture Include Path")
-            col.prop(context.scene, "DLSeparateTextureDef")
+        col.label(text="The DL exporter has been relocated.")
+        col.label(text="Use the DL Exporter in the OOT/MM tab instead.")
 
 
-f3d_writer_classes = (
-    F3D_ExportDL,
-    F3D_ExportDLPanel,
-)
+f3d_writer_classes = (Fast64_DLRedirectPanel,)
 
 
 def f3d_writer_register():
@@ -2181,10 +1915,15 @@ def f3d_writer_register():
         register_class(cls)
 
     bpy.types.Scene.matWriteMethod = bpy.props.EnumProperty(items=enumMatWriteMethod)
+    bpy.types.Scene.DLExportPath = bpy.props.StringProperty(name="Directory", subtype="FILE_PATH")
+    bpy.types.Scene.DLTexDir = bpy.props.StringProperty(name="Include Path", default="levels/bob")
 
 
 def f3d_writer_unregister():
     for cls in reversed(f3d_writer_classes):
         unregister_class(cls)
 
+    del bpy.types.Scene.DLTexDir
+    del bpy.types.Scene.DLExportPath
     del bpy.types.Scene.matWriteMethod
+
