@@ -68,9 +68,9 @@ from .fast64_internal.gltf_extension import (
 
 # info about add on
 bl_info = {
-    "name": "Fast64",
-    "version": (2, 5, 0),
-    "author": "kurethedead",
+    "name": "Fast64 (SoH/2S2H)",
+    "version": (2, 5, 2),
+    "author": "kurethedead, Jameriquiah",
     "location": "3DView",
     "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games. Modified for HM64 Ship of Harkinian.",
     "category": "Import-Export",
