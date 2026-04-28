@@ -1439,15 +1439,15 @@ def register(bl_info):
         return
     updater.clear_state()  # Clear internal vars, avoids reloading oddities.
 
-    # https://github.com/Jameriquiah/fast64 (hm64 branch)
+    # https://github.com/HarbourMasters/fast64 (main branch)
     updater.engine = "Github"
-    updater.user = "Jameriquiah"
+    updater.user = "HarbourMasters"
     updater.repo = "fast64"
 
     # updater.addon = # define at top of module, MUST be done first
 
     # Website for manual addon download, optional but recommended to set.
-    updater.website = "https://github.com/Jameriquiah/fast64"
+    updater.website = "https://github.com/HarbourMasters/fast64"
 
     # Used to check/compare versions.
     updater.current_version = bl_info["version"]
@@ -1523,7 +1523,7 @@ def register(bl_info):
     # Note: updater.include_branch_list defaults to ['master'] branch if set to
     # none. Example targeting another multiple branches allowed to pull from:
     # updater.include_branch_list = ['master', 'dev']
-    updater.include_branch_list = ["hm64"]
+    updater.include_branch_list = ["main"]
 
     # Only allow manual install, thus prompting the user to open
     # the addon's web page to download, specifically: updater.website

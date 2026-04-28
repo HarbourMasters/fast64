@@ -1,5 +1,4 @@
 import bpy
-
 from bpy.utils import register_class, unregister_class
 from bpy.path import abspath
 
@@ -27,7 +26,8 @@ from .fast64_internal.z64.props_panel_main import OOT_ObjectProperties
 from .fast64_internal.z64.actor.properties import initOOTActorProperties
 from .fast64_internal.utility_anim import utility_anim_register, utility_anim_unregister, ArmatureApplyWithMeshOperator
 
-from .fast64_internal.mk64 import MK64_Properties, mk64_register, mk64_unregister
+from .fast64_internal.mk64 import mk64_register, mk64_unregister
+from .fast64_internal.mk64.mk64_properties import MK64_ObjectProperties, MK64_Properties
 from .fast64_internal.mk64.mk64_constants import mk64_world_defaults
 
 from .fast64_internal.f3d.f3d_gbi import get_F3D_GBI
@@ -68,11 +68,11 @@ from .fast64_internal.gltf_extension import (
 
 # info about add on
 bl_info = {
-    "name": "Fast64 (SoH/2S2H)",
+    "name": "Fast64 (HM64)",
     "version": (2, 5, 2),
-    "author": "kurethedead, Jameriquiah",
+    "author": "kurethedead",
     "location": "3DView",
-    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games. Modified for HM64 Ship of Harkinian.",
+    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games.",
     "category": "Import-Export",
     "blender": (3, 2, 0),
 }
@@ -81,7 +81,7 @@ gameEditorEnum = (
     # ("SM64", "SM64", "Super Mario 64", 0),
     ("OOT", "OOT", "Ocarina Of Time", 1),
     ("MM", "MM", "Majora's Mask", 4),
-    # ("MK64", "MK64", "Mario Kart 64", 3),
+    ("MK64", "MK64", "Mario Kart 64", 3),
     # ("Homebrew", "Homebrew", "Homebrew", 2),
 )
 
@@ -290,7 +290,17 @@ class Fast64_ObjectProperties(bpy.types.PropertyGroup):
     """
 
     sm64: bpy.props.PointerProperty(type=SM64_ObjectProperties, name="SM64 Object Properties")
-    oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="Z64 Object Properties")  # TODO: rename oot to z64
+    oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="Z64 Object Properties")
+    mk64: bpy.props.PointerProperty(type=MK64_Properties, name="MK64 Object Properties")
+
+
+class Fast64_CurveProperties(bpy.types.PropertyGroup):
+    """
+    Properties in object.fast64 (bpy.types.Curve)
+    All new object properties should be children of this property group.
+    """
+
+    mk64: bpy.props.PointerProperty(type=MK64_Properties, name="MK64 Curve Properties")
 
 
 class UpgradeF3DMaterialsDialog(bpy.types.Operator):
@@ -346,6 +356,7 @@ classes = (
     Fast64_ActionProperties,
     Fast64_BoneProperties,
     Fast64_ObjectProperties,
+    Fast64_CurveProperties,
     F3D_GlobalSettingsPanel,
     Fast64_GlobalSettingsPanel,
     Fast64_GlobalToolsPanel,
@@ -497,6 +508,7 @@ def register():
     bpy.types.Scene.fast64 = bpy.props.PointerProperty(type=Fast64_Properties, name="Fast64 Properties")
     bpy.types.Bone.fast64 = bpy.props.PointerProperty(type=Fast64_BoneProperties, name="Fast64 Bone Properties")
     bpy.types.Object.fast64 = bpy.props.PointerProperty(type=Fast64_ObjectProperties, name="Fast64 Object Properties")
+    bpy.types.Curve.fast64 = bpy.props.PointerProperty(type=Fast64_CurveProperties, name="Fast64 Curve Properties")
     bpy.types.Action.fast64 = bpy.props.PointerProperty(type=Fast64_ActionProperties, name="Fast64 Action Properties")
     bpy.app.handlers.load_post.append(after_load)
 

@@ -6946,7 +6946,7 @@ material_presets = {
         "sm64_vertex_colored_texture": sm64_vertex_colored_texture,
         "sm64_vertex_colored_texture_transparent": sm64_vertex_colored_texture_transparent,
     },
-    "mk64": {
+    "mk64": { # DO NOT DELETE THIS SECTION (unless you tested and found an unsupported one)
         "shaded_environment_mapped": shaded_environment_mapped,
         "shaded_environment_mapped_transparent": shaded_environment_mapped_transparent,
         "shaded_multitexture_lerp": shaded_multitexture_lerp,
