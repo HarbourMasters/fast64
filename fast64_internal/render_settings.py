@@ -291,7 +291,7 @@ class Fast64RenderSettings_Properties(bpy.types.PropertyGroup):
     )
     enableFogPreview: bpy.props.BoolProperty(
         name="Enable Fog Preview",
-        default=True,
+        default=False,
         update=on_update_render_settings,
     )
     fogPreviewColor: bpy.props.FloatVectorProperty(
