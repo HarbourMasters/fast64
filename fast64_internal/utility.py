@@ -1,19 +1,55 @@
-import bpy, random, string, os, math, traceback, re, os, mathutils, ast, operator
+from pathlib import Path
+import bpy, random, string, os, math, traceback, re, os, mathutils, ast, operator, inspect
 from math import pi, ceil, degrees, radians, copysign
 from mathutils import *
-from .utility_anim import *
+
 from typing import Callable, Iterable, Any, Optional, Tuple, TypeVar, Union
-from bpy.types import UILayout, Scene, World
+from bpy.types import UILayout, Scene, World, Object
+from bpy.props import FloatVectorProperty
 
 CollectionProperty = Any  # collection prop as defined by using bpy.props.CollectionProperty
 
 
 class PluginError(Exception):
-    pass
+    # arguments for exception processing
+    exc_halt = "exc_halt"
+    exc_warn = "exc_warn"
+
+    """
+    because exceptions generally go through multiple funcs
+    and layers, the easiest way to check if we have an exception
+    of a certain type is to check for our input string
+    """
+
+    @classmethod
+    def check_exc_warn(self, exc):
+        for arg in exc.args:
+            if type(arg) is str and self.exc_warn in arg:
+                return True
+        return False
 
 
 class VertexWeightError(PluginError):
     pass
+
+
+class Matrix4x4Property(bpy.types.PropertyGroup):  # blender's matrix subtype is broken :))))
+    row0: FloatVectorProperty(size=4, default=(1, 0, 0, 0))
+    row1: FloatVectorProperty(size=4, default=(0, 1, 0, 0))
+    row2: FloatVectorProperty(size=4, default=(0, 0, 1, 0))
+    row3: FloatVectorProperty(size=4, default=(0, 0, 0, 1))
+
+    def to_matrix(self):
+        return mathutils.Matrix((tuple(self.row0), tuple(self.row1), tuple(self.row2), tuple(self.row3)))
+
+    def from_matrix(self, matrix: mathutils.Matrix):
+        for i in range(4):
+            setattr(self, f"row{i}", tuple(matrix[i]))
+
+    def draw_props(self, layout: UILayout):
+        layout.label(text="Row: → | Column: ↓", icon="INFO")
+        for i in range(4):
+            layout.row().prop(self, f"row{i}", text="")
 
 
 # default indentation to use when writing to decomp files
@@ -24,7 +60,11 @@ sm64BoneUp = Vector([1, 0, 0])
 
 transform_mtx_blender_to_n64 = lambda: Matrix(((1, 0, 0, 0), (0, 0, 1, 0), (0, -1, 0, 0), (0, 0, 0, 1)))
 
-yUpToZUp = mathutils.Quaternion((1, 0, 0), math.radians(90.0)).to_matrix().to_4x4()
+y_up_to_z_up = mathutils.Quaternion((1, 0, 0), math.radians(90.0))
+yUpToZUp = y_up_to_z_up.to_matrix().to_4x4()
+
+z_up_to_y_up = mathutils.Quaternion((1, 0, 0), math.radians(-90.0))
+z_up_to_y_up_matrix = z_up_to_y_up.to_matrix().to_4x4()
 
 axis_enums = [
     ("X", "X", "X"),
@@ -157,6 +197,44 @@ def writeFile(filepath, data):
     datafile.close()
 
 
+def sanitize_internal_asset_path(path: str) -> str:
+    """Normalize internal asset paths used when exporting textures."""
+    cleaned = (path or "").replace("\\", "/").strip("/")
+    if not cleaned:
+        return ""
+    return "/".join(segment for segment in cleaned.split("/") if segment)
+
+
+def resolve_internal_export_path(export_path: str, internal_path: str, file_name: str) -> str:
+    """Drop into the export root sibling for a custom internal path."""
+    internal_clean = sanitize_internal_asset_path(internal_path)
+    if not internal_clean:
+        return os.path.join(export_path, file_name)
+
+    export_path_obj = Path(export_path)
+    base_dir = export_path_obj
+    while base_dir.name not in {"objects", "assets"} and base_dir != base_dir.parent:
+        base_dir = base_dir.parent
+    if base_dir.name == "objects" and base_dir != base_dir.parent:
+        base_dir = base_dir.parent
+    elif base_dir.name not in {"objects", "assets"}:
+        base_dir = export_path_obj
+
+    target_dir = base_dir / internal_clean
+    return str(target_dir / file_name)
+
+
+def get_internal_asset_path(settings, folderName):
+    raw_folder = (folderName or "").replace("\\", "/")
+    folder_path = raw_folder.strip("/")
+    if folder_path:
+        return folder_path
+    fallback = getattr(settings, "customAssetIncludeDir", "").strip()
+    if fallback:
+        return fallback.replace("\\", "/")
+    return ""
+
+
 def checkObjectReference(obj, title):
     if obj.name not in bpy.context.view_layer.objects:
         raise PluginError(
@@ -164,27 +242,53 @@ def checkObjectReference(obj, title):
         )
 
 
-def selectSingleObject(obj: bpy.types.Object):
-    bpy.ops.object.select_all(action="DESELECT")
+def setActiveObject(obj: bpy.types.Object):
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
 
+def deselectAllObjects():
+    for obj in bpy.data.objects:
+        obj.select_set(False)
+
+
+def selectSingleObject(obj: bpy.types.Object):
+    deselectAllObjects()
+    setActiveObject(obj)
+
+
 def parentObject(parent, child):
-    bpy.ops.object.select_all(action="DESELECT")
+    deselectAllObjects()
 
     child.select_set(True)
-    parent.select_set(True)
-    bpy.context.view_layer.objects.active = parent
+    setActiveObject(parent)
     bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
 
-
-def getFMeshName(fModel, vertexGroup, namePrefix, drawLayer, isSkinned):
+def getFMeshName(
+    fModel,
+    vertexGroup,
+    namePrefix,
+    drawLayer,
+    isSkinned,
+    forceSkeletonName=False,
+    disableSkeletonFallback=False,
+):
     canMessBones = len(fModel.meshes) > 0
-    fMeshName = vertexGroup if canMessBones else toAlnum(namePrefix)
+    useSkeletonName = forceSkeletonName or (not disableSkeletonFallback and not canMessBones)
+    if useSkeletonName:
+        skeletonCandidate = None
+        if isinstance(fModel.name, str):
+            skeletonCandidate = toAlnum(fModel.name)
+        if not skeletonCandidate and namePrefix is not None:
+            skeletonCandidate = toAlnum(namePrefix)
+        if not skeletonCandidate:
+            skeletonCandidate = vertexGroup
+        fMeshName = skeletonCandidate
+    else:
+        fMeshName = vertexGroup
     if isSkinned:
         fMeshName += "_skinned"
-    if canMessBones:
+    if not useSkeletonName:
         fMeshName += "_mesh"
     if drawLayer is not None:
         fMeshName += "_layer_" + str(drawLayer)
@@ -225,10 +329,11 @@ def getGroupNameFromIndex(obj, index):
     return None
 
 
-def copyPropertyCollection(oldProp, newProp):
-    newProp.clear()
-    for item in oldProp:
-        newItem = newProp.add()
+def copyPropertyCollection(from_prop, to_prop, do_clear: bool = True):
+    if do_clear:
+        to_prop.clear()
+    for item in from_prop:
+        newItem = to_prop.add()
         if isinstance(item, bpy.types.PropertyGroup):
             copyPropertyGroup(item, newItem)
         elif type(item).__name__ == "bpy_prop_collection_idprop":
@@ -237,18 +342,18 @@ def copyPropertyCollection(oldProp, newProp):
             newItem = item
 
 
-def copyPropertyGroup(oldProp, newProp):
-    for sub_value_attr in oldProp.bl_rna.properties.keys():
+def copyPropertyGroup(from_prop, to_prop):
+    for sub_value_attr in from_prop.bl_rna.properties.keys():
         if sub_value_attr == "rna_type":
             continue
-        sub_value = getattr(oldProp, sub_value_attr)
+        sub_value = getattr(from_prop, sub_value_attr)
         if isinstance(sub_value, bpy.types.PropertyGroup):
-            copyPropertyGroup(sub_value, getattr(newProp, sub_value_attr))
+            copyPropertyGroup(sub_value, getattr(to_prop, sub_value_attr))
         elif type(sub_value).__name__ == "bpy_prop_collection_idprop":
-            newCollection = getattr(newProp, sub_value_attr)
+            newCollection = getattr(to_prop, sub_value_attr)
             copyPropertyCollection(sub_value, newCollection)
         else:
-            setattr(newProp, sub_value_attr, sub_value)
+            setattr(to_prop, sub_value_attr, sub_value)
 
 
 def get_attr_or_property(prop: dict | object, attr: str, newProp: dict | object):
@@ -438,10 +543,10 @@ def extendedRAMLabel(layout):
 
 def getPathAndLevel(is_custom_export, custom_export_path, custom_level_name, level_enum):
     if is_custom_export:
-        export_path = bpy.path.abspath(custom_export_path)
+        export_path = bpy.path.abspath(str(custom_export_path))
         level_name = custom_level_name
     else:
-        export_path = bpy.path.abspath(bpy.context.scene.fast64.sm64.decomp_path)
+        export_path = str(bpy.context.scene.fast64.sm64.abs_decomp_path)
         if level_enum == "Custom":
             level_name = custom_level_name
         else:
@@ -500,6 +605,7 @@ def saveDataToFile(filepath, data):
 
 
 def applyBasicTweaks(baseDir):
+    directory_path_checks(baseDir, "Empty directory path.")
     if bpy.context.scene.fast64.sm64.force_extended_ram:
         enableExtendedRAM(baseDir)
 
@@ -526,11 +632,6 @@ def enableExtendedRAM(baseDir):
         segmentFile = open(segmentPath, "w", newline="\n")
         segmentFile.write(segmentData)
         segmentFile.close()
-
-
-def writeMaterialHeaders(exportDir, matCInclude, matHInclude):
-    writeIfNotFound(os.path.join(exportDir, "src/game/materials.c"), "\n" + matCInclude, "")
-    writeIfNotFound(os.path.join(exportDir, "src/game/materials.h"), "\n" + matHInclude, "#endif")
 
 
 def writeMaterialFiles(
@@ -619,7 +720,10 @@ def cast_integer(value: int, bits: int, signed: bool):
 
 
 to_s16 = lambda x: cast_integer(round(x), 16, True)
-radians_to_s16 = lambda d: to_s16(d * 0x10000 / (2 * math.pi))
+
+
+def radians_to_s16(value: float, signed=True) -> int:
+    return cast_integer(round(value * 2**16 / (2 * math.pi)), 16, signed)
 
 
 def int_from_s16(value: int) -> int:
@@ -657,11 +761,9 @@ def highlightWeightErrors(obj, elements, elementType):
     return  # Doesn't work currently
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
-    bpy.ops.object.select_all(action="DESELECT")
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
+    selectSingleObject(obj)
     bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="DESELECT")
+    deselectAllObjects()
     bpy.ops.mesh.select_mode(type=elementType)
     bpy.ops.object.mode_set(mode="OBJECT")
     print(elements)
@@ -687,14 +789,27 @@ def checkIdentityRotation(obj, rotation, allowYaw):
         )
 
 
-def setOrigin(target, obj):
-    bpy.ops.object.select_all(action="DESELECT")
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.transform_apply()
-    bpy.context.scene.cursor.location = target.location
-    bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
-    bpy.ops.object.select_all(action="DESELECT")
+def setOrigin(obj: bpy.types.Object, target_loc: mathutils.Vector):
+    """
+    Sets the object's origin to a new world-space location without moving the
+    object's mesh in the world.
+
+    HACK: Historically this applies all transforms to the mesh data, this is kept to prevent breaking things
+    """
+    assert obj.type == "MESH", "Object is not a mesh"
+    mesh: bpy.types.Mesh = obj.data
+
+    original_mat = obj.matrix_world.copy()
+    mesh.transform(original_mat)
+
+    target_mat = original_mat.copy()
+    target_mat.translation = target_loc
+    mesh.transform(target_mat.inverted())
+    obj.matrix_world = target_mat
+
+    delta = original_mat.translation - target_mat.translation
+    for child in obj.children_recursive:
+        child.location += delta
 
 
 def checkIfPathExists(filePath):
@@ -709,11 +824,17 @@ def makeWriteInfoBox(layout):
 
 
 def writeBoxExportType(writeBox, headerType, name, levelName, levelOption):
+    if not name:
+        writeBox.label(text="Empty actor name", icon="ERROR")
+        return
     if headerType == "Actor":
         writeBox.label(text="actors/" + toAlnum(name))
     elif headerType == "Level":
         if levelOption != "Custom":
             levelName = levelOption
+        if not name:
+            writeBox.label(text="Empty level name", icon="ERROR")
+            return
         writeBox.label(text="levels/" + toAlnum(levelName) + "/" + toAlnum(name))
 
 
@@ -726,11 +847,13 @@ def getExportDir(customExport, dirPath, headerType, levelName, texDir, dirName):
         elif headerType == "Level":
             dirPath = os.path.join(dirPath, "levels/" + levelName)
             texDir = "levels/" + levelName
+    elif not texDir:
+        texDir = (Path(dirPath).name / Path(dirName)).as_posix()
 
     return dirPath, texDir
 
 
-def overwriteData(headerRegex, name, value, filePath, writeNewBeforeString, isFunction):
+def overwriteData(headerRegex, name, value, filePath, writeNewBeforeString, isFunction, post_regex=""):
     if os.path.exists(filePath):
         dataFile = open(filePath, "r")
         data = dataFile.read()
@@ -739,7 +862,8 @@ def overwriteData(headerRegex, name, value, filePath, writeNewBeforeString, isFu
         matchResult = re.search(
             headerRegex
             + re.escape(name)
-            + ("\s*\((((?!\)).)*)\)\s*\{(((?!\}).)*)\}" if isFunction else "\[\]\s*=\s*\{(((?!;).)*);"),
+            + ("\s*\((((?!\)).)*)\)\s*\{(((?!\}).)*)\}" if isFunction else "\[\]\s*=\s*\{(((?!;).)*);")
+            + post_regex,
             data,
             re.DOTALL,
         )
@@ -760,40 +884,6 @@ def overwriteData(headerRegex, name, value, filePath, writeNewBeforeString, isFu
         raise PluginError(filePath + " does not exist.")
 
 
-def writeIfNotFound(filePath, stringValue, footer):
-    if os.path.exists(filePath):
-        fileData = open(filePath, "r")
-        fileData.seek(0)
-        stringData = fileData.read()
-        fileData.close()
-        if stringValue not in stringData:
-            if len(footer) > 0:
-                footerIndex = stringData.rfind(footer)
-                if footerIndex == -1:
-                    raise PluginError("Footer " + footer + " does not exist.")
-                stringData = stringData[:footerIndex] + stringValue + "\n" + stringData[footerIndex:]
-            else:
-                stringData += stringValue
-            fileData = open(filePath, "w", newline="\n")
-            fileData.write(stringData)
-        fileData.close()
-    else:
-        raise PluginError(filePath + " does not exist.")
-
-
-def deleteIfFound(filePath, stringValue):
-    if os.path.exists(filePath):
-        fileData = open(filePath, "r")
-        fileData.seek(0)
-        stringData = fileData.read()
-        fileData.close()
-        if stringValue in stringData:
-            stringData = stringData.replace(stringValue, "")
-            fileData = open(filePath, "w", newline="\n")
-            fileData.write(stringData)
-        fileData.close()
-
-
 def yield_children(obj: bpy.types.Object):
     yield obj
     if obj.children:
@@ -807,7 +897,9 @@ def store_original_mtx():
         # negative scales produce a rotation, we need to remove that since
         # scales will be applied to the transform for each object
         loc, rot, _scale = obj.matrix_local.decompose()
-        obj["original_mtx"] = Matrix.LocRotScale(loc, rot, None)
+        obj["original_mtx"] = list(Matrix.LocRotScale(loc, rot, None))
+        loc, rot, scale = obj.matrix_world.decompose()
+        obj["original_mtx_world"] = list(Matrix.LocRotScale(loc, rot, scale))
 
 
 def rotate_bounds(bounds, mtx: mathutils.Matrix):
@@ -827,6 +919,13 @@ def translation_rotation_from_mtx(mtx: mathutils.Matrix):
 
 def scale_mtx_from_vector(scale: mathutils.Vector):
     return mathutils.Matrix.Diagonal(scale[0:3]).to_4x4()
+
+
+def attemptModifierApply(modifier):
+    try:
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+    except Exception as e:
+        print("Skipping modifier " + str(modifier.name))
 
 
 def copy_object_and_apply(obj: bpy.types.Object, apply_scale=False, apply_modifiers=False):
@@ -917,25 +1016,21 @@ def get_obj_temp_mesh(obj):
 def apply_objects_modifiers_and_transformations(allObjs: Iterable[bpy.types.Object]):
     # first apply modifiers so that any objects that affect each other are taken into consideration
     for selectedObj in allObjs:
-        bpy.ops.object.select_all(action="DESELECT")
-        selectedObj.select_set(True)
-        bpy.context.view_layer.objects.active = selectedObj
+        selectSingleObject(selectedObj)
 
         for modifier in selectedObj.modifiers:
             attemptModifierApply(modifier)
 
     # apply transformations now that world space changes are applied
     for selectedObj in allObjs:
-        bpy.ops.object.select_all(action="DESELECT")
-        selectedObj.select_set(True)
-        bpy.context.view_layer.objects.active = selectedObj
+        selectSingleObject(selectedObj)
 
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True, properties=False)
 
 
 def duplicateHierarchy(obj, ignoreAttr, includeEmpties, areaIndex):
     # Duplicate objects to apply scale / modifiers / linked data
-    bpy.ops.object.select_all(action="DESELECT")
+    deselectAllObjects()
     selectMeshChildrenOnly(obj, None, includeEmpties, areaIndex)
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
@@ -951,9 +1046,7 @@ def duplicateHierarchy(obj, ignoreAttr, includeEmpties, areaIndex):
         for selectedObj in allObjs:
             if ignoreAttr is not None and getattr(selectedObj, ignoreAttr):
                 for child in selectedObj.children:
-                    bpy.ops.object.select_all(action="DESELECT")
-                    child.select_set(True)
-                    bpy.context.view_layer.objects.active = child
+                    selectSingleObject(child)
                     bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
                     selectedObj.parent.select_set(True)
                     bpy.context.view_layer.objects.active = selectedObj.parent
@@ -967,35 +1060,35 @@ def duplicateHierarchy(obj, ignoreAttr, includeEmpties, areaIndex):
         raise Exception(str(e))
 
 
-enumSM64PreInlineGeoLayoutObjects = {"Geo ASM", "Geo Branch", "Geo Displaylist", "Custom Geo Command"}
+enumSM64PreInlineGeoLayoutObjects = {"Geo ASM", "Geo Branch", "Geo Displaylist"}
 
 
-def checkIsSM64PreInlineGeoLayout(sm64_obj_type):
-    return sm64_obj_type in enumSM64PreInlineGeoLayoutObjects
+def checkIsSM64PreInlineGeoLayout(obj):
+    return obj.sm64_obj_type in enumSM64PreInlineGeoLayoutObjects
 
 
 enumSM64InlineGeoLayoutObjects = {
-    "Geo ASM",
-    "Geo Branch",
     "Geo Translate/Rotate",
     "Geo Translate Node",
     "Geo Rotation Node",
     "Geo Billboard",
     "Geo Scale",
-    "Geo Displaylist",
-    "Custom Geo Command",
 }
 
 
-def checkIsSM64InlineGeoLayout(sm64_obj_type):
-    return sm64_obj_type in enumSM64InlineGeoLayoutObjects
+def checkIsSM64InlineGeoLayout(obj):
+    return (
+        obj.sm64_obj_type in enumSM64InlineGeoLayoutObjects
+        or checkIsSM64PreInlineGeoLayout(obj)
+        or (obj.sm64_obj_type == "Custom" and obj.fast64.sm64.custom.cmd_type == "Geo")
+    )
 
 
 enumSM64EmptyWithGeolayout = {"None", "Level Root", "Area Root", "Switch"}
 
 
-def checkSM64EmptyUsesGeoLayout(sm64_obj_type):
-    return sm64_obj_type in enumSM64EmptyWithGeolayout or checkIsSM64InlineGeoLayout(sm64_obj_type)
+def checkSM64EmptyUsesGeoLayout(obj):
+    return obj.sm64_obj_type in enumSM64EmptyWithGeolayout or checkIsSM64InlineGeoLayout(obj)
 
 
 def selectMeshChildrenOnly(obj, ignoreAttr, includeEmpties, areaIndex):
@@ -1004,7 +1097,7 @@ def selectMeshChildrenOnly(obj, ignoreAttr, includeEmpties, areaIndex):
         return
     ignoreObj = ignoreAttr is not None and getattr(obj, ignoreAttr)
     isMesh = obj.type == "MESH"
-    isEmpty = obj.type == "EMPTY" and includeEmpties and checkSM64EmptyUsesGeoLayout(obj.sm64_obj_type)
+    isEmpty = obj.type == "EMPTY" and includeEmpties and checkSM64EmptyUsesGeoLayout(obj)
     if (isMesh or isEmpty) and not ignoreObj:
         obj.select_set(True)
         obj.original_name = obj.name
@@ -1038,6 +1131,8 @@ def cleanupTempMeshes():
                 del obj["instanced_mesh_name"]
             if obj.get("original_mtx"):
                 del obj["original_mtx"]
+            if obj.get("original_mtx_world"):
+                del obj["original_mtx_world"]
 
     for data in remove_data:
         data_type = type(data)
@@ -1051,7 +1146,7 @@ def combineObjects(obj, includeChildren, ignoreAttr, areaIndex):
     obj.original_name = obj.name
 
     # Duplicate objects to apply scale / modifiers / linked data
-    bpy.ops.object.select_all(action="DESELECT")
+    deselectAllObjects()
     if includeChildren:
         selectMeshChildrenOnly(obj, ignoreAttr, False, areaIndex)
     else:
@@ -1067,7 +1162,7 @@ def combineObjects(obj, includeChildren, ignoreAttr, areaIndex):
 
         apply_objects_modifiers_and_transformations(allObjs)
 
-        bpy.ops.object.select_all(action="DESELECT")
+        deselectAllObjects()
 
         # Joining causes orphan data, so we remove it manually.
         meshList = []
@@ -1080,11 +1175,9 @@ def combineObjects(obj, includeChildren, ignoreAttr, areaIndex):
         joinedObj.select_set(True)
         meshList.remove(joinedObj.data)
         bpy.ops.object.join()
-        setOrigin(obj, joinedObj)
+        setOrigin(joinedObj, obj.location)
 
-        bpy.ops.object.select_all(action="DESELECT")
-        bpy.context.view_layer.objects.active = joinedObj
-        joinedObj.select_set(True)
+        selectSingleObject(joinedObj)
 
         # Need to clear parent transform in order to correctly apply transform.
         bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
@@ -1144,6 +1237,17 @@ def writeInsertableFile(filepath, dataType, address_ptrs, startPtr, data):
     openfile.close()
 
 
+def quantize_color(color: mathutils.Color, bit_counts: tuple[int]):
+    """Quantize a color to the specified bit counts."""
+    assert len(color) == len(bit_counts), "Number of color channels does not match number of bit counts"
+    result = 0
+    pos = 0
+    for c, bit_count in zip(reversed(color), reversed(bit_counts)):
+        result |= round(c * (2**bit_count - 1)) << pos
+        pos += bit_count
+    return result
+
+
 def colorTo16bitRGBA(color):
     r = int(round(color[0] * 31))
     g = int(round(color[1] * 31))
@@ -1161,20 +1265,34 @@ def getDirectionGivenAppVersion():
         return 1
 
 
-def applyRotation(objList, angle, axis):
-    bpy.context.scene.tool_settings.use_transform_data_origin = False
-    bpy.context.scene.tool_settings.use_transform_pivot_point_align = False
-    bpy.context.scene.tool_settings.use_transform_skip_children = False
+def applyRotation(objs: Iterable[Object], angle: float, axis: str):
+    """Each object will only apply this rotation once"""
+    rot_mat = Matrix.Rotation(angle, 4, axis).inverted()
 
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in objList:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = objList[0]
+    objs = set(objs)
+    for obj in objs:
+        # rotate object
+        obj.matrix_world = rot_mat @ obj.matrix_world
+        bpy.context.view_layer.update()
 
-    direction = getDirectionGivenAppVersion()
+        original_basis = obj.matrix_basis.copy()
+        local_loc = original_basis.translation.copy()
 
-    bpy.ops.transform.rotate(value=direction * angle, orient_axis=axis, orient_type="GLOBAL")
-    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True, properties=False)
+        bake_matrix = original_basis.copy()
+        # don´t apply translation to the mesh
+        bake_matrix.translation = (0, 0, 0)
+        obj.matrix_basis = Matrix.Translation(local_loc)
+
+        # apply transformations
+        if obj.data is not None:
+            if hasattr(obj.data, "transform"):
+                obj.data.transform(bake_matrix)
+            if hasattr(obj.data, "update"):
+                obj.data.update()
+
+        for child in obj.children:  # apply the same matrix we applied to the mesh to the children's transforms
+            child.matrix_local = bake_matrix @ child.matrix_local
+        bpy.context.view_layer.update()
 
 
 def doRotation(angle, axis):
@@ -1309,7 +1427,7 @@ def filepath_ui_warnings(
     return run_and_draw_errors(layout, filepath_checks, path, empty, doesnt_exist, not_a_file, False)
 
 
-def toAlnum(name, exceptions=[]):
+def toAlnum(name: str, exceptions=[]):
     if name is None or name == "":
         return None
     for i in range(len(name)):
@@ -1364,8 +1482,14 @@ def exportColor(lightColor):
     return [scaleToU8(value) for value in gammaCorrect(lightColor)]
 
 
-def get_clean_color(srgb: list, include_alpha=False, round_color=True) -> list:
-    return [round(channel, 4) if round_color else channel for channel in list(srgb[: 4 if include_alpha else 3])]
+def get_clean_color(color: list, include_alpha=False, round_color=True, srgb_to_linear=False) -> list:
+    color = list(color)
+    if srgb_to_linear:
+        color = gammaCorrect(color[:3]) + color[3:]
+    color = color[: 4 if include_alpha else 3]
+    if include_alpha and len(color) < 4:
+        color = color + [1.0]
+    return tuple(round(channel, 4) if round_color else channel for channel in color)
 
 
 def printBlenderMessage(msgSet, message, blenderOp):
@@ -1380,15 +1504,15 @@ def bytesToInt(value):
 
 
 def bytesToHex(value, byteSize=4):
-    return format(bytesToInt(value), "#0" + str(byteSize * 2 + 2) + "x")
+    return format(bytesToInt(value), f"#0{(byteSize * 2 + 2)}x")
 
 
 def bytesToHexClean(value, byteSize=4):
-    return format(bytesToInt(value), "0" + str(byteSize * 2) + "x")
+    return format(bytesToInt(value), f"#0{(byteSize * 2)}x")
 
 
-def intToHex(value, byteSize=4):
-    return format(value, "#0" + str(byteSize * 2 + 2) + "x")
+def intToHex(value, byte_size=4, signed=True):
+    return format(value if signed else cast_integer(value, byte_size * 8, False), f"#0{(byte_size * 2 + 2)}x")
 
 
 def intToBytes(value, byteSize):
@@ -1565,18 +1689,26 @@ def normToSigned8Vector(normal):
 
 def unpackNormalS8(packedNormal: int) -> Tuple[int, int, int]:
     assert isinstance(packedNormal, int) and packedNormal >= 0 and packedNormal <= 0xFFFF
-    xo, yo = packedNormal >> 8, packedNormal & 0xFF
-    # This is following the instructions in F3DEX3
-    x, y = xo & 0x7F, yo & 0x7F
-    z = x + y
-    zNeg = bool(z & 0x80)
-    x2, y2 = x ^ 0x7F, y ^ 0x7F  # this is actually producing 7F - x, 7F - y
-    z = z ^ 0x7F  # 7F - x - y; using xor saves an instruction and a register on the RSP
-    if zNeg:
-        x, y = x2, y2
-    x, y = -x if xo & 0x80 else x, -y if yo & 0x80 else y
-    z = z - 0x100 if z & 0x80 else z
-    assert abs(x) + abs(y) + abs(z) == 127
+    if bpy.context.scene.packed_normals_algorithm == "565":
+        x = packedNormal & 0xF800
+        y = (packedNormal & 0x07E0) << 5
+        z = (packedNormal & 0x001F) << 11
+        x, y, z = tuple(map(lambda n: (n - 0x10000 if n & 0x8000 else n), (x, y, z)))
+    elif bpy.context.scene.packed_normals_algorithm == "Octahedral":
+        xo, yo = packedNormal >> 8, packedNormal & 0xFF
+        # This is following the instructions in F3DEX3
+        x, y = xo & 0x7F, yo & 0x7F
+        z = x + y
+        zNeg = bool(z & 0x80)
+        x2, y2 = x ^ 0x7F, y ^ 0x7F  # this is actually producing 7F - x, 7F - y
+        z = z ^ 0x7F  # 7F - x - y; using xor saves an instruction and a register on the RSP
+        if zNeg:
+            x, y = x2, y2
+        x, y = -x if xo & 0x80 else x, -y if yo & 0x80 else y
+        z = z - 0x100 if z & 0x80 else z
+        assert abs(x) + abs(y) + abs(z) == 127
+    else:
+        raise PluginError("Invalid packed normals algorithm")
     return x, y, z
 
 
@@ -1586,24 +1718,41 @@ def unpackNormal(packedNormal: int) -> Vector:
 
 
 def packNormal(normal: Vector) -> int:
-    # Convert standard normal to constant-L1 normal
-    assert len(normal) == 3
-    l1norm = abs(normal[0]) + abs(normal[1]) + abs(normal[2])
-    xo, yo, zo = tuple([int(round(a * 127.0 / l1norm)) for a in normal])
-    if abs(xo) + abs(yo) > 127:
-        yo = int(math.copysign(127 - abs(xo), yo))
-    zo = int(math.copysign(127 - abs(xo) - abs(yo), zo))
-    assert abs(xo) + abs(yo) + abs(zo) == 127
-    # Pack normals
-    xsign, ysign = xo & 0x80, yo & 0x80
-    x, y = abs(xo), abs(yo)
-    if zo < 0:
-        x, y = 0x7F - x, 0x7F - y
-    x, y = x | xsign, y | ysign
-    packedNormal = x << 8 | y
-    # The only error is in the float to int rounding above. The packing and unpacking
-    # will precisely restore the original int values.
-    assert (xo, yo, zo) == unpackNormalS8(packedNormal)
+    if bpy.context.scene.packed_normals_algorithm == "565":
+
+        def convertComponent(v: float, range: int):
+            v = int(round(v * float(range)))
+            v = min(max(v, -range), range - 1)
+            v = v if v >= 0 else v + 2 * range
+            return v
+
+        x = convertComponent(normal[0], 16) << 11
+        y = convertComponent(normal[1], 32) << 5
+        z = convertComponent(normal[2], 16)
+        assert (x & y) == 0 and (y & z) == 0 and (x & z) == 0
+        packedNormal = x | y | z
+        assert packedNormal >= 0 and packedNormal <= 0xFFFF
+    elif bpy.context.scene.packed_normals_algorithm == "Octahedral":
+        # Convert standard normal to constant-L1 normal
+        assert len(normal) == 3
+        l1norm = abs(normal[0]) + abs(normal[1]) + abs(normal[2])
+        xo, yo, zo = tuple([int(round(a * 127.0 / l1norm)) for a in normal])
+        if abs(xo) + abs(yo) > 127:
+            yo = int(math.copysign(127 - abs(xo), yo))
+        zo = int(math.copysign(127 - abs(xo) - abs(yo), zo))
+        assert abs(xo) + abs(yo) + abs(zo) == 127
+        # Pack normals
+        xsign, ysign = xo & 0x80, yo & 0x80
+        x, y = abs(xo), abs(yo)
+        if zo < 0:
+            x, y = 0x7F - x, 0x7F - y
+        x, y = x | xsign, y | ysign
+        packedNormal = x << 8 | y
+        # The only error is in the float to int rounding above. The packing and unpacking
+        # will precisely restore the original int values.
+        assert (xo, yo, zo) == unpackNormalS8(packedNormal)
+    else:
+        raise PluginError("Invalid packed normals algorithm")
     return packedNormal
 
 
@@ -1621,6 +1770,10 @@ def byteMask(data, offset, amount):
 
 def bitMask(data, offset, amount):
     return (~(-1 << amount) << offset & data) >> offset
+
+
+def is_bit_active(x: int, index: int):
+    return ((x >> index) & 1) == 1
 
 
 def read16bitRGBA(data):
@@ -1677,7 +1830,9 @@ def lightDataToObj(lightData):
     for obj in bpy.context.scene.objects:
         if obj.data == lightData:
             return obj
-    raise PluginError("A material is referencing a light that is no longer in the scene (i.e. has been deleted).")
+    raise PluginError(
+        f'Referencing a light ("{lightData.name}") that is no longer in the scene (i.e. has been deleted).'
+    )
 
 
 def ootGetSceneOrRoomHeader(parent, idx, isRoom):
@@ -1714,14 +1869,17 @@ def ootGetBaseOrCustomLight(prop, idx, toExport: bool, errIfMissing: bool):
     col = getattr(prop, "diffuse" + str(idx))
     dir = (mathutils.Vector((1.0, -1.0, 1.0)) * (1.0 if idx == 0 else -1.0)).normalized()
     if getattr(prop, "useCustomDiffuse" + str(idx)):
-        light = getattr(prop, "diffuse" + str(idx) + "Custom")
-        if light is None:
-            if errIfMissing:
-                raise PluginError("Error: Diffuse " + str(idx) + " light object not set in a scene lighting property.")
-        else:
-            col = tuple(c for c in light.color) + (1.0,)
-            lightObj = lightDataToObj(light)
-            dir = getObjDirectionVec(lightObj, toExport)
+        try:
+            light = getattr(prop, "diffuse" + str(idx) + "Custom")
+            if light is None:
+                if errIfMissing:
+                    raise PluginError("Light object not set in a scene lighting property.")
+            else:
+                col = tuple(c for c in light.color) + (1.0,)
+                lightObj = lightDataToObj(light)
+                dir = getObjDirectionVec(lightObj, toExport)
+        except Exception as exc:
+            raise PluginError(f"In custom diffuse {idx}: {exc}") from exc
     col = mathutils.Vector(tuple(c for c in col))
     if toExport:
         col, dir = exportColor(col), normToSigned8Vector(dir)
@@ -1734,9 +1892,11 @@ def getTextureSuffixFromFormat(texFmt):
     return texFmt.lower()
 
 
-def removeComments(text: str):
-    # https://stackoverflow.com/a/241506
+# https://stackoverflow.com/a/241506
+COMMENT_PATTERN = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"', re.DOTALL | re.MULTILINE)
 
+
+def removeComments(text: str):
     def replacer(match: re.Match[str]):
         s = match.group(0)
         if s.startswith("/"):
@@ -1744,9 +1904,7 @@ def removeComments(text: str):
         else:
             return s
 
-    pattern = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"', re.DOTALL | re.MULTILINE)
-
-    return re.sub(pattern, replacer, text)
+    return re.sub(COMMENT_PATTERN, replacer, text)
 
 
 binOps = {
@@ -1761,6 +1919,10 @@ binOps = {
     ast.BitOr: operator.or_,
     ast.BitAnd: operator.and_,
     ast.BitXor: operator.xor,
+    ast.Pow: operator.pow,
+    ast.FloorDiv: operator.floordiv,
+    ast.USub: operator.neg,
+    ast.UAdd: lambda a: a,
 }
 
 
@@ -1798,10 +1960,38 @@ def json_to_prop_group(prop_group, data: dict, blacklist: list[str] = None, whit
         if prop in blacklist or (whitelist and prop not in whitelist):
             continue
         default = getattr(prop_group, prop)
-        if hasattr(default, "from_dict"):
-            default.from_dict(data.get(prop, None))
+        if isinstance(default, list) or type(default).__name__ == "bpy_prop_collection_idprop":
+            if prop in data:
+                default.clear()
+            for element in data.get(prop, default):
+                default.add()
+                if hasattr(default[-1], "from_dict"):
+                    default[-1].from_dict(element)
+                else:
+                    json_to_prop_group(default[-1], element, blacklist, whitelist)
+        elif hasattr(default, "from_dict"):
+            default.from_dict(data.get(prop, {}))
         else:
             setattr(prop_group, prop, data.get(prop, default))
+
+
+def fix_invalid_props(prop_group):
+    """Fixes simple invalid values like deprecated enums and values that are out of range."""
+    for prop_attr in iter_prop(prop_group):
+        if prop_attr in {"rna_type", "name"}:
+            continue
+        prop_value = getattr(prop_group, prop_attr)
+        prop_def: bpy.types.Property = prop_group.bl_rna.properties[prop_attr]
+        if prop_def.type == "COLLECTION":
+            for element in prop_value:
+                fix_invalid_props(element)
+        elif prop_def.type == "POINTER" and isinstance(prop_value, bpy.types.PropertyGroup):
+            fix_invalid_props(prop_value)
+        elif prop_def.type == "ENUM":
+            if prop_value not in [enum.identifier for enum in prop_def.enum_items]:
+                prop_group[prop_attr] = prop_def.default
+        elif prop_value is not None:  # Sets this again, ensures ints, floats and colors are within their range
+            prop_group[prop_attr] = prop_value
 
 
 T = TypeVar("T")
@@ -1914,3 +2104,270 @@ def create_or_get_world(scene: Scene) -> World:
         WORLD_WARNING_COUNT = 0
         print(f'No world in this file, creating world named "Fast64".')
         return bpy.data.worlds.new("Fast64")
+
+
+def set_if_different(owner: object, prop: str, value):
+    if getattr(owner, prop) != value:
+        setattr(owner, prop, value)
+
+
+def set_prop_if_in_data(owner: object, prop_name: str, data: dict, data_name: str):
+    if data_name in data:
+        set_if_different(owner, prop_name, data[data_name])
+
+
+def wrap_func_with_error_message(error_message: Callable):
+    """Decorator for big, reused functions that need generic info in errors, such as material exports."""
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Get the argument names and values (positional and keyword)
+            sig = inspect.signature(func)
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                raise PluginError(f"{error_message(bound_args.arguments)} {exc}") from exc
+
+        return wrapper
+
+    return decorator
+
+
+def as_posix(path: Path) -> str:
+    if isinstance(path, Path):
+        path = path.as_posix()
+    return path.replace("\\", "/")  # Windows path sometimes still has backslashes?
+
+
+def oot_get_assets_path(base_path: str, check_exists: bool = True, use_decomp_path: bool = True):
+    # get the extracted path
+    extracted = bpy.context.scene.fast64.oot.get_extracted_path()
+    decomp_path = bpy.context.scene.ootDecompPath if use_decomp_path else "."
+
+    # get the file's path
+    file_path = Path(f"{decomp_path}/{base_path}").resolve()
+
+    # check if the path exists
+    if not file_path.exists():
+        file_path = Path(f"{bpy.context.scene.ootDecompPath}/{extracted}/{base_path}").resolve()
+
+    # if it doesn't check if the extracted path exists (we want to skip that for PNG files)
+    if check_exists and not file_path.exists():
+        raise PluginError(f"ERROR: that file don't exist ({repr(base_path)})")
+
+    return file_path
+
+
+def get_include_data(include: str, strip: bool = False):
+    """
+    Returns the file data pointed by an include's path (useful to parse *.inc.c files)
+
+    Parameters:
+    - `include`: the line where the include directive is located
+    - `strip`: set to True to return the data without any newlines or whitespaces
+    """
+
+    # remove the unwanted parts
+    include = include.replace("\n", "").removeprefix("#include ").replace('"', "")
+
+    if bpy.context.scene.gameEditorMode in {"OOT", "MM"}:
+        file_path = oot_get_assets_path(include)
+    else:
+        raise PluginError(f"ERROR: game not supported ({bpy.context.scene.gameEditorMode})")
+
+    data = removeComments(file_path.read_text())
+
+    if strip:
+        return data.replace("\n", "").replace(" ", "")
+
+    # return the data as a string
+    return data
+
+
+def get_new_object(
+    name: str,
+    data: Optional[Any],
+    do_select: bool,
+    location=[0.0, 0.0, 0.0],
+    rotation_euler=[0.0, 0.0, 0.0],
+    scale=[1.0, 1.0, 1.0],
+    parent: Optional[bpy.types.Object] = None,
+) -> bpy.types.Object:
+    new_obj = bpy.data.objects.new(name=name, object_data=data)
+    bpy.context.view_layer.active_layer_collection.collection.objects.link(new_obj)
+
+    if do_select:
+        new_obj.select_set(True)
+        bpy.context.view_layer.objects.active = new_obj
+
+    new_obj.parent = parent
+    new_obj.location = location
+    new_obj.rotation_euler = rotation_euler
+    new_obj.scale = scale
+    return new_obj
+
+
+def get_new_empty_object(
+    name: str,
+    do_select: bool = False,
+    location=[0.0, 0.0, 0.0],
+    rotation_euler=[0.0, 0.0, 0.0],
+    scale=[1.0, 1.0, 1.0],
+    parent: Optional[bpy.types.Object] = None,
+):
+    """Creates and returns a new empty object"""
+    return get_new_object(name, None, do_select, location, rotation_euler, scale, parent)
+
+
+# Python implementation of CRC64
+INITIAL_CRC64 = 0xFFFFFFFFFFFFFFFF
+
+CRC64_TABLE = [
+    0x0000000000000000, 0x42f0e1eba9ea3693, 0x85e1c3d753d46d26, 0xc711223cfa3e5bb5,
+    0x493366450e42ecdf, 0x0bc387aea7a8da4c, 0xccd2a5925d9681f9, 0x8e224479f47cb76a,
+    0x9266cc8a1c85d9be, 0xd0962d61b56fef2d, 0x17870f5d4f51b498, 0x5577eeb6e6bb820b,
+    0xdb55aacf12c73561, 0x99a54b24bb2d03f2, 0x5eb4691841135847, 0x1c4488f3e8f96ed4,
+    0x663d78ff90e185ef, 0x24cd9914390bb37c, 0xe3dcbb28c335e8c9, 0xa12c5ac36adfde5a,
+    0x2f0e1eba9ea36930, 0x6dfeff5137495fa3, 0xaaefdd6dcd770416, 0xe81f3c86649d3285,
+    0xf45bb4758c645c51, 0xb6ab559e258e6ac2, 0x71ba77a2dfb03177, 0x334a9649765a07e4,
+    0xbd68d2308226b08e, 0xff9833db2bcc861d, 0x388911e7d1f2dda8, 0x7a79f00c7818eb3b,
+    0xcc7af1ff21c30bde, 0x8e8a101488293d4d, 0x499b3228721766f8, 0x0b6bd3c3dbfd506b,
+    0x854997ba2f81e701, 0xc7b97651866bd192, 0x00a8546d7c558a27, 0x4258b586d5bfbcb4,
+    0x5e1c3d753d46d260, 0x1cecdc9e94ace4f3, 0xdbfdfea26e92bf46, 0x990d1f49c77889d5,
+    0x172f5b3033043ebf, 0x55dfbadb9aee082c, 0x92ce98e760d05399, 0xd03e790cc93a650a,
+    0xaa478900b1228e31, 0xe8b768eb18c8b8a2, 0x2fa64ad7e2f6e317, 0x6d56ab3c4b1cd584,
+    0xe374ef45bf6062ee, 0xa1840eae168a547d, 0x66952c92ecb40fc8, 0x2465cd79455e395b,
+    0x3821458aada7578f, 0x7ad1a461044d611c, 0xbdc0865dfe733aa9, 0xff3067b657990c3a,
+    0x711223cfa3e5bb50, 0x33e2c2240a0f8dc3, 0xf4f3e018f031d676, 0xb60301f359dbe0e5,
+    0xda050215ea6c212f, 0x98f5e3fe438617bc, 0x5fe4c1c2b9b84c09, 0x1d14202910527a9a,
+    0x93366450e42ecdf0, 0xd1c685bb4dc4fb63, 0x16d7a787b7faa0d6, 0x5427466c1e109645,
+    0x4863ce9ff6e9f891, 0x0a932f745f03ce02, 0xcd820d48a53d95b7, 0x8f72eca30cd7a324,
+    0x0150a8daf8ab144e, 0x43a04931514122dd, 0x84b16b0dab7f7968, 0xc6418ae602954ffb,
+    0xbc387aea7a8da4c0, 0xfec89b01d3679253, 0x39d9b93d2959c9e6, 0x7b2958d680b3ff75,
+    0xf50b1caf74cf481f, 0xb7fbfd44dd257e8c, 0x70eadf78271b2539, 0x321a3e938ef113aa,
+    0x2e5eb66066087d7e, 0x6cae578bcfe24bed, 0xabbf75b735dc1058, 0xe94f945c9c3626cb,
+    0x676dd025684a91a1, 0x259d31cec1a0a732, 0xe28c13f23b9efc87, 0xa07cf2199274ca14,
+    0x167ff3eacbaf2af1, 0x548f120162451c62, 0x939e303d987b47d7, 0xd16ed1d631917144,
+    0x5f4c95afc5edc62e, 0x1dbc74446c07f0bd, 0xdaad56789639ab08, 0x985db7933fd39d9b,
+    0x84193f60d72af34f, 0xc6e9de8b7ec0c5dc, 0x01f8fcb784fe9e69, 0x43081d5c2d14a8fa,
+    0xcd2a5925d9681f90, 0x8fdab8ce70822903, 0x48cb9af28abc72b6, 0x0a3b7b1923564425,
+    0x70428b155b4eaf1e, 0x32b26afef2a4998d, 0xf5a348c2089ac238, 0xb753a929a170f4ab,
+    0x3971ed50550c43c1, 0x7b810cbbfce67552, 0xbc902e8706d82ee7, 0xfe60cf6caf321874,
+    0xe224479f47cb76a0, 0xa0d4a674ee214033, 0x67c58448141f1b86, 0x253565a3bdf52d15,
+    0xab1721da49899a7f, 0xe9e7c031e063acec, 0x2ef6e20d1a5df759, 0x6c0603e6b3b7c1ca,
+    0xf6fae5c07d3274cd, 0xb40a042bd4d8425e, 0x731b26172ee619eb, 0x31ebc7fc870c2f78,
+    0xbfc9838573709812, 0xfd39626eda9aae81, 0x3a28405220a4f534, 0x78d8a1b9894ec3a7,
+    0x649c294a61b7ad73, 0x266cc8a1c85d9be0, 0xe17dea9d3263c055, 0xa38d0b769b89f6c6,
+    0x2daf4f0f6ff541ac, 0x6f5faee4c61f773f, 0xa84e8cd83c212c8a, 0xeabe6d3395cb1a19,
+    0x90c79d3fedd3f122, 0xd2377cd44439c7b1, 0x15265ee8be079c04, 0x57d6bf0317edaa97,
+    0xd9f4fb7ae3911dfd, 0x9b041a914a7b2b6e, 0x5c1538adb04570db, 0x1ee5d94619af4648,
+    0x02a151b5f156289c, 0x4051b05e58bc1e0f, 0x87409262a28245ba, 0xc5b073890b687329,
+    0x4b9237f0ff14c443, 0x0962d61b56fef2d0, 0xce73f427acc0a965, 0x8c8315cc052a9ff6,
+    0x3a80143f5cf17f13, 0x7870f5d4f51b4980, 0xbf61d7e80f251235, 0xfd913603a6cf24a6,
+    0x73b3727a52b393cc, 0x31439391fb59a55f, 0xf652b1ad0167feea, 0xb4a25046a88dc879,
+    0xa8e6d8b54074a6ad, 0xea16395ee99e903e, 0x2d071b6213a0cb8b, 0x6ff7fa89ba4afd18,
+    0xe1d5bef04e364a72, 0xa3255f1be7dc7ce1, 0x64347d271de22754, 0x26c49cccb40811c7,
+    0x5cbd6cc0cc10fafc, 0x1e4d8d2b65facc6f, 0xd95caf179fc497da, 0x9bac4efc362ea149,
+    0x158e0a85c2521623, 0x577eeb6e6bb820b0, 0x906fc95291867b05, 0xd29f28b9386c4d96,
+    0xcedba04ad0952342, 0x8c2b41a1797f15d1, 0x4b3a639d83414e64, 0x09ca82762aab78f7,
+    0x87e8c60fded7cf9d, 0xc51827e4773df90e, 0x020905d88d03a2bb, 0x40f9e43324e99428,
+    0x2cffe7d5975e55e2, 0x6e0f063e3eb46371, 0xa91e2402c48a38c4, 0xebeec5e96d600e57,
+    0x65cc8190991cb93d, 0x273c607b30f68fae, 0xe02d4247cac8d41b, 0xa2dda3ac6322e288,
+    0xbe992b5f8bdb8c5c, 0xfc69cab42231bacf, 0x3b78e888d80fe17a, 0x7988096371e5d7e9,
+    0xf7aa4d1a85996083, 0xb55aacf12c735610, 0x724b8ecdd64d0da5, 0x30bb6f267fa73b36,
+    0x4ac29f2a07bfd00d, 0x08327ec1ae55e69e, 0xcf235cfd546bbd2b, 0x8dd3bd16fd818bb8,
+    0x03f1f96f09fd3cd2, 0x41011884a0170a41, 0x86103ab85a2951f4, 0xc4e0db53f3c36767,
+    0xd8a453a01b3a09b3, 0x9a54b24bb2d03f20, 0x5d45907748ee6495, 0x1fb5719ce1045206,
+    0x919735e51578e56c, 0xd367d40ebc92d3ff, 0x1476f63246ac884a, 0x568617d9ef46bed9,
+    0xe085162ab69d5e3c, 0xa275f7c11f7768af, 0x6564d5fde549331a, 0x279434164ca30589,
+    0xa9b6706fb8dfb2e3, 0xeb46918411358470, 0x2c57b3b8eb0bdfc5, 0x6ea7525342e1e956,
+    0x72e3daa0aa188782, 0x30133b4b03f2b111, 0xf7021977f9cceaa4, 0xb5f2f89c5026dc37,
+    0x3bd0bce5a45a6b5d, 0x79205d0e0db05dce, 0xbe317f32f78e067b, 0xfcc19ed95e6430e8,
+    0x86b86ed5267cdbd3, 0xc4488f3e8f96ed40, 0x0359ad0275a8b6f5, 0x41a94ce9dc428066,
+    0xcf8b0890283e370c, 0x8d7be97b81d4019f, 0x4a6acb477bea5a2a, 0x089a2aacd2006cb9,
+    0x14dea25f3af9026d, 0x562e43b4931334fe, 0x913f6188692d6f4b, 0xd3cf8063c0c759d8,
+    0x5dedc41a34bbeeb2, 0x1f1d25f19d51d821, 0xd80c07cd676f8394, 0x9afce626ce85b507,
+]
+
+
+def update_crc64(buf: bytes, crc: int) -> int:
+    """
+    Update CRC64 with buffer data.
+    
+    Args:
+        buf: Bytes buffer to process
+        crc: Current CRC value
+        
+    Returns:
+        Updated CRC value (inverted)
+    """
+    for byte in buf:
+        # Extract high byte of crc, XOR with current byte, use as table index
+        table_index = ((crc >> 56) & 0xFF) ^ byte
+        # Update crc: table lookup XOR with left-shifted crc
+        crc = CRC64_TABLE[table_index] ^ ((crc << 8) & 0xFFFFFFFFFFFFFFFF)
+    
+    # Return bitwise NOT of crc (masked to 64 bits)
+    return (~crc) & 0xFFFFFFFFFFFFFFFF
+
+
+def crc64(text: str) -> str:
+    """
+    Compute CRC64 hash of a string.
+    
+    This implementation matches the C++ CRC64() function exactly, producing identical
+    results for the same input strings.
+    
+    NOTE: This does NOT invert the final CRC value, matching the C++ CRC64() behavior.
+    The C++ update_crc64() function inverts, but CRC64() does not.
+    
+    Args:
+        text: String to hash
+        
+    Returns:
+        Hexadecimal string representation of the CRC64 hash (without '0x' prefix)
+    """
+    # Convert string to bytes using UTF-8 encoding
+    buf = text.encode('utf-8')
+    
+    # Initialize CRC
+    crc = INITIAL_CRC64
+    
+    # Process each byte (matching C++ CRC64 implementation)
+    for byte in buf:
+        table_index = ((crc >> 56) & 0xFF) ^ byte
+        crc = CRC64_TABLE[table_index] ^ ((crc << 8) & 0xFFFFFFFFFFFFFFFF)
+    
+    # Return WITHOUT inversion (matching C++ CRC64, not update_crc64)
+    # Return as hex string without '0x' prefix, lowercase
+    return f"{crc:016x}"
+
+
+class ExportUtils:
+    def __init__(self):
+        # get areas that are currently in local view mode
+        self.areas = []
+        for area in bpy.context.screen.areas:
+            if area.type == "VIEW_3D" and area.spaces.active.local_view is not None:
+                self.areas.append(area)
+
+    def __enter__(self):
+        # disable local views if enabled
+        for area in self.areas:
+            with bpy.context.temp_override(area=area):
+                bpy.ops.view3d.localview()
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # restore local views
+        for area in self.areas:
+            with bpy.context.temp_override(area=area):
+                bpy.ops.view3d.localview()
+
+        if exc_value:
+            print("\nExecution type:", exc_type)
+            print("\nExecution value:", exc_value)
+            print("\nTraceback:", traceback)
