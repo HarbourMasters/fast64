@@ -82,7 +82,7 @@ gameEditorEnum = (
     # ("SM64", "SM64", "Super Mario 64", 0),
     ("OOT", "OOT", "Ocarina Of Time", 1),
     ("MM", "MM", "Majora's Mask", 4),
-    # ("MK64", "MK64", "Mario Kart 64", 3),
+    ("MK64", "MK64", "Mario Kart 64", 3),
     # ("Homebrew", "Homebrew", "Homebrew", 2),
 )
 
