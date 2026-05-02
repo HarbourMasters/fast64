@@ -264,6 +264,7 @@ def parentObject(parent, child):
     setActiveObject(parent)
     bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
 
+
 def getFMeshName(
     fModel,
     vertexGroup,
@@ -293,16 +294,6 @@ def getFMeshName(
     if drawLayer is not None:
         fMeshName += "_layer_" + str(drawLayer)
     return fMeshName
-
-
-# def getFMeshName(vertexGroup, namePrefix, drawLayer, isSkinned):
-#    fMeshName = toAlnum(namePrefix + ("_" if namePrefix != "" else "") + vertexGroup)
-#    if isSkinned:
-#        fMeshName += "_skinned"
-#    fMeshName += "_mesh"
-#    if drawLayer is not None:
-#        fMeshName += "_layer_" + str(drawLayer)
-#    return fMeshName
 
 
 def checkUniqueBoneNames(fModel, name, vertexGroup):

@@ -37,6 +37,7 @@ class OOT_ExportScenePanel(OOT_Panel):
         if not settings.customExport:
             self.drawSceneSearchOp(exportBox, settings.option, "Export")
         settings.draw_props(exportBox)
+
         exportBox.operator(OOT_ExportScene.bl_idname)
 
         # Scene Importer

@@ -1523,7 +1523,7 @@ def register(bl_info):
     # Note: updater.include_branch_list defaults to ['master'] branch if set to
     # none. Example targeting another multiple branches allowed to pull from:
     # updater.include_branch_list = ['master', 'dev']
-    updater.include_branch_list = ["hm64"]
+    updater.include_branch_list = ["main"]
 
     # Only allow manual install, thus prompting the user to open
     # the addon's web page to download, specifically: updater.website

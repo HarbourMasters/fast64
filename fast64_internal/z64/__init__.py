@@ -77,10 +77,12 @@ from .tools import (
     oot_operator_unregister,
 )
 
+
 feature_set_enum = (
     ("default", "Default", "Default"),
     ("hackeroot", "HackerOoT", "HackerOoT"),
 )
+
 
 oot_versions_items = [
     ("Custom", "Custom", "Custom", 0),

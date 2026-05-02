@@ -142,6 +142,7 @@ class OOT_ExportScene(Operator):
                 settings = context.scene.ootSceneExportSettings
                 levelName = settings.name
                 option = settings.option
+
                 bootOptions = context.scene.fast64.oot.bootupSceneOptions
                 is_hackeroot_features = is_hackeroot()
 

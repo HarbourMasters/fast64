@@ -157,12 +157,6 @@ def ootProcessVertexGroup(
     # This means everything will be saved to one mesh.
     fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone, useSkeletonName=is_root_bone)
 
-    for mat in meshObj.material_slots:
-        material = mat.material
-        fMaterial, texDimensions = saveOrGetF3DMaterial(
-            material, fModel, meshObj, drawLayerOverride, convertTextureData
-        )
-
     for material_index, faces in groupFaces.items():
         material = meshObj.material_slots[material_index].material
         checkForF3dMaterialInFaces(meshObj, material)
