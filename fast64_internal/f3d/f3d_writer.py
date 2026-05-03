@@ -414,10 +414,6 @@ def saveMeshWithLargeTexturesByFaces(
     return currentGroupIndex
 
 
-def empty_logging_func(a, b):
-    pass
-
-
 # Make sure to set original_name before calling this
 # used when duplicating an object
 def saveStaticModel(
@@ -430,26 +426,16 @@ def saveStaticModel(
     revertMatAtEnd: bool,
     drawLayerField,
 ):
-    logging_func = kwargs.get("logging_func", empty_logging_func)
-
-    logging_func({"INFO"}, "saveStaticModel 1")
-
     if len(obj.data.polygons) == 0:
         return None
 
-    logging_func({"INFO"}, "saveStaticModel 2")
-
     # checkForF3DMaterial(obj)
-
-    logging_func({"INFO"}, "saveStaticModel 3")
 
     faces_by_mat = {}
     for face in obj.data.loop_triangles:
         if face.material_index not in faces_by_mat:
             faces_by_mat[face.material_index] = []
         faces_by_mat[face.material_index].append(face)
-
-    logging_func({"INFO"}, "saveStaticModel 4")
 
     # sort by material slot
     faces_by_mat = {
@@ -462,8 +448,6 @@ def saveStaticModel(
     for material_index, faces in faces_by_mat.items():
         material = obj.material_slots[material_index].material
 
-        logging_func({"INFO"}, "saveStaticModel 6")
-
         if drawLayerField is not None and material.mat_ver > 3:
             drawLayer = getattr(material.f3d_mat.draw_layer, drawLayerField)
             drawLayerName = drawLayer
@@ -471,33 +455,17 @@ def saveStaticModel(
             drawLayer = fModel.getDrawLayerV3(obj)
             drawLayerName = None
 
-        logging_func({"INFO"}, "saveStaticModel 7")
-
         if drawLayer not in fMeshes:
-            logging_func(
-                {"INFO"}, "saveStaticModel 7.11 " + (obj.original_name if obj.original_name is not None else "None")
-            )
-            logging_func({"INFO"}, "saveStaticModel 7.12 " + (ownerName if ownerName is not None else "None"))
-            logging_func({"INFO"}, "saveStaticModel 7.13 " + (drawLayerName if drawLayerName is not None else "None"))
-            logging_func({"INFO"}, "saveStaticModel 7.14 " + (str(obj) if obj is not None else "None"))
             fMesh = fModel.addMesh(obj.original_name, ownerName, drawLayerName, False, obj)
-            logging_func({"INFO"}, "saveStaticModel 7.2")
             fMeshes[drawLayer] = fMesh
-            logging_func({"INFO"}, "saveStaticModel 7.3")
 
             if obj.use_f3d_culling and not fModel.f3d.F3D_OLD_GBI:
-                logging_func({"INFO"}, "saveStaticModel 7.4")
                 addCullCommand(obj, fMesh, transformMatrix, fModel.matWriteMethod)
-                logging_func({"INFO"}, "saveStaticModel 7.5")
         else:
             fMesh = fMeshes[drawLayer]
 
-        logging_func({"INFO"}, "saveStaticModel 8")
-
         checkForF3dMaterialInFaces(obj, material)
         fMaterial, texDimensions = saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData)
-
-        logging_func({"INFO"}, "saveStaticModel 9")
 
         if fMaterial.isTexLarge[0] or fMaterial.isTexLarge[1]:
             saveMeshWithLargeTexturesByFaces(
@@ -530,20 +498,11 @@ def saveStaticModel(
                 None,
             )
 
-        logging_func({"INFO"}, "saveStaticModel 10")
-
-    logging_func({"INFO"}, "saveStaticModel 11")
-
     for drawLayer, fMesh in fMeshes.items():
         if revertMatAtEnd:
             revertMatAndEndDraw(fMesh.draw, [])
         else:
             fModel.endDraw(fMesh, obj)
-
-        logging_func({"INFO"}, "saveStaticModel 12")
-
-    logging_func({"INFO"}, "saveStaticModel 13")
-
     return fMeshes
 
 
@@ -1864,68 +1823,6 @@ def getWriteMethodFromEnum(enumVal):
         return matWriteMethodEnumDict[enumVal]
 
 
-def exportF3DtoXML(
-    dirPath,
-    obj,
-    DLFormat,
-    transformMatrix,
-    texDir,
-    objectPath,
-    savePNG,
-    texSeparate,
-    name,
-    matWriteMethod,
-    logging_func,
-):
-    logging_func({"INFO"}, "exportF3DtoXML 0")
-    fModel = FModel(name, DLFormat, matWriteMethod)
-    logging_func({"INFO"}, "exportF3DtoXML 1")
-    fMesh = exportF3DCommon(obj, fModel, transformMatrix, True, name, DLFormat, not savePNG)
-
-    logging_func({"INFO"}, "exportF3DtoXML 2")
-
-    modelDirPath = os.path.join(dirPath, objectPath)
-
-    logging_func({"INFO"}, "exportF3DtoXML 3")
-
-    if not os.path.exists(modelDirPath):
-        os.makedirs(modelDirPath)
-
-    logging_func({"INFO"}, "exportF3DtoXML 4")
-
-    # gfxFormatter = GfxFormatter(ScrollMethod.Vertex, 64)
-    exportData = fModel.to_xml(modelDirPath, objectPath, logging_func)
-
-    logging_func({"INFO"}, "exportF3DtoXML 5")
-
-    staticData = exportData
-    # dynamicData = exportData.dynamicData
-    # texC = exportData.textureData
-
-    # if DLFormat == DLFormat.Static:
-    # staticData.append(dynamicData)
-    # else:
-    # geoString = writeMaterialFiles(
-    #    dirPath,
-    #    modelDirPath,
-    #    '#include "actors/' + toAlnum(name) + '/header.h"',
-    #    '#include "actors/' + toAlnum(name) + '/material.inc.h"',
-    #    dynamicData.header,
-    #    dynamicData.source,
-    #    "",
-    #    True,
-    # )
-
-    # if texSeparate:
-    # texCFile = open(os.path.join(modelDirPath, "texture.inc.c"), "w", newline="\n")
-    # texCFile.write(texC.source)
-    # texCFile.close()
-
-    writeXMLData(staticData, os.path.join(modelDirPath, "model.xml"))
-
-    logging_func({"INFO"}, "exportF3DtoXML 6")
-
-
 def exportF3DtoC(dirPath, obj, DLFormat, transformMatrix, texDir, savePNG, texSeparate, name, matWriteMethod):
     inline = bpy.context.scene.exportInlineF3D
     fModel = FModel(name, DLFormat, matWriteMethod)
@@ -1990,6 +1887,7 @@ def removeDL(sourcePath, headerPath, DLName):
 
     if DLDataH != originalDataH:
         writeFile(headerPath, DLDataH)
+
 
 class Fast64_DLRedirectPanel(bpy.types.Panel):
     bl_idname = "FAST64_PT_f3d_redirect"

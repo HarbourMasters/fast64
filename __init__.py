@@ -1,5 +1,4 @@
 import bpy
-
 from bpy.utils import register_class, unregister_class
 from bpy.path import abspath
 
@@ -27,7 +26,8 @@ from .fast64_internal.z64.props_panel_main import OOT_ObjectProperties
 from .fast64_internal.z64.actor.properties import initOOTActorProperties
 from .fast64_internal.utility_anim import utility_anim_register, utility_anim_unregister, ArmatureApplyWithMeshOperator
 
-from .fast64_internal.mk64 import MK64_Properties, mk64_register, mk64_unregister
+from .fast64_internal.mk64 import mk64_register, mk64_unregister
+from .fast64_internal.mk64.mk64_properties import MK64_ObjectProperties, MK64_Properties
 from .fast64_internal.mk64.mk64_constants import mk64_world_defaults
 
 from .fast64_internal.f3d.f3d_gbi import get_F3D_GBI
@@ -71,9 +71,8 @@ bl_info = {
     "name": "Fast64 (HM64)",
     "version": (2, 5, 2),
     "author": "kurethedead",
-
     "location": "3DView",
-    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games. Modified for HM64 Ship of Harkinian.",
+    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games.",
     "category": "Import-Export",
     "blender": (3, 2, 0),
 }
@@ -292,7 +291,7 @@ class Fast64_ObjectProperties(bpy.types.PropertyGroup):
 
     sm64: bpy.props.PointerProperty(type=SM64_ObjectProperties, name="SM64 Object Properties")
     oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="Z64 Object Properties")
-    mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Object Properties")
+    mk64: bpy.props.PointerProperty(type=MK64_Properties, name="MK64 Object Properties")
 
 
 class Fast64_CurveProperties(bpy.types.PropertyGroup):
@@ -301,7 +300,7 @@ class Fast64_CurveProperties(bpy.types.PropertyGroup):
     All new object properties should be children of this property group.
     """
 
-    mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Curve Properties")
+    mk64: bpy.props.PointerProperty(type=MK64_Properties, name="MK64 Curve Properties")
 
 
 class UpgradeF3DMaterialsDialog(bpy.types.Operator):
@@ -432,7 +431,6 @@ def set_game_defaults(scene: bpy.types.Scene, set_ucode=True):
         world_defaults = oot_world_defaults
     elif scene.gameEditorMode == "MK64":
         f3d_type = "F3DEX/LX"
-        world_defaults = mk64_world_defaults
     elif scene.gameEditorMode == "Homebrew":
         f3d_type = "F3D"
         world_defaults = {}  # This will set some pretty bad defaults, but trust the user
