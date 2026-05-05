@@ -11,6 +11,7 @@ from ...utility import (
     getDeclaration,
     writeFile,
     readFile,
+    setOrigin,
     getGroupNameFromIndex,
     attemptModifierApply,
     cleanupDuplicatedObjects,
@@ -318,7 +319,7 @@ def ootDuplicateArmatureAndRemoveRotations(originalArmatureObj: bpy.types.Object
 
     try:
         for obj in meshObjs:
-            setOriginAtObject(armatureObj, obj)
+            setOrigin(obj, armatureObj.location)
 
         selectSingleObject(armatureObj)
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True, properties=False)

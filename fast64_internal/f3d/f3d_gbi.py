@@ -3860,6 +3860,10 @@ class FImage:
     def aligner_name(self):
         return f"{self.name}_aligner"
 
+    @property
+    def aligner_name(self):
+        return f"{self.name}_aligner"
+
     def size(self):
         return len(self.data)
 

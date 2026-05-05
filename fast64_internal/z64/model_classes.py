@@ -42,7 +42,7 @@ from .utility import is_hackeroot
 
 
 # read included asset data
-def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -> str:
+def ootGetIncludedAssetData(basePaths: list[str], currentPaths: list[str], data: str) -> str:
     includeData = ""
     searchedPaths = currentPaths[:]
 
@@ -51,7 +51,15 @@ def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -
 
     # search assets
     for includeMatch in re.finditer(r"\#include\s*\"(assets/objects/(.*?)\.h)\"", data):
-        h_p = Path(basePath) / includeMatch.group(1)
+        h_p = None
+        for basePath in basePaths:
+            candidate_h_p = Path(basePath) / includeMatch.group(1)
+            if candidate_h_p.exists():
+                h_p = candidate_h_p
+                break
+        if h_p is None:
+            print("Could not find included file:", includeMatch.group(1))
+            continue
         print("", str(h_p))
         includeData += getImportData([str(h_p)]) + "\n"
         for path_p in h_p.parent.glob("*.c"):
@@ -382,6 +390,10 @@ class OOTF3DContext(F3DContext):
         self.isBillboard = False
         self.flipbooks = {}  # {(segment, draw layer) : TextureFlipbook}
         self.ignored_dl_names: set[str] = set()
+
+        # the new assets system extracts CI textures as PNGs with the TLUT already applied
+        # so we need to avoid reading TLUTs as the files don't exist outside the build folder
+        self.ignore_tlut = False
 
         # the new assets system extracts CI textures as PNGs with the TLUT already applied
         # so we need to avoid reading TLUTs as the files don't exist outside the build folder

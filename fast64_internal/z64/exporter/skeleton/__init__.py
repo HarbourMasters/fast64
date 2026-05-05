@@ -1,5 +1,1 @@
-from .functions import (
-    ootConvertArmatureToSkeletonWithoutMesh,
-    ootConvertArmatureToC,
-    ootConvertArmatureToXML,
-)
+from .functions import ootConvertArmatureToSkeletonWithoutMesh, ootConvertArmatureToC, ootConvertArmatureToXML

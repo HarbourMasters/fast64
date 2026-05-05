@@ -46,7 +46,7 @@ class OOT_Panel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode == "OOT"
+        return context.scene.gameEditorMode in {"OOT", "MM"}
 
 
 class MM_Panel(bpy.types.Panel):

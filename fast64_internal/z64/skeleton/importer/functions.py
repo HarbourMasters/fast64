@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List
 
 from ....f3d.f3d_gbi import F3D, get_F3D_GBI
+from ....f3d.f3d_parser import getImportData, parseF3D, parseMatrices
+from ....utility import hexOrDecInt, applyRotation, PluginError
 from ....f3d.f3d_parser import getImportData, parseF3D
 from ....utility import (
     PluginError,
@@ -17,11 +19,14 @@ from ....utility import (
     get_include_data,
     removeComments,
 )
+
 from ...f3d_writer import ootReadActorScale
 from ...model_classes import OOTF3DContext, ootGetIncludedAssetData
 from ...utility import OOTEnum, ootGetObjectPath, getOOTScale, ootGetObjectHeaderPath, ootGetEnums, ootStripComments
 from ...texture_array import ootReadTextureArrays
 from ..constants import find_skeleton_import_info
+from ....game_data import game_data
+from ..constants import ootSkeletonImportDict
 from ..properties import OOTSkeletonImportSettings
 from ..utility import ootGetLimb, ootGetLimbs, ootGetSkeleton, applySkeletonRestPose, get_anim_names
 from ...tools.quick_import import quick_import_exec
@@ -117,11 +122,19 @@ def ootAddLimbRecursively(
     boneName = f3dContext.getBoneName(limbIndex)
     limb_info = ootGetLimb(skeletonData, limbName, False)
     assert limb_info is not None
+    defaultBoneName = f3dContext.getBoneName(limbIndex)
+    matchResult = ootGetLimb(skeletonData, limbName, False)
+    boneName = f3dContext.getBoneName(limbIndex)
+    limb_info = ootGetLimb(skeletonData, limbName, False)
+    assert limb_info is not None
 
     if limb_info.is_lod and useFarLOD:
         dlName = limb_info.far_dl_name
     else:
         dlName = limb_info.dl_name
+
+    loadDL = dlName != "NULL"
+    boneName = dlName if loadDL else defaultBoneName
 
     # Animations override the root translation, so we just ignore importing them as well.
     if limbIndex == 0:
@@ -246,7 +259,7 @@ def ootBuildSkeleton(
     )
     for dlEntry in f3dContext.dlList:
         limbName = f3dContext.getLimbName(dlEntry.limbIndex)
-        boneName = f3dContext.getBoneName(dlEntry.limbIndex)
+        boneName = f3dContext.limbToBoneName.get(limbName, f3dContext.getBoneName(dlEntry.limbIndex))
         parseF3D(
             skeletonData,
             dlEntry.dlName,
@@ -282,6 +295,10 @@ def ootBuildSkeleton(
     armatureObj.ootActorScale = actorScale / bpy.context.scene.ootBlenderScale
 
     return isLOD, armatureObj
+
+
+def parse_included_objects():
+    pass
 
 
 def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings):
@@ -357,8 +374,19 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
 
     skeletonData = getImportData(filepaths)
     if overlayName is not None or isLink:
-        skeletonData = ootGetIncludedAssetData(basePath, filepaths, skeletonData) + skeletonData
+        skeletonData = ootGetIncludedAssetData([basePath], filepaths, skeletonData) + skeletonData
 
+    matchResult = ootGetSkeleton(skeletonData, skeletonName, False)
+    limbsName = matchResult.group(2)
+
+    matchResult = ootGetLimbs(skeletonData, limbsName, False)
+    limbsData = matchResult.group(2)
+    limbList = [entry.strip()[1:] for entry in ootStripComments(limbsData).split(",") if entry.strip() != ""]
+
+    f3dContext = OOTF3DContext(get_F3D_GBI(), limbList, basePath)
+    f3dContext.mat().draw_layer.oot = drawLayer
+    if importSettings.mode == "Human Link":
+        f3dContext.ignored_dl_names.add("gKokiriSwordHandleDL")
     skel_info = ootGetSkeleton(skeletonData, skeletonName, False)
     assert skel_info is not None
     if skel_info.uses_include:
@@ -382,6 +410,9 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     if actorScale is None:
         actorScale = getOOTScale(importSettings.actorScale)
 
+    parseMatrices(skeletonData, f3dContext, actorScale)
+
+    # print(limbList)
     _, armatureObj = ootBuildSkeleton(
         skeletonName,
         overlayName,

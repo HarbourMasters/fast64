@@ -1,4 +1,5 @@
 import bpy
+
 from bpy.utils import register_class, unregister_class
 from bpy.path import abspath
 
@@ -69,7 +70,7 @@ from .fast64_internal.gltf_extension import (
 # info about add on
 bl_info = {
     "name": "Fast64 (HM64)",
-    "version": (2, 5, 2),
+    "version": (2, 5, 3),
     "author": "kurethedead",
     "location": "3DView",
     "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games.",
@@ -399,6 +400,13 @@ def upgrade_scene_props_node():
 
 @bpy.app.handlers.persistent
 def after_load(_a, _b):
+    # Doing some operations immediately on file load can crash blender in specific situations,
+    # so delay the post-load code execution.
+    # (note if register() is called without a delay the function just runs immediately, so we need any non-zero delay)
+    bpy.app.timers.register(after_load_impl, 0.001)
+
+
+def after_load_impl():
     game_data.update(bpy.context.scene.gameEditorMode)
 
     settings = bpy.context.scene.fast64.settings

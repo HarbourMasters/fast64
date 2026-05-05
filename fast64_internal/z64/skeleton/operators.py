@@ -138,7 +138,6 @@ class OOT_ExportSkeleton(Operator):
                 return {"CANCELLED"}  # must return a set
 
 
-
 oot_skeleton_classes = (
     OOT_SaveRestPose,
     OOT_ImportSkeleton,
