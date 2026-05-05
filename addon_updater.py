@@ -611,6 +611,9 @@ class SingletonUpdater:
 
     def form_tags_url(self):
         return self._engine.form_tags_url(self)
+    
+    def form_mrs_url(self):
+        return self._engine.form_mrs_url(self)
 
     def form_branch_list_url(self):
         return self._engine.form_branch_list_url(self)

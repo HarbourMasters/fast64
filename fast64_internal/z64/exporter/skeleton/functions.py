@@ -311,6 +311,21 @@ def ootConvertArmatureToC(
     else:
         data.header += "\n"
 
+    data.header = f"#ifndef {header_filename.upper()}_H\n" + f"#define {header_filename.upper()}_H\n\n"
+
+    if bpy.context.scene.fast64.oot.is_globalh_present():
+        data.header += '#include "ultra64.h"\n' + '#include "global.h"\n'
+    elif bpy.context.scene.fast64.oot.is_z64sceneh_present():
+        data.header += '#include "ultra64.h"\n' + '#include "array_count.h"\n' + '#include "z64animation.h"\n'
+    else:
+        data.header += '#include "ultra64.h"\n' + '#include "array_count.h"\n' + '#include "animation.h"\n'
+
+    data.source = f'#include "{header_filename}.h"\n\n'
+    if not isCustomExport:
+        data.header += f'#include "{folderName}.h"\n\n'
+    else:
+        data.header += "\n"
+
     folder_path_for_export = _normalize_folder_for_path(
         folderName, keep_objects_prefix=isCustomExport, ensure_objects_prefix=isCustomExport
     )
