@@ -59,6 +59,10 @@ class OOTDLExportSettings(PropertyGroup):
         name="Use Custom Filename", description="Override filename instead of basing it off of the Blender name"
     )
     filename: StringProperty(name="Filename")
+    useCustomDLName: BoolProperty(
+        name="Use Custom DL Name", description="Use a custom DL name instead of the object name"
+    )
+    customDLName: StringProperty(name="DL Name")
     folder: StringProperty(name="DL Folder", default="objects/gameplay_keep")
     customPath: StringProperty(name="Custom DL Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
@@ -77,6 +81,9 @@ class OOTDLExportSettings(PropertyGroup):
       )
 
     def draw_props(self, layout: UILayout, context: bpy.types.Context | None = None):
+          layout.prop(self, "useCustomDLName")
+          if self.useCustomDLName:
+              prop_split(layout, self, "customDLName", "DL Name")
           prop_split(layout, self, "folder", "Internal Path")
           prop_split(layout, self, "customPath", "Path")
           prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")

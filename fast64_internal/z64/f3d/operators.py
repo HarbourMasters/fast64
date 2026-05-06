@@ -14,7 +14,7 @@ from ...utility import CData, PluginError, ExportUtils, raisePluginError, writeC
 from ...f3d.f3d_parser import importMeshC, getImportData
 from ...f3d.f3d_gbi import DLFormat, TextureExportSettings, ScrollMethod, get_F3D_GBI
 from ...f3d.f3d_writer import TriangleConverterInfo, removeDL, saveStaticModel, getInfoDict
-from ..utility import ootGetObjectPath, ootGetObjectHeaderPath, getOOTScale
+from ..utility import ootGetObjectPath, ootGetObjectHeaderPath, getOOTScale, checkEmptyName
 from ..model_classes import OOTF3DContext, ootGetIncludedAssetData
 from ..texture_array import ootReadTextureArrays
 from ..model_classes import OOTModel, OOTGfxFormatter
@@ -79,6 +79,17 @@ def resolve_custom_export_folder(base_path: str, folder_name: str) -> str:
     return folder_path
 
 
+def resolve_dl_export_name(originalObj: bpy.types.Object, settings: "OOTDLExportSettings") -> str:
+    if settings.useCustomDLName:
+        custom_name = (settings.customDLName or "").strip()
+        checkEmptyName(custom_name)
+        name = toAlnum(custom_name)
+        checkEmptyName(name)
+        return name
+
+    return toAlnum(originalObj.name)
+
+
 class OOTF3DGfxFormatter(OOTGfxFormatter):
     def __init__(self, scrollMethod):
         OOTGfxFormatter.__init__(self, scrollMethod)
@@ -99,7 +110,7 @@ def ootConvertMeshToC(
     exportPath = resolve_custom_export_base(settings)
     isCustomExport = settings.isCustom
     removeVanillaData = settings.removeVanillaData
-    name = toAlnum(originalObj.name)
+    name = resolve_dl_export_name(originalObj, settings)
     overlayName = settings.actorOverlayName
     flipbookUses2DArray = settings.flipbookUses2DArray
     flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
@@ -170,7 +181,7 @@ def ootConvertMeshToXML(
     folderName = settings.folder
     exportPath = resolve_custom_export_base(settings)
     isCustomExport = settings.isCustom
-    name = toAlnum(originalObj.name)
+    name = resolve_dl_export_name(originalObj, settings)
     overlayName = settings.actorOverlayName
     flipbookUses2DArray = settings.flipbookUses2DArray
     flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
