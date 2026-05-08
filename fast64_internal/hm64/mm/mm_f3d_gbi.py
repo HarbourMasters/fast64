@@ -5,13 +5,13 @@ from typing import Sequence, Union, Tuple
 from dataclasses import dataclass, fields, field
 from html import escape
 import bpy, os, enum, copy
-from ..utility import *
+from ...utility import *
 import struct
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .f3d_material import TextureProperty
+    from ...f3d.f3d_material import TextureProperty
 
 
 class ScrollMethod(enum.Enum):

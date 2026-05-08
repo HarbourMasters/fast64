@@ -4,7 +4,6 @@ from ...utility import prop_split
 from ...panels import MM_Panel, OOT_Panel
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
 from .operators import OOT_ImportSkeleton, OOT_ExportSkeleton
-from .mm.operators import MM_ExportSkeleton
 
 
 class OOT_SkeletonPanel(Panel):
@@ -53,7 +52,7 @@ class OOT_BonePanel(Panel):
         context.bone.ootBone.draw_props(col)
 
 
-from .mm.operators import MM_ExportSkeleton
+from ...hm64.mm.skeleton.operators import MM_ExportSkeleton
 
 
 class OOT_ExportSkeletonPanel(OOT_Panel):

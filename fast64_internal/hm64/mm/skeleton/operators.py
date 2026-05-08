@@ -5,8 +5,8 @@ from bpy.utils import register_class, unregister_class
 from mathutils import Matrix
 
 from ....f3d.f3d_gbi import DLFormat
-from ..properties import OOTSkeletonExportSettings
-from ...utility import getOOTScale
+from ....z64.skeleton.properties import OOTSkeletonExportSettings
+from ....z64.utility import getOOTScale
 from ....utility import ExportUtils, PluginError, raisePluginError
 from .functions import ootConvertArmatureToO2R
 

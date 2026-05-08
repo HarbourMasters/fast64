@@ -3,13 +3,13 @@ import bpy
 import os
 
 from pathlib import Path
-from ....f3d.mm_f3d_gbi import DLFormat, FMesh, TextureExportSettings, ScrollMethod, get_F3D_GBI
-from ....f3d.mm_f3d_writer import getInfoDict
-from ... import mm_f3d_writer
-from ...model_classes import OOTModel, OOTGfxFormatter
+from ..mm_f3d_gbi import DLFormat, FMesh, TextureExportSettings, ScrollMethod, get_F3D_GBI
+from ..mm_f3d_writer import getInfoDict
+from .. import mm_f3d_writer
+from ....z64.model_classes import OOTModel, OOTGfxFormatter
 from ....game_data import game_data
-from ..properties import OOTSkeletonExportSettings
-from ..utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices, ootRemoveSkeleton
+from ....z64.skeleton.properties import OOTSkeletonExportSettings
+from ....z64.skeleton.utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices, ootRemoveSkeleton
 from .classes import OOTLimb, OOTSkeleton
 
 
@@ -47,7 +47,7 @@ from ....utility import (
     resolve_internal_export_path,
 )
 
-from ...utility import (
+from ....z64.utility import (
     checkEmptyName,
     checkForStartBone,
     getStartBone,

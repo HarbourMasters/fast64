@@ -4,20 +4,20 @@ import bpy
 
 from typing import Optional
 
-from ..utility import CData, getGroupIndexFromname, readFile, writeFile
-from ..f3d.flipbook import flipbook_to_c, flipbook_2d_to_c, flipbook_data_to_c
-from ..f3d.f3d_material import createF3DMat, F3DMaterial_UpdateLock, update_preset_manual
-from .utility import replaceMatchContent, getOOTScale
-from .texture_array import TextureFlipbook
+from ...utility import CData, getGroupIndexFromname, readFile, writeFile
+from ...f3d.flipbook import flipbook_to_c, flipbook_2d_to_c, flipbook_data_to_c
+from ...f3d.f3d_material import createF3DMat, F3DMaterial_UpdateLock, update_preset_manual
+from ...z64.utility import replaceMatchContent, getOOTScale
+from ...z64.texture_array import TextureFlipbook
 
-from ..f3d.f3d_writer import (
+from ...f3d.f3d_writer import (
     checkForF3dMaterialInFaces,
     saveOrGetF3DMaterial,
     saveMeshWithLargeTexturesByFaces,
     saveMeshByFaces,
 )
 
-from .model_classes import (
+from ...z64.model_classes import (
     OOTTriangleConverterInfo,
     OOTModel,
     ootGetActorData,

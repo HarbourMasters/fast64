@@ -11,12 +11,12 @@ from pathlib import Path
 from mathutils import Vector, Euler, Matrix
 from dataclasses import dataclass, fields
 
-from .mk64_constants import MODEL_HEADER, SURFACE_TYPE_ENUM, CLIP_TYPE_ENUM, DRAW_LAYER_ENUM, PATH_TYPE_ENUM
+from ...mk64.mk64_constants import MODEL_HEADER, SURFACE_TYPE_ENUM, CLIP_TYPE_ENUM, DRAW_LAYER_ENUM, PATH_TYPE_ENUM
 from .mk64_properties import MK64_ObjectProperties
 
-from ..f3d.f3d_writer import exportF3DCommon, getInfoDict, TriangleConverterInfo, saveStaticModel
-from ..f3d.f3d_bleed import BleedGraphics
-from ..f3d.f3d_gbi import (
+from ...f3d.f3d_writer import exportF3DCommon, getInfoDict, TriangleConverterInfo, saveStaticModel
+from ...f3d.f3d_bleed import BleedGraphics
+from ...f3d.f3d_gbi import (
     DLFormat,
     GfxListTag,
     GfxMatWriteMethod,
@@ -30,7 +30,7 @@ from ..f3d.f3d_gbi import (
     TextureExportSettings,
 )
 
-from ..utility import (
+from ...utility import (
     transform_mtx_blender_to_n64,
     cleanupDuplicatedObjects,
     duplicateHierarchy,

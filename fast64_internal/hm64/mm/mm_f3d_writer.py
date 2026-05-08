@@ -6,19 +6,19 @@ from mathutils import Vector
 from math import ceil
 from bpy.utils import register_class, unregister_class
 
-from .f3d_enums import *
-from .f3d_material import (
+from ...f3d.f3d_enums import *
+from ...f3d.f3d_material import (
     all_combiner_uses,
     getMaterialScrollDimensions,
     isTexturePointSampled,
     get_textlut_mode,
     RDPSettings,
 )
-from .f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingleLargeTextureSetup
-from .f3d_gbi import *
-from .f3d_bleed import BleedGraphics, get_geo_cmds
+from ...f3d.f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingleLargeTextureSetup
+from ...f3d.f3d_gbi import *
+from ...f3d.f3d_bleed import BleedGraphics, get_geo_cmds
 
-from ..utility import *
+from ...utility import *
 
 
 def getColorLayer(mesh: bpy.types.Mesh, layer="Col"):
