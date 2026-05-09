@@ -75,11 +75,6 @@ def get_geo_cmds(
     set_modes, clear_modes = set(set_modes), set(clear_modes)
     if len(clear_modes) == 0 and len(set_modes) == 0:
         return ([], [])
-    if is_ex2:
-        if matWriteMethod == GfxMatWriteMethod.WriteAll:
-            return ([SPLoadGeometryMode(set_modes)], [])
-        elif len(set_modes) > 0 and len(clear_modes) > 0:
-            return ([SPGeometryMode(clear_modes, set_modes)], [SPGeometryMode(set_modes, clear_modes)])
     material, revert = [], []
     if len(set_modes) > 0:
         material.append(SPSetGeometryMode(set_modes))

@@ -1323,7 +1323,7 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     useDict = all_combiner_uses(f3dMat)
 
     defaults = create_or_get_world(bpy.context.scene).rdp_defaults
-    saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
+    fMaterial.mat_only_DL.commands.append(DPPipeSync())
 
     # Checking for f3dMat.rdp_settings.g_lighting here will prevent accidental exports,
     # There may be some edge case where this isn't desired.
@@ -1337,7 +1337,6 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
             fLights = saveLightsDefinition(fModel, fMaterial, f3dMat, materialName + "_lights")
             fMaterial.mat_only_DL.commands.extend([SPSetLights(fLights)])
 
-    fMaterial.mat_only_DL.commands.append(DPPipeSync())
     fMaterial.revert.commands.append(DPPipeSync())
 
     fMaterial.getScrollData(material, getMaterialScrollDimensions(f3dMat))
@@ -1385,6 +1384,8 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
                     f3dMat.combiner1.D_alpha,
                 )
             )
+
+    saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
 
     if f3dMat.set_ao:
         fMaterial.mat_only_DL.commands.append(
