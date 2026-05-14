@@ -124,6 +124,7 @@ from .sm64_geolayout_classes import (
 )
 
 from .sm64_constants import insertableBinaryTypes, bank0Segment, defaultExtendSegment4
+from ..hm64 import sm64 as hm64_sm64
 
 if typing.TYPE_CHECKING:
     from .sm64_geolayout_bone import SM64_BoneProperties
@@ -2399,9 +2400,9 @@ def saveModelGivenVertexGroup(
     fMeshes = {}
     fSkinnedMeshes = {}
     for drawLayer, materialFaces in skinnedFaces.items():
-        meshName = getFMeshName(vertexGroup, namePrefix, drawLayer, False)
+        meshName = getFMeshName(fModel, vertexGroup, namePrefix, drawLayer, False)
         checkUniqueBoneNames(fModel, meshName, vertexGroup)
-        skinnedMeshName = getFMeshName(vertexGroup, namePrefix, drawLayer, True)
+        skinnedMeshName = getFMeshName(fModel, vertexGroup, namePrefix, drawLayer, True)
         checkUniqueBoneNames(fModel, skinnedMeshName, vertexGroup)
 
         fMesh, fSkinnedMesh = saveSkinnedMeshByMaterial(
@@ -2939,6 +2940,9 @@ class SM64_ExportGeolayoutObject(ObjectDataExporter):
                     bpy.path.abspath(bpy.context.scene.geoInsertableBinaryPath),
                 )
                 self.report({"INFO"}, "Success! Data at " + context.scene.geoInsertableBinaryPath)
+            elif context.scene.fast64.sm64.export_type == "Ghostship":
+                hm64_sm64.export_ghostship_geolayout_object(obj, final_transform, props, context, DLFormat.Static)
+                self.report({"INFO"}, "Success!")
             else:
                 tempROM = tempName(context.scene.fast64.sm64.output_rom)
                 export_rom_checks(bpy.path.abspath(context.scene.fast64.sm64.export_rom))
@@ -3137,6 +3141,11 @@ class SM64_ExportGeolayoutArmature(bpy.types.Operator):
                     None,
                 )
                 self.report({"INFO"}, "Success! Data at " + context.scene.geoInsertableBinaryPath)
+            elif context.scene.fast64.sm64.export_type == "Ghostship":
+                hm64_sm64.export_ghostship_geolayout_armature(
+                    armatureObj, obj, final_transform, props, context, DLFormat.Static
+                )
+                self.report({"INFO"}, "Success!")
             else:
                 tempROM = tempName(context.scene.fast64.sm64.output_rom)
                 export_rom_checks(bpy.path.abspath(context.scene.fast64.sm64.export_rom))
@@ -3250,7 +3259,9 @@ class SM64_ExportGeolayoutPanel(SM64_Panel):
         propsGeoE = col.operator(SM64_ExportGeolayoutArmature.bl_idname)
         propsGeoE = col.operator(SM64_ExportGeolayoutObject.bl_idname)
         props = context.scene.fast64.sm64.combined_export
-        if context.scene.fast64.sm64.export_type == "Insertable Binary":
+        if context.scene.fast64.sm64.export_type == "Ghostship":
+            hm64_sm64.draw_ghostship_geolayout_panel(col, context)
+        elif context.scene.fast64.sm64.export_type == "Insertable Binary":
             col.prop(context.scene, "geoInsertableBinaryPath")
         else:
             prop_split(col, context.scene, "geoExportStart", "Start Address")
@@ -3308,6 +3319,7 @@ def sm64_geo_writer_register():
     bpy.types.Scene.geoRAMAddr = bpy.props.StringProperty(name="RAM Address", default="80000000")
     bpy.types.Scene.geoSeparateTextureDef = bpy.props.BoolProperty(name="Save texture.inc.c separately")
     bpy.types.Scene.geoInsertableBinaryPath = bpy.props.StringProperty(name="Filepath", subtype="FILE_PATH")
+    hm64_sm64.register_ghostship_geolayout_props()
     bpy.types.Scene.geoIsSegPtr = bpy.props.BoolProperty(name="Is Segmented Address")
     bpy.types.Scene.replaceStarRefs = bpy.props.BoolProperty(
         name="Replace old DL references in other actors", default=True
@@ -3336,6 +3348,7 @@ def sm64_geo_writer_unregister():
     del bpy.types.Scene.geoRAMAddr
     del bpy.types.Scene.geoSeparateTextureDef
     del bpy.types.Scene.geoInsertableBinaryPath
+    hm64_sm64.unregister_ghostship_geolayout_props()
     del bpy.types.Scene.geoIsSegPtr
     del bpy.types.Scene.replaceStarRefs
     del bpy.types.Scene.replaceTransparentStarRefs
