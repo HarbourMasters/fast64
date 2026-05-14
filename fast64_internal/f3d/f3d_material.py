@@ -1948,7 +1948,9 @@ def get_preview_light_entries(
 
         color = [float(light.color[0]), float(light.color[1]), float(light.color[2]), 1.0]
         light_objects = [
-            obj for obj in bpy.context.scene.objects if obj.type == "LIGHT" and obj.data == getattr(light, "original", light)
+            obj
+            for obj in bpy.context.scene.objects
+            if obj.type == "LIGHT" and obj.data == getattr(light, "original", light)
         ]
         if not light_objects:
             light_objects = [None]
@@ -2011,6 +2013,7 @@ def compress_preview_lights(light_entries: list[dict[str, Any]]) -> list[dict[st
             }
         )
     return compressed
+
 
 def update_light_colors(material, context):
     f3dMat: "F3DMaterialProperty" = material.f3d_mat
@@ -5635,4 +5638,3 @@ enumMaterialPresets = [
         "Vertex Colored Texture (No Vertex Alpha)",
     ),
 ]
-

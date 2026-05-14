@@ -339,10 +339,13 @@ def ootConvertArmatureToC(
     writeCData(data, os.path.join(path, filename + ".h"), os.path.join(path, filename + ".c"))
 
     if not isCustomExport:
-        mm_f3d_writer.writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel)
+        mm_f3d_writer.writeTextureArraysExisting(
+            bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel
+        )
         addIncludeFiles(folderName, path, filename)
         if removeVanillaData:
             ootRemoveSkeleton(path, folderName, skeletonName)
+
 
 def ootConvertArmatureToO2R(
     originalArmatureObj: bpy.types.Object,

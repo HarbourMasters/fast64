@@ -1,7 +1,15 @@
 import bpy
 
 from bpy.types import PropertyGroup, Object, World, Material, UILayout, Mesh
-from bpy.props import PointerProperty, StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty
+from bpy.props import (
+    PointerProperty,
+    StringProperty,
+    BoolProperty,
+    EnumProperty,
+    IntProperty,
+    FloatProperty,
+    CollectionProperty,
+)
 from bpy.utils import register_class, unregister_class
 
 from ...f3d.f3d_material import update_world_default_rendermode
@@ -78,33 +86,33 @@ class OOTDLExportSettings(PropertyGroup):
         name="Asset Include Directory",
         default="assets/objects/gameplay_keep",
         description="Used in #include for including image files",
-      )
+    )
 
     def draw_props(self, layout: UILayout, context: bpy.types.Context | None = None):
-          layout.prop(self, "useCustomDLName")
-          if self.useCustomDLName:
-              prop_split(layout, self, "customDLName", "DL Name")
-          prop_split(layout, self, "folder", "Internal Path")
-          prop_split(layout, self, "customPath", "Path")
-          prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
-          owner_info = self._determine_matrix_owner(context)
-          if owner_info:
-              self._draw_matrix_call_section(layout, *owner_info)
+        layout.prop(self, "useCustomDLName")
+        if self.useCustomDLName:
+            prop_split(layout, self, "customDLName", "DL Name")
+        prop_split(layout, self, "folder", "Internal Path")
+        prop_split(layout, self, "customPath", "Path")
+        prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
+        owner_info = self._determine_matrix_owner(context)
+        if owner_info:
+            self._draw_matrix_call_section(layout, *owner_info)
 
     def _determine_matrix_owner(
-          self, context: bpy.types.Context | None
-      ) -> tuple[object, str, str, str, str, str] | None:
-          obj = context.object if context else None
-          if obj is not None and isinstance(obj.data, Mesh):
-              return (
-                  obj,
-                  "oot_matrix_calls",
-                  "oot_matrix_calls_index",
-                  "fast64.oot_add_object_matrix_call",
-                  "fast64.oot_remove_object_matrix_call",
-                  f"Matrix Path + CallDisplayList ({obj.name})",
-              )
-          return None
+        self, context: bpy.types.Context | None
+    ) -> tuple[object, str, str, str, str, str] | None:
+        obj = context.object if context else None
+        if obj is not None and isinstance(obj.data, Mesh):
+            return (
+                obj,
+                "oot_matrix_calls",
+                "oot_matrix_calls_index",
+                "fast64.oot_add_object_matrix_call",
+                "fast64.oot_remove_object_matrix_call",
+                f"Matrix Path + CallDisplayList ({obj.name})",
+            )
+        return None
 
     def _draw_matrix_call_section(
         self,

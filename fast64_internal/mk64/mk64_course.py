@@ -38,7 +38,7 @@ from ..utility import (
     PluginError,
     CData,
     writeCData,
-    writeXMLData
+    writeXMLData,
 )
 
 # ------------------------------------------------------------------------
@@ -55,7 +55,9 @@ class MK64_BpyCourse:
     def __init__(self, course_root: bpy.types.Object):
         self.root = course_root
 
-    def make_mk64_course_from_bpy(self, context: bpy.Types.Context, scale: float, mat_write_method: GfxMatWriteMethod,  logging_func):
+    def make_mk64_course_from_bpy(
+        self, context: bpy.Types.Context, scale: float, mat_write_method: GfxMatWriteMethod, logging_func
+    ):
         """
         Creates a MK64_fModel class with all model data ready to exported to c
         also generates lists for items, pathing and collision (in future)
@@ -82,15 +84,14 @@ class MK64_BpyCourse:
 
                     if len(splines) > 1:
                         self.report(
-                            {'WARNING'},
-                            f"Curve '{child.name}' has multiple splines. Only the first will be exported."
+                            {"WARNING"}, f"Curve '{child.name}' has multiple splines. Only the first will be exported."
                         )
 
                     spline = splines[0]
 
-                    if spline.type == 'BEZIER':
+                    if spline.type == "BEZIER":
                         self.add_curve(child, parent_transform, fModel)
-                    elif spline.type == 'NURBS':
+                    elif spline.type == "NURBS":
                         self.add_path(child, parent_transform, fModel, logging_func)
 
                 if child.children:
@@ -151,12 +152,14 @@ class MK64_BpyCourse:
 
         for v in mesh.vertices:
             world_pos = transform @ eval_obj.matrix_world @ v.co
-            points.append((
-                int(round(world_pos.x)),
-                int(round(world_pos.y)),
-                int(round(world_pos.z)),
-                0,
-            ))
+            points.append(
+                (
+                    int(round(world_pos.x)),
+                    int(round(world_pos.y)),
+                    int(round(world_pos.z)),
+                    0,
+                )
+            )
 
         eval_obj.to_mesh_clear()
 
@@ -179,7 +182,7 @@ class MK64_BpyCourse:
                     # Treat transparent objects like a normal object which means the position is exported.
                     # This is required for z-sort so that they are rendered over-top of each other correctly.
                     # Normal geometry is placed at 0,0,0 and the vertices are used for positionnig instead.
-                    if mk64_props.draw_layer in {'DRAW_TRANSLUCENT', 'DRAW_TRANSLUCENT_NO_ZBUFFER'}:
+                    if mk64_props.draw_layer in {"DRAW_TRANSLUCENT", "DRAW_TRANSLUCENT_NO_ZBUFFER"}:
                         mk64_props.location = obj.matrix_world.to_translation() * mk_props.scale
                         transformMatrix.translation = Vector((0.0, 0.0, 0.0))
                         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True, properties=False)
@@ -222,7 +225,16 @@ class MK64_fModel(FModel):
     # to lookup collision data later
     def onAddMesh(self, fMesh: FMesh, obj: bpy.Types.Object):
         mk64_props: MK64_ObjectProperties = obj.fast64.mk64
-        self.track_sections.append(MK64_TrackSection(fMesh.draw.name, mk64_props.surface_type, mk64_props.section_id, mk64_props.clip_type, mk64_props.draw_layer, mk64_props.location))
+        self.track_sections.append(
+            MK64_TrackSection(
+                fMesh.draw.name,
+                mk64_props.surface_type,
+                mk64_props.section_id,
+                mk64_props.clip_type,
+                mk64_props.draw_layer,
+                mk64_props.location,
+            )
+        )
         return
 
     def to_c(self, *args):
@@ -233,9 +245,8 @@ class MK64_fModel(FModel):
         export_data.staticData.append(self.to_c_dl_array())
 
         return export_data
-    
-    def to_xml(self, *args):
 
+    def to_xml(self, *args):
         export_data = super().to_xml(*args)
         self.to_xml_actors()
         self.to_xml_path(*args)
@@ -254,7 +265,6 @@ class MK64_fModel(FModel):
         data.source += "};\n\n"
         return data
 
-
     def to_c_track_actors(self):
         data = CData()
         if not self.actors:
@@ -272,24 +282,22 @@ class MK64_fModel(FModel):
         return data
 
     def to_xml_actors(self, *args):
-        #export_dir, internal_path, printer = args
+        # export_dir, internal_path, printer = args
 
-        #lines = []
+        # lines = []
         if not self.actors:
             return
 
-        #actors = "\n\t".join([f"<Spawn {actors.to_xml()} />" for actor in self.actors])
+        # actors = "\n\t".join([f"<Spawn {actors.to_xml()} />" for actor in self.actors])
 
-        #lines.extend((
+        # lines.extend((
         #    f"<Actors>",
         #    f"\t{actors}",
         #    f"</Actors>"
-        #))
+        # ))
 
-        #data = "\n".join(lines)
-        #writeXMLData(data, os.path.join(export_dir, "data_actors"))
-
-
+        # data = "\n".join(lines)
+        # writeXMLData(data, os.path.join(export_dir, "data_actors"))
 
     def to_c_track_sections(self):
         data = CData()
@@ -306,28 +314,26 @@ class MK64_fModel(FModel):
             )
         )
         return data
-    
+
     def to_xml_track_sections(self, *args):
         export_dir, internal_path, printer = args
 
         lines = []
         if not self.track_sections:
             return
-        
-        lines.append("<TrackSections XMLSucks=\"1\">")
+
+        lines.append('<TrackSections XMLSucks="1">')
         for i, section in enumerate(self.track_sections):
+            sections = "\n\t".join(
+                [
+                    f'<Section gfx_path="{internal_path}/{section.gfx_list_name}" surface="{SURFACE_TYPE_ENUM[section.surface_type]}" section="{section.section_id:#04x}" flags="{CLIP_TYPE_ENUM[section.clip]}" drawlayer="{DRAW_LAYER_ENUM[section.drawLayer]}" x="{section.location[0]:.6f}" y="{section.location[1]:.6f}" z="{section.location[2]:.6f}" />'
+                ]
+            )
 
-            sections = "\n\t".join([
-                f"<Section gfx_path=\"{internal_path}/{section.gfx_list_name}\" surface=\"{SURFACE_TYPE_ENUM[section.surface_type]}\" section=\"{section.section_id:#04x}\" flags=\"{CLIP_TYPE_ENUM[section.clip]}\" drawlayer=\"{DRAW_LAYER_ENUM[section.drawLayer]}\" x=\"{section.location[0]:.6f}\" y=\"{section.location[1]:.6f}\" z=\"{section.location[2]:.6f}\" />"
-            ])
-
-            lines.extend((
-                f"\t{sections}",
-            ))
+            lines.extend((f"\t{sections}",))
         lines.append("</TrackSections>")
         data = "\n".join(lines)
         writeXMLData(data, os.path.join(export_dir, "data_track_sections"))
-
 
     def to_c_path(self):
         data = CData()
@@ -352,7 +358,7 @@ class MK64_fModel(FModel):
             )
 
         return data
-    
+
     def to_xml_path(self, *args):
         export_dir, internal_path, printer = args
 
@@ -360,17 +366,19 @@ class MK64_fModel(FModel):
         if not self.path:
             return
 
-        lines.append("<Paths XMLSucks=\"1\">")
+        lines.append('<Paths XMLSucks="1">')
         for i, path in enumerate(self.path):
             # Use integer formatting instead of float formatting
-            waypoints = "\n\t\t".join([f"<Point X=\"{x}\" Y=\"{y}\" Z=\"{z}\" ID=\"{pid}\"/>" for x, y, z, pid in path.points])
+            waypoints = "\n\t\t".join([f'<Point X="{x}" Y="{y}" Z="{z}" ID="{pid}"/>' for x, y, z, pid in path.points])
 
-            lines.extend((
-                f"\t<TrackWaypoint type=\"{PATH_TYPE_ENUM[path.path_type]}\">",
-                f"\t\t{waypoints}",
-                f"\t\t<Point X=\"-32768\" Y=\"-32768\" Z=\"-32768\" ID=\"0\"/>",
-                f"\t</TrackWaypoint>"
-            ))
+            lines.extend(
+                (
+                    f'\t<TrackWaypoint type="{PATH_TYPE_ENUM[path.path_type]}">',
+                    f"\t\t{waypoints}",
+                    f'\t\t<Point X="-32768" Y="-32768" Z="-32768" ID="0"/>',
+                    f"\t</TrackWaypoint>",
+                )
+            )
         lines.append("</Paths>")
         data = "\n".join(lines)
         writeXMLData(data, os.path.join(export_dir, "data_paths"))
@@ -416,7 +424,7 @@ class MK64_Actor:
     def to_c(self):
         pos = ", ".join(f"{int(coord):6}" for coord in self.pos)
         return f"{{ {{{pos}}}, {{{self.id}}} }}"
-    
+
     def to_xml(self):
         pos = " ".join(f"{int(coord):6}" for coord in self.pos)
         return f"{{ {{{pos}}}, {{{self.id}}} }}"
@@ -438,7 +446,7 @@ class MK64_Path:
         for x, y, z, pid in self.points:
             lines.append(f"{{ {x}, {y}, {z}, {pid} }},")
         return "\n".join(lines)
-    
+
     def to_xml(self):
         lines = []
         for x, y, z, pid in self.points:
@@ -483,8 +491,10 @@ def export_course_c(obj: bpy.types.Object, context: bpy.types.Context, export_di
 
     writeCData(model_data, os.path.join(export_dir, "header.h"), os.path.join(export_dir, "model.inc.c"))
 
-def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_dir: Path, internal_path: Path, logging_func):
 
+def export_course_xml(
+    obj: bpy.types.Object, context: bpy.types.Context, export_dir: Path, internal_path: Path, logging_func
+):
     export_dir = os.path.join(export_dir, internal_path)
 
     inline = context.scene.exportInlineF3D
@@ -505,13 +515,12 @@ def export_course_xml(obj: bpy.types.Object, context: bpy.types.Context, export_
     # idk how scrolls would actually affect this export
     gfxFormatter = GfxFormatter(ScrollMethod.Vertex, 64, None)
     export_data = mk64_fModel.to_xml(export_dir, internal_path, logging_func)
-    #staticData = export_data.staticData
-    #dynamicData = export_data.dynamicData
+    # staticData = export_data.staticData
+    # dynamicData = export_data.dynamicData
 
-    #model_data = CData()
-    #model_data.source += MODEL_HEADER
-    #model_data.append(staticData)
-    #model_data.append(dynamicData)
+    # model_data = CData()
+    # model_data.source += MODEL_HEADER
+    # model_data.append(staticData)
+    # model_data.append(dynamicData)
 
-
-    #writeXMLData(export_data, os.path.join(export_dir, "model.xml"))
+    # writeXMLData(export_data, os.path.join(export_dir, "model.xml"))

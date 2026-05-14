@@ -21,7 +21,6 @@ from .flipbook import TextureFlipbook
 from ..utility import *
 
 
-
 def UVtoSTLarge(obj, loopIndex, uv_data, texDimensions):
     uv = uv_data[loopIndex].uv.copy()
     uv[1] = 1 - uv[1]
@@ -423,9 +422,7 @@ def saveOrGetPaletteDefinition(
             fPalette.skip_export = texProp.is_vanilla_texture
         return paletteKey, fPalette
 
-    paletteName, filename = getTextureNamesFromBasename(
-        palBaseName, palFmt, parent, True, skip_pal_suffix
-    )
+    paletteName, filename = getTextureNamesFromBasename(palBaseName, palFmt, parent, True, skip_pal_suffix)
     fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", 1, palLen, filename)
     if texProp:
         fPalette.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)

@@ -1,5 +1,13 @@
 import bpy
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, PointerProperty, FloatVectorProperty
+from bpy.props import (
+    StringProperty,
+    BoolProperty,
+    EnumProperty,
+    IntProperty,
+    FloatProperty,
+    PointerProperty,
+    FloatVectorProperty,
+)
 from bpy.types import PropertyGroup, UILayout
 from bpy.utils import register_class, unregister_class
 from ..utility import prop_split
@@ -57,10 +65,12 @@ class MK64_ExportProperties(PropertyGroup):
     def draw_props(self, layout: UILayout):
         prop_split(layout, self, "name", "Name")
 
-#        if bpy.context.scene.fast64.mk64.featureSet == "HM64":
-#            prop_split(layout, self, "internal_game_path", "internal_game_path")
+        #        if bpy.context.scene.fast64.mk64.featureSet == "HM64":
+        #            prop_split(layout, self, "internal_game_path", "internal_game_path")
 
         prop_split(layout, self, "export_path", "Mods Path")
+
+
 #        prop_split(layout, self, "decomp_path", "decomp_path")
 
 
@@ -121,7 +131,7 @@ class MK64_ObjectProperties(PropertyGroup):
     section_id: IntProperty(name="section_id", default=255, min=0, max=255)
     clip_type: EnumProperty(name="clip_type", items=enum_clip_types, default="CLIP_DEFAULT")
     draw_layer: EnumProperty(name="draw_layer", items=enum_draw_layer_types, default="DRAW_OPAQUE")
-    location: FloatVectorProperty(name="Location", default=(0,0,0), size=3, description="location")
+    location: FloatVectorProperty(name="Location", default=(0, 0, 0), size=3, description="location")
 
     # If you ever need properties for actors place them here
     # Note that HM64 Actors should be custom actors that you make
@@ -130,6 +140,7 @@ class MK64_ObjectProperties(PropertyGroup):
 
     # For path/curve objects
     path_type: EnumProperty(name="Path Type", items=enum_path_type, default="TRACK_PATH_1")
+
 
 mk64_property_classes = (
     MK64_ImportProperties,
