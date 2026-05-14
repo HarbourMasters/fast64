@@ -192,7 +192,9 @@ def ootConvertMeshToXML(
 
         fModel = OOTModel(name, DLFormat, None)
         triConverterInfo = TriangleConverterInfo(obj, None, fModel.f3d, finalTransform, getInfoDict(obj))
-        fMeshes = saveStaticModel(triConverterInfo, fModel, obj, finalTransform, fModel.name, not savePNG, False, "oot")
+        fMeshes = saveStaticModel(
+            triConverterInfo, fModel, obj, finalTransform, fModel.name, not savePNG, False, "oot"
+        )
 
         for fMesh in fMeshes.values():
             fMesh.draw.name = name

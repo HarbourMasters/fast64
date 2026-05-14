@@ -1993,3 +1993,4 @@ def f3d_writer_unregister():
         unregister_class(cls)
 
     del bpy.types.Scene.matWriteMethod
+

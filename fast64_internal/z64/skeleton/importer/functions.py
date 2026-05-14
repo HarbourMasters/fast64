@@ -33,7 +33,6 @@ SKEL_VERTEX_GROUP_BLACKLIST = {
     "&gLinkHumanSheathedKokiriSwordMtx_x_gLinkHumanSheathLimb",
 }
 
-
 class OOTDLEntry:
     def __init__(self, dlName, limbIndex):
         self.dlName = dlName
