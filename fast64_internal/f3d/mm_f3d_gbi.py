@@ -2173,27 +2173,23 @@ class VtxList:
         # QQQI - Fill until 64 bytes
         data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F415252, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
 
-        data.extend(
-            struct.pack(
-                "<II",
-                25,  # VTX
-                len(self.vertices),  # Count
-            )
-        )
+        data.extend(struct.pack(
+            "<II", 
+            25, # VTX
+            len(self.vertices), # Count
+        ))
 
         for vert in self.vertices:
-            data.extend(
-                struct.pack(
-                    "<hhhhhhBBBB",
-                    vert.position[0],
-                    vert.position[1],
-                    vert.position[2],
-                    vert.packedNormal,
-                    vert.uv[0],
-                    vert.uv[1],
-                    *vert.colorOrNormal,
-                )
-            )
+            data.extend(struct.pack(
+                "<hhhhhhBBBB", 
+                vert.position[0], 
+                vert.position[1], 
+                vert.position[2], 
+                vert.packedNormal, 
+                vert.uv[0], 
+                vert.uv[1], 
+                *vert.colorOrNormal
+            ))
 
         return data
 
@@ -2273,7 +2269,7 @@ class GfxList:
         else:
             raise PluginError("Invalid GfxList format: " + str(self.DLFormat))
         return data
-
+    
     def toO2R(self, folderPath: str):
         data = bytearray(0)
 
@@ -2290,15 +2286,13 @@ class GfxList:
         data.extend(struct.pack("<I", 1))
         data.extend(struct.pack(">IIQIQIQQQI", 0x4F444C54, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
 
-        data.extend(
-            struct.pack(
-                ">bBHI",
-                4,  # UCODE_F3DEX2?
-                0xFF,
-                0xFFFF,
-                0xFFFFFFFF,
-            )
-        )
+        data.extend(struct.pack(
+            ">bBHI", 
+            4, # UCODE_F3DEX2?
+            0xFF,
+            0xFFFF,
+            0xFFFFFFFF,
+        ))
 
         data.extend(struct.pack(">II", 0x33 << 24, 0xBEEFBEEF))
 
@@ -3651,8 +3645,7 @@ class SPVertex(GbiMacro):
         print(f"SPVertex.toO2R {self.vertList.name} {self.offset} {self.count} {self.index}")
 
         words = (
-            _SHIFTL(0x32, 24, 8) | _SHIFTL(self.count, 12, 8) | _SHIFTL(self.index + self.count, 1, 7),
-            self.offset * VTX_SIZE,
+            _SHIFTL(0x32, 24, 8) | _SHIFTL(self.count, 12, 8) | _SHIFTL(self.index + self.count, 1, 7), self.offset * VTX_SIZE,
         )
 
         data.extend(words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big"))
@@ -3730,7 +3723,7 @@ class SPBranchList(GbiMacro):
     def to_binary(self, f3d, segments):
         dlPtr = int.from_bytes(encodeSegmentedAddr(self.displayList.startAddress, segments), "big")
         return gsDma1p(f3d.G_DL, dlPtr, 0, f3d.G_DL_NOPUSH)
-
+        
     def toO2R(self, folderPath: str):
         data = bytearray(0)
 
@@ -4892,7 +4885,7 @@ class DPSetTextureImage(GbiMacro):
         siz = f3d.G_IM_SIZ_VARS[self.siz]
         imagePtr = int.from_bytes(encodeSegmentedAddr(self.image.startAddress, segments), "big")
         return gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr)
-
+    
     def toO2R(self, folderPath: str):
         print(f"DPSetTextureImage.toO2R {self.image.name}")
 
@@ -5027,7 +5020,7 @@ class DPSetEnvColor(GbiMacro):
     def to_soh_xml(self, objectPath=""):
         return (
             f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-            f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
+            f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
         )
 
 
@@ -5090,7 +5083,7 @@ class DPSetPrimColor(GbiMacro):
     def to_soh_xml(self, objectPath=""):
         return (
             f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-            f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
+            f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
         )
 
 
@@ -5182,7 +5175,10 @@ class DPLoadTile(GbiMacro):
         return gsDPLoadTileGeneric(f3d.G_LOADTILE, self.tile, self.uls, self.ult, self.lrs, self.lrt)
 
     def to_soh_xml(self, objectPath=""):
-        return f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
+        return (
+            f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
+            f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
+        )
 
 
 @dataclass(unsafe_hash=True)
@@ -5930,3 +5926,4 @@ F3DClassesWithPointers = [
     DPLoadTLUT_pal256,
     DPLoadTLUT,
 ]
+

@@ -15,7 +15,6 @@ from ..f3d.f3d_writer import getWriteMethodFromEnum, exportF3DtoC
 
 from ..utility import raisePluginError, applyRotation, toAlnum, PluginError
 
-
 class MK64_ImportCourseDL(Operator):
     # set bl_ properties
     bl_idname = "scene.fast64_mk64_course_import_dl"
@@ -129,7 +128,9 @@ class MK64_ExportCourse(Operator):
                 raise PluginError("No objects selected.")
 
             selected_roots = [
-                obj for obj in selected if obj.type == "EMPTY" and obj.fast64.mk64.obj_type == "Track Root"
+                obj for obj in selected
+                if obj.type == "EMPTY"
+                and obj.fast64.mk64.obj_type == "Track Root"
             ]
 
             if len(selected_roots) > 1:
@@ -144,7 +145,10 @@ class MK64_ExportCourse(Operator):
                     visited = set()
                     while current and current not in visited:
                         visited.add(current)
-                        if current.type == "EMPTY" and current.fast64.mk64.obj_type == "Track Root":
+                        if (
+                            current.type == "EMPTY"
+                            and current.fast64.mk64.obj_type == "Track Root"
+                        ):
                             course_roots.add(current)
                             break
                         current = current.parent
@@ -153,7 +157,9 @@ class MK64_ExportCourse(Operator):
                     raise PluginError("No Track Root found.")
 
                 if len(course_roots) > 1:
-                    raise PluginError("Multiple Track Roots found. Select one.")
+                    raise PluginError(
+                        "Multiple Track Roots found. Select one."
+                    )
 
                 root = course_roots.pop()
 
@@ -164,7 +170,9 @@ class MK64_ExportCourse(Operator):
             rotation_applied = True
 
             name = mk64_props.course_export_settings.name
-            export_path = Path(bpy.path.abspath(mk64_props.course_export_settings.export_path))
+            export_path = Path(bpy.path.abspath(
+                mk64_props.course_export_settings.export_path
+            ))
 
             internal_path = Path("tracks") / name
             (export_path / internal_path).mkdir(parents=True, exist_ok=True)
@@ -194,6 +202,7 @@ class MK64_ExportCourse(Operator):
                     bpy.ops.object.mode_set(mode="EDIT")
                 elif prev_mode in {"OBJECT", "POSE", "SCULPT"}:
                     bpy.ops.object.mode_set(mode=prev_mode)
+
 
 
 mk64_operator_classes = (MK64_ImportCourseDL, MK64_ExportCourse)

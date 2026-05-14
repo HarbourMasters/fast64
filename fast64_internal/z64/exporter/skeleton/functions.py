@@ -428,7 +428,5 @@ def ootConvertArmatureToXML(
 
     if not isCustomExport:
         if not isLink:
-            writeTextureArraysExisting(
-                bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel
-            )
+            writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel)
         addIncludeFiles(folderName, path, skeletonName)
