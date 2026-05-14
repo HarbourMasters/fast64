@@ -42,7 +42,7 @@ from .utility import is_hackeroot
 
 
 # read included asset data
-def ootGetIncludedAssetData(basePaths: list[str], currentPaths: list[str], data: str) -> str:
+def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -> str:
     includeData = ""
     searchedPaths = currentPaths[:]
 
@@ -51,15 +51,7 @@ def ootGetIncludedAssetData(basePaths: list[str], currentPaths: list[str], data:
 
     # search assets
     for includeMatch in re.finditer(r"\#include\s*\"(assets/objects/(.*?)\.h)\"", data):
-        h_p = None
-        for basePath in basePaths:
-            candidate_h_p = Path(basePath) / includeMatch.group(1)
-            if candidate_h_p.exists():
-                h_p = candidate_h_p
-                break
-        if h_p is None:
-            print("Could not find included file:", includeMatch.group(1))
-            continue
+        h_p = Path(basePath) / includeMatch.group(1)
         print("", str(h_p))
         includeData += getImportData([str(h_p)]) + "\n"
         for path_p in h_p.parent.glob("*.c"):
