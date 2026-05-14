@@ -22,6 +22,7 @@ class MK64CourseDLImportSettings(PropertyGroup):
 
         layout.prop(self, "enable_render_Mode_Default")
 
+
 class MK64DLExportSettings(PropertyGroup):
     isCustomFilename: BoolProperty(
         name="Use Custom Filename", description="Override filename instead of basing it off of the Blender name"
@@ -62,6 +63,7 @@ class MK64DLExportSettings(PropertyGroup):
         prop_split(layout, self, "drawLayer", "Export Draw Layer")
         layout.prop(self, "isCustom")
         layout.prop(self, "removeVanillaData")
+
 
 mk64_dl_writer_classes = [
     MK64CourseDLImportSettings,

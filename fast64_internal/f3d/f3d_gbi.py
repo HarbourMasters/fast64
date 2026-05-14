@@ -107,6 +107,7 @@ default_draw_layers = {
     "OOT": oot_default_draw_layers,
 }
 
+
 def normalize_hex_pointer(name: str) -> str:
     stripped = name.strip()
     if stripped.lower().startswith("0x"):
@@ -129,6 +130,7 @@ def format_asset_path(objectPath: str | None, name: str | None) -> str:
             return f"{sanitized_path}/{sanitized_name}"
         return sanitized_name
     return sanitized_path
+
 
 CCMUXDict = {
     "COMBINED": 0,
@@ -2161,7 +2163,7 @@ class Vtx:
         )
 
     def to_soh_xml(self):
-        baseStr = "<Vtx X=\"{pX}\" Y=\"{pY}\" Z=\"{pZ}\" S=\"{s}\" T=\"{t}\" R=\"{r}\" G=\"{g}\" B=\"{b}\" A=\"{a}\"/>"
+        baseStr = '<Vtx X="{pX}" Y="{pY}" Z="{pZ}" S="{s}" T="{t}" R="{r}" G="{g}" B="{b}" A="{a}"/>'
         return baseStr.format(
             pX=self.position[0],
             pY=self.position[1],
@@ -2262,7 +2264,7 @@ class VtxList:
         return data
 
     def to_soh_xml(self):
-        data = "<Vertex Version=\"0\">\n"
+        data = '<Vertex Version="0">\n'
         for vert in self.vertices:
             data += "\t" + vert.to_soh_xml() + "\n"
         data += "</Vertex>\n"
@@ -2361,7 +2363,7 @@ class GfxList:
         return data
 
     def to_soh_xml(self, modelDirPath, objectPath):
-        data = "<DisplayList Version=\"0\">\n"
+        data = '<DisplayList Version="0">\n'
         for command in self.commands:
             if isinstance(command, (SPDisplayList, SPBranchList, SPVertex, DPSetTextureImage)):
                 data += "\t" + command.to_soh_xml(objectPath) + "\n"
@@ -2380,13 +2382,15 @@ class GfxList:
         data.extend(struct.pack("<I", 1))
         data.extend(struct.pack(">IIQIQIQQQI", 0x4F444C54, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
 
-        data.extend(struct.pack(
-            ">bBHI",
-            4,
-            0xFF,
-            0xFFFF,
-            0xFFFFFFFF,
-        ))
+        data.extend(
+            struct.pack(
+                ">bBHI",
+                4,
+                0xFF,
+                0xFFFF,
+                0xFFFFFFFF,
+            )
+        )
 
         data.extend(struct.pack(">II", 0x33 << 24, 0xBEEFBEEF))
 
@@ -2894,7 +2898,7 @@ class FModel:
 
             if combined_call_lines or combined_other_lines:
                 data += (
-                    "<DisplayList Version=\"0\">\n"
+                    '<DisplayList Version="0">\n'
                     + "".join(combined_call_lines + combined_other_lines)
                     + "</DisplayList>\n\n"
                 )
@@ -3440,7 +3444,7 @@ class FMesh:
             return ""
 
         call_lines, other_lines = self.get_soh_root_draw_lines(objectPath)
-        drawData = "<DisplayList Version=\"0\">\n" + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
+        drawData = '<DisplayList Version="0">\n' + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
         writeXMLData(drawData, os.path.join(modelDirPath, self.draw.name))
         return drawData
 
@@ -3536,8 +3540,10 @@ class FScrollData:
             True if either texture has non-zero scroll values
         """
         return (
-            self.tile_scroll_tex0.s != 0 or self.tile_scroll_tex0.t != 0 or
-            self.tile_scroll_tex1.s != 0 or self.tile_scroll_tex1.t != 0
+            self.tile_scroll_tex0.s != 0
+            or self.tile_scroll_tex0.t != 0
+            or self.tile_scroll_tex1.s != 0
+            or self.tile_scroll_tex1.t != 0
         )
 
     def to_soh_xml(self):
@@ -3964,9 +3970,7 @@ class FImage:
     def toO2R(self, folderPath: str):
         data = bytearray(0)
 
-        print(
-            f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes"
-        )
+        print(f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes")
 
         data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F544558, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
         data.extend(struct.pack("<IIII", self.textureTypeO2R(), self.width, self.height, len(self.data)))
@@ -4149,6 +4153,7 @@ class SPVertex(GbiMacro):
                 header += "segmented_to_virtual(" + self.vertList.name + " + " + str(self.offset) + ")"
             else:
                 header += self.vertList.name + " + " + str(self.offset)
+
         return header + ", " + str(self.count) + ", " + str(self.index) + ")"
 
     def toO2R(self, folderPath: str):
@@ -4171,7 +4176,7 @@ class SPVertex(GbiMacro):
         return data
 
     def to_soh_xml(self, objectPath=""):
-        baseStr = "<LoadVertices Path=\"{parent}/{vertexPath}\" VertexBufferIndex=\"{bufferIndex}\" VertexOffset=\"{vertexOffset}\" Count=\"{count}\"/>"
+        baseStr = '<LoadVertices Path="{parent}/{vertexPath}" VertexBufferIndex="{bufferIndex}" VertexOffset="{vertexOffset}" Count="{count}"/>'
         return baseStr.format(
             parent=objectPath,
             vertexPath=self.vertList.name,
@@ -5104,6 +5109,7 @@ class SPLoadGeometryMode(GbiMacro):
         flags = ",".join(sorted(self.flagList))
         return f'<GeometryFlags Mode="Load" Flags="{flags}"/>'
 
+
 def gsSPSetOtherMode(cmd, sft, length, data, f3d):
     if f3d.F3DEX_GBI_2:
         words = _SHIFTL(cmd, 24, 8) | _SHIFTL(32 - (sft) - (length), 8, 8) | _SHIFTL((length) - 1, 0, 8), data
@@ -5452,11 +5458,13 @@ class DPSetTextureImage(GbiMacro):
         return data
 
     def to_soh_xml(self, objectPath=""):
-        prefix = self.image.internal_path if self.image.internal_path else (objectPath if self.image.filename is not None else "")
-        imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
-        return (
-            f'<SetTextureImage Path="{imagePath}" Format="{self.fmt}" Size="{self.siz}" Width="{self.width}"/>'
+        prefix = (
+            self.image.internal_path
+            if self.image.internal_path
+            else (objectPath if self.image.filename is not None else "")
         )
+        imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
+        return f'<SetTextureImage Path="{imagePath}" Format="{self.fmt}" Size="{self.siz}" Width="{self.width}"/>'
 
 
 def gsDPSetCombine(muxs0, muxs1, f3d):
@@ -5532,7 +5540,7 @@ class DPSetCombineMode(GbiMacro):
             return name if name.startswith("G_ACMUX_") else f"G_ACMUX_{name}"
 
         return (
-            '<SetCombineLERP '
+            "<SetCombineLERP "
             f'A0="{_cc(self.a0)}" B0="{_cc(self.b0)}" C0="{_cc(self.c0)}" D0="{_cc(self.d0)}" '
             f'Aa0="{_ac(self.Aa0)}" Ab0="{_ac(self.Ab0)}" Ac0="{_ac(self.Ac0)}" Ad0="{_ac(self.Ad0)}" '
             f'A1="{_cc(self.a1)}" B1="{_cc(self.b1)}" C1="{_cc(self.c1)}" D1="{_cc(self.d1)}" '
@@ -5582,7 +5590,7 @@ class DPSetEnvColor(GbiMacro):
     def to_soh_xml(self, objectPath=""):
         return (
             f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-            f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+            f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
         )
 
 
@@ -5645,7 +5653,7 @@ class DPSetPrimColor(GbiMacro):
     def to_soh_xml(self, objectPath=""):
         return (
             f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-            f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+            f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
         )
 
 
@@ -5725,10 +5733,7 @@ class DPSetTileSize(GbiMacro):
         return self.tile == f3d.G_TX_LOADTILE
 
     def to_soh_xml(self, objectPath=""):
-        return (
-            f'<SetTileSize T="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
-            f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
-        )
+        return f'<SetTileSize T="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
 
 
 @dataclass(unsafe_hash=True)
@@ -5743,10 +5748,7 @@ class DPLoadTile(GbiMacro):
         return gsDPLoadTileGeneric(f3d.G_LOADTILE, self.tile, self.uls, self.ult, self.lrs, self.lrt)
 
     def to_soh_xml(self, objectPath=""):
-        return (
-            f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
-            f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
-        )
+        return f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
 
 
 @dataclass(unsafe_hash=True)
@@ -5816,8 +5818,7 @@ class DPLoadBlock(GbiMacro):
 
     def to_soh_xml(self, objectPath=""):
         return (
-            f'<LoadBlock Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
-            f'Lrs="{self.lrs}" Dxt="{self.dxt}" />'
+            f'<LoadBlock Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Dxt="{self.dxt}" />'
         )
 
 
@@ -6523,4 +6524,3 @@ F3DClassesWithPointers = [
     DPLoadTLUT_pal256,
     DPLoadTLUT,
 ]
-

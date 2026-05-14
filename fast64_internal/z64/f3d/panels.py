@@ -91,6 +91,7 @@ class OOT_DisplayListPanel(Panel):
             prop_split(actorScaleBox, obj, "ootActorScale", "Actor Scale")
             actorScaleBox.label(text="This applies to actor exports only.", icon="INFO")
 
+
 class MM_DisplayListPanel(MM_Panel):
     bl_label = "Display List Inspector"
     bl_idname = "OBJECT_PT_OOT_DL_Inspector_mm"
