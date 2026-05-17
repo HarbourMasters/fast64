@@ -38,8 +38,8 @@ from ...utility import (
     PluginError,
     CData,
     writeCData,
-    writeXMLData
 )
+from ..utility import writeXMLData
 
 # ------------------------------------------------------------------------
 #    Classes

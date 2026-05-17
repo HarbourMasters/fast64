@@ -19,6 +19,7 @@ from ...f3d.f3d_gbi import *
 from ...f3d.f3d_bleed import BleedGraphics, get_geo_cmds
 
 from ...utility import *
+from ..f3d.cosmetic_registry import set_cosmetic
 
 
 def getColorLayer(mesh: bpy.types.Mesh, layer="Col"):
@@ -1466,25 +1467,21 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     nodes = material.node_tree.nodes
     if useDict["Primitive"] and f3dMat.set_prim:
         color = exportColor(f3dMat.prim_color[0:3]) + [scaleToU8(f3dMat.prim_color[3])]
-        fMaterial.mat_only_DL.commands.append(
-            DPSetPrimColor(
-                scaleToU8(f3dMat.prim_lod_min),
-                scaleToU8(f3dMat.prim_lod_frac),
-                *color,
-                cosmeticEntry=f3dMat.prim_dynamic_entry_name if f3dMat.prim_dynamic_entry else "",
-                cosmeticCategory=f3dMat.prim_dynamic_entry_category if f3dMat.prim_dynamic_entry else "",
-            )
+        cmd = DPSetPrimColor(
+            scaleToU8(f3dMat.prim_lod_min),
+            scaleToU8(f3dMat.prim_lod_frac),
+            *color,
         )
+        if f3dMat.prim_dynamic_entry:
+            set_cosmetic(cmd, f3dMat.prim_dynamic_entry_name, f3dMat.prim_dynamic_entry_category)
+        fMaterial.mat_only_DL.commands.append(cmd)
 
     if useDict["Environment"] and f3dMat.set_env:
         color = exportColor(f3dMat.env_color[0:3]) + [scaleToU8(f3dMat.env_color[3])]
-        fMaterial.mat_only_DL.commands.append(
-            DPSetEnvColor(
-                *color,
-                cosmeticEntry=f3dMat.env_dynamic_entry_name if f3dMat.env_dynamic_entry else "",
-                cosmeticCategory=f3dMat.env_dynamic_entry_category if f3dMat.env_dynamic_entry else "",
-            )
-        )
+        cmd = DPSetEnvColor(*color)
+        if f3dMat.env_dynamic_entry:
+            set_cosmetic(cmd, f3dMat.env_dynamic_entry_name, f3dMat.env_dynamic_entry_category)
+        fMaterial.mat_only_DL.commands.append(cmd)
 
     if useDict["Key"] and f3dMat.set_key:
         if material.mat_ver >= 4:

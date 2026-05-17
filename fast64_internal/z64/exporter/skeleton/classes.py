@@ -90,6 +90,12 @@ class OOTSkeleton:
 
         return limbData
 
+    def to_xml(self, hasLOD, objectPath):
+        from ...f3d.f3d_gbi import _xml_hooks
+        if _xml_hooks is not None:
+            return _xml_hooks.OOTSkeleton_to_xml(self, hasLOD, objectPath)
+        raise NotImplementedError("XML export not available")
+
 
 class OOTDLReference:
     def __init__(self, name: str):
@@ -201,3 +207,9 @@ class OOTLimb:
                 self.children[i].nextSiblingIndex = self.children[i + 1].index
             self.children[i].setLinks()
         # self -> child -> sibling
+
+    def to_xml(self, hasLOD, objectPath):
+        from ...f3d.f3d_gbi import _xml_hooks
+        if _xml_hooks is not None:
+            return _xml_hooks.OOTLimb_to_xml(self, hasLOD, objectPath)
+        raise NotImplementedError("XML export not available")

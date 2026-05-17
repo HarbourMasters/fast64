@@ -19,16 +19,6 @@ def is_bone_animatable(bone: Bone):
     return False
 
 
-def is_bone_animatable(bone: Bone):
-    bone_props: "SM64_BoneProperties" = bone.fast64.sm64
-    geo_cmd: str = bone.geo_cmd
-    if geo_cmd == "DisplayListWithOffset":
-        return True
-    elif geo_cmd == "Custom" and bone_props.custom.is_animated:
-        return True
-    return False
-
-
 def getBoneGroupByName(armatureObj, name):
     for boneGroup in armatureObj.pose.bone_groups:
         if boneGroup.name == name:

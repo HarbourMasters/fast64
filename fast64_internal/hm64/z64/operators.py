@@ -1,9 +1,15 @@
-"""HM64 XML export helpers extracted from z64/f3d/operators.py."""
+"""HM64 XML export helpers and operators."""
 
 import bpy
 import os
 
-from ...utility import PluginError, writeXMLData, toAlnum
+from bpy.types import Operator
+from bpy.ops import object
+from bpy.utils import register_class, unregister_class
+from mathutils import Matrix
+
+from ...utility import PluginError, ExportUtils, raisePluginError, toAlnum
+from ..utility import writeXMLData
 from ...f3d.f3d_gbi import DLFormat
 from ...f3d.f3d_writer import TriangleConverterInfo, saveStaticModel, getInfoDict
 from ...z64.utility import getOOTScale, checkEmptyName
@@ -110,7 +116,7 @@ def ootConvertMeshToXML(
 
     path = resolve_custom_export_folder(exportPath, folderName)
     includeDir = get_internal_asset_path(settings, folderName)
-    exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False, combine_root_meshes=True)
+    exportData = fModel.to_xml(path, includeDir, include_cull_vertices=False, combine_root_meshes=True)
     extra_entries = matrix_entries
     extra_xml = build_extra_xml_entries(extra_entries)
     if extra_xml:
@@ -125,3 +131,57 @@ def ootConvertMeshToXML(
 
     if not isCustomExport:
         writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, False, flipbookArrayIndex2D, fModel)
+
+
+class HM64_ExportDLOperator(Operator):
+    bl_idname = "object.hm64_export_dl_xml"
+    bl_label = "Export DL (XML)"
+    bl_options = {"REGISTER", "UNDO", "PRESET"}
+
+    def execute(self, context):
+        with ExportUtils() as export_utils:
+            if context.mode != "OBJECT":
+                object.mode_set(mode="OBJECT")
+            if len(context.selected_objects) == 0:
+                raise PluginError("Mesh not selected.")
+            obj = context.active_object
+            if obj.type != "MESH":
+                raise PluginError("Mesh not selected.")
+
+            finalTransform = Matrix.Scale(getOOTScale(obj.ootActorScale), 4)
+
+            try:
+                saveTextures = context.scene.saveTextures
+                exportSettings = context.scene.fast64.oot.DLExportSettings
+
+                ootConvertMeshToXML(
+                    obj,
+                    finalTransform,
+                    DLFormat.Static,
+                    saveTextures,
+                    exportSettings,
+                )
+
+                self.report({"INFO"}, "XML export success!")
+                return {"FINISHED"}
+
+            except Exception as e:
+                if context.mode != "OBJECT":
+                    object.mode_set(mode="OBJECT")
+                raisePluginError(self, e)
+                return {"CANCELLED"}
+
+
+hm64_z64_operator_classes = (
+    HM64_ExportDLOperator,
+)
+
+
+def register():
+    for cls in hm64_z64_operator_classes:
+        register_class(cls)
+
+
+def unregister():
+    for cls in reversed(hm64_z64_operator_classes):
+        unregister_class(cls)

@@ -1,6 +1,6 @@
 from bpy.types import UILayout
 from bpy.utils import register_class, unregister_class
-from ...panels import MM_Panel, OOT_Panel
+from ...panels import OOT_Panel
 from ..constants import ootEnumSceneID
 from ..utility import getEnumName
 from .properties import (
@@ -64,19 +64,7 @@ class OOT_ExportScenePanel(OOT_Panel):
         removeRow.operator(OOT_RemoveScene.bl_idname, text="Remove Scene")
 
 
-class MM_ExportScenePanel(MM_Panel):
-    bl_idname = "Z64_PT_export_level_mm"
-    bl_label = "Scene Exporter"
-
-    def drawSceneSearchOp(self, layout: UILayout, enumValue: str, opName: str):
-        OOT_ExportScenePanel.drawSceneSearchOp(self, layout, enumValue, opName)
-
-    def draw(self, context):
-        OOT_ExportScenePanel.draw(self, context)
-
-
 classes = (OOT_ExportScenePanel,)
-classes = (*classes, MM_ExportScenePanel)
 
 
 def scene_panels_register():

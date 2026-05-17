@@ -5,7 +5,7 @@ from bpy.types import Scene
 from ..game_data import game_data
 from ..utility import prop_split
 from ..render_settings import on_update_render_settings
-from ..panels import MM_Panel, OOT_Panel
+from ..panels import OOT_Panel
 
 
 class OOT_FileSettingsPanel(OOT_Panel):
@@ -45,16 +45,7 @@ class OOT_FileSettingsPanel(OOT_Panel):
             col.prop(context.scene.fast64.oot, "use_new_actor_panel")
 
 
-class MM_FileSettingsPanel(MM_Panel):
-    bl_idname = "Z64_PT_file_settings_mm"
-    bl_label = "Workspace Settings"
-    bl_options = set()
-
-    def draw(self, context):
-        OOT_FileSettingsPanel.draw(self, context)
-
-
-oot_classes = (OOT_FileSettingsPanel, MM_FileSettingsPanel)
+oot_classes = (OOT_FileSettingsPanel,)
 
 
 def file_register():

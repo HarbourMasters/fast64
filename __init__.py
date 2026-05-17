@@ -50,6 +50,7 @@ from .fast64_internal.f3d.f3d_material import (
     check_or_ask_color_management,
 )
 from .fast64_internal.f3d.f3d_writer import f3d_writer_register, f3d_writer_unregister
+from .fast64_internal.f3d.f3d_parser import f3d_parser_register, f3d_parser_unregister
 from .fast64_internal.f3d.flipbook import flipbook_register, flipbook_unregister
 from .fast64_internal.f3d.op_largetexture import op_largetexture_register, op_largetexture_unregister, ui_oplargetexture
 
@@ -84,7 +85,33 @@ gameEditorEnum = (
     ("MM", "MM", "Majora's Mask", 4),
     ("MK64", "MK64", "Mario Kart 64", 3),
     # ("Homebrew", "Homebrew", "Homebrew", 2),
+    ("SOH", "SOH", "Ship of Harkinian", 5),
+    ("2SHIP", "2SHIP", "2 Ship", 6),
+    ("SPK", "SPK", "Spaghetti Kart", 7),
 )
+
+
+# --- Base game mapping for HM64 modes ---
+_base_game_overrides = {}  # HM64 mode -> decomp base game
+
+
+def register_base_game(mode: str, base_game: str):
+    _base_game_overrides[mode] = base_game
+
+
+def unregister_base_game(mode: str):
+    _base_game_overrides.pop(mode, None)
+
+
+def get_base_game(scene_or_mode):
+    mode = scene_or_mode if isinstance(scene_or_mode, str) else scene_or_mode.gameEditorMode
+    return _base_game_overrides.get(mode, mode)
+
+
+def is_z64_mode(scene_or_mode):
+    """Check if the game mode is Z64-compatible (OOT or MM base game)."""
+    base = get_base_game(scene_or_mode)
+    return base in {"OOT", "MM"}
 
 
 class F3D_GlobalSettingsPanel(bpy.types.Panel):
@@ -427,19 +454,18 @@ def after_load_impl():
 
 
 def set_game_defaults(scene: bpy.types.Scene, set_ucode=True):
+    game = get_base_game(scene)
     world_defaults = None
-    if scene.gameEditorMode == "SM64":
+    if game == "SM64":
         f3d_type = "F3D"
         world_defaults = sm64_world_defaults
-    elif scene.gameEditorMode == "MK64":
+    elif game == "MK64":
         f3d_type = "F3DEX"
         world_defaults = mk64_world_defaults
-    elif scene.gameEditorMode in {"OOT", "MM"}:
+    elif game in {"OOT", "MM"}:
         f3d_type = "F3DEX2/LX2"
         world_defaults = oot_world_defaults
-    elif scene.gameEditorMode == "MK64":
-        f3d_type = "F3DEX/LX"
-    elif scene.gameEditorMode == "Homebrew":
+    elif game == "Homebrew":
         f3d_type = "F3D"
         world_defaults = {}  # This will set some pretty bad defaults, but trust the user
     if set_ucode:
@@ -492,6 +518,7 @@ def register():
 
     bsdf_conv_panel_regsiter()
     f3d_writer_register()
+    f3d_parser_register()
     flipbook_register()
     op_largetexture_register()
 
@@ -534,6 +561,7 @@ def unregister():
     utility_anim_unregister()
     op_largetexture_unregister()
     flipbook_unregister()
+    f3d_parser_unregister()
     f3d_writer_unregister()
     sm64_unregister(True)
     oot_unregister(True)

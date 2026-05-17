@@ -12,6 +12,18 @@ from .properties import (
 )
 
 
+# Games that share the Z64 (OOT/MM) panel system.
+_z64_compatible_modes = {"OOT", "MM"}
+
+
+def register_z64_compatible_mode(mode: str):
+    _z64_compatible_modes.add(mode)
+
+
+def unregister_z64_compatible_mode(mode: str):
+    _z64_compatible_modes.discard(mode)
+
+
 class OOT_DisplayListPanel(Panel):
     bl_label = "Display List Inspector"
     bl_idname = "OBJECT_PT_OOT_DL_Inspector"
@@ -22,7 +34,7 @@ class OOT_DisplayListPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"} and (
+        return context.scene.gameEditorMode in _z64_compatible_modes and (
             context.object is not None and isinstance(context.object.data, Mesh)
         )
 
@@ -55,7 +67,7 @@ class OOT_MaterialPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.material is not None and context.scene.gameEditorMode in {"OOT", "MM"}
+        return context.material is not None and context.scene.gameEditorMode in _z64_compatible_modes
 
     def draw(self, context):
         layout = self.layout
@@ -88,7 +100,7 @@ class OOT_DrawLayersPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"}
+        return context.scene.gameEditorMode in _z64_compatible_modes
 
     def draw(self, context):
         world = context.scene.world
@@ -108,7 +120,7 @@ class OOT_ExportDLPanel(OOT_Panel):
 
         col.operator(OOT_ExportDL.bl_idname)
         exportSettings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
-        exportSettings.draw_props(col, context)
+        exportSettings.draw_props(col)
 
         col.operator(OOT_ImportDL.bl_idname)
         importSettings: OOTDLImportSettings = context.scene.fast64.oot.DLImportSettings

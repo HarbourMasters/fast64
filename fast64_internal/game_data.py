@@ -3,6 +3,15 @@ import bpy
 from typing import Optional
 
 
+def _get_base_game(mode: str) -> str:
+    """Resolve HM64 modes to their decomp base game (e.g. SOH→OOT, 2SHIP→MM)."""
+    try:
+        from .. import get_base_game
+        return get_base_game(mode)
+    except ImportError:
+        return mode
+
+
 class GameData:
     def __init__(self, game_editor_mode: Optional[str] = None):
         from .data import Z64_Data
@@ -15,11 +24,13 @@ class GameData:
     def update(self, game_editor_mode: str):
         from .z64.utility import getObjectList
 
-        if game_editor_mode is not None and game_editor_mode in {"OOT", "MM"}:
-            self.z64.update(None, game_editor_mode, True)
+        base_game = _get_base_game(game_editor_mode)
+
+        if base_game is not None and base_game in {"OOT", "MM"}:
+            self.z64.update(None, base_game, True)
 
             # ensure `currentCutsceneIndex` is set to a correct value
-            if bpy.context.scene.gameEditorMode in {"OOT", "MM"}:
+            if base_game in {"OOT", "MM"}:
                 for scene_obj in bpy.data.objects:
                     scene_obj.ootAlternateSceneHeaders.currentCutsceneIndex = game_data.z64.cs_index_start
 
@@ -29,8 +40,8 @@ class GameData:
                         for room_obj in room_obj_list:
                             room_obj.ootAlternateRoomHeaders.currentCutsceneIndex = game_data.z64.cs_index_start
 
-            if game_editor_mode in {"OOT", "MM"} and game_editor_mode != self.z64.game:
-                raise ValueError(f"ERROR: Z64 game mismatch: {game_editor_mode}, {game_data.z64.game}")
+            if base_game in {"OOT", "MM"} and base_game != self.z64.game:
+                raise ValueError(f"ERROR: Z64 game mismatch: {base_game}, {game_data.z64.game}")
 
 
 game_data = GameData()

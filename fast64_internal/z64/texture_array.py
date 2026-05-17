@@ -33,8 +33,6 @@ def ootReadTextureArrays(
 
     actorData = removeComments(actorData)
 
-    actorData = removeComments(actorData)
-
     # search for texture arrays
     # this is done first so that its easier to tell which gSPSegment calls refer to texture data.
     flipbookList = getTextureArrays(actorData, flipbookArrayIndex2D)

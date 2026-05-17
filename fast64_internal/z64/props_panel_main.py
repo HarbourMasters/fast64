@@ -1,6 +1,6 @@
 import bpy
 from bpy.utils import register_class, unregister_class
-from ..utility import prop_split, gammaInverse
+from ..utility import prop_split, gammaInverse, is_z64_mode
 from .utility import getSceneObj, getRoomObj, is_oot_features
 from .scene.properties import OOTSceneProperties
 from .room.properties import OOTObjectProperty, OOTRoomHeaderProperty, OOTAlternateRoomHeaderProperty
@@ -119,7 +119,7 @@ class OOTObjectPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"} and (
+        return is_z64_mode(context.scene) and (
             context.object is not None and context.object.type == "EMPTY"
         )
 

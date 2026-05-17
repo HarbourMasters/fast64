@@ -9,6 +9,18 @@ from dataclasses import dataclass
 import dataclasses
 
 
+# Games that support flipbook materials.
+_flipbook_games = {"OOT"}
+
+
+def register_flipbook_game(game_key: str):
+    _flipbook_games.add(game_key)
+
+
+def unregister_flipbook_game(game_key: str):
+    _flipbook_games.discard(game_key)
+
+
 @dataclass
 class TextureFlipbook:
     name: str
@@ -258,7 +270,7 @@ def ootFlipbookAnimUpdate(self, armatureObj: bpy.types.Object, segment: str, ind
 def flipbookAnimHandler(dummy):
     from ..utility_anim import get_fcurves
 
-    if bpy.context.scene.gameEditorMode in {"OOT", "MM"}:
+    if bpy.context.scene.gameEditorMode in _flipbook_games:
         for obj in bpy.data.objects:
             if obj.type == "ARMATURE":
                 # we only want to update texture on keyframed armatures.
@@ -291,14 +303,14 @@ class Flipbook_MaterialPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.material is not None and context.scene.gameEditorMode in {"OOT", "MM"}
+        return context.material is not None and context.scene.gameEditorMode in _flipbook_games
 
     def draw(self, context):
         layout = self.layout
         mat = context.material
         col = layout.column()
 
-        if context.scene.gameEditorMode in {"OOT", "MM"}:
+        if context.scene.gameEditorMode in _flipbook_games:
             checkFlipbookReference = ootFlipbookReferenceIsValid
             drawFlipbookRequirementMessage = ootFlipbookRequirementMessage
         else:
