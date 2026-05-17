@@ -16,6 +16,26 @@ if TYPE_CHECKING:
     from .f3d_material import TextureProperty
 
 
+def _resolve_base_game(mode: str) -> str:
+    """Resolve HM64 modes (SOH/2SHIP) to their decomp base game."""
+    try:
+        from ... import get_base_game
+        return get_base_game(mode)
+    except ImportError:
+        return mode
+
+
+_z64_compat_modes = {"OOT", "MM"}
+
+
+def register_gbi_z64_compat(mode: str):
+    _z64_compat_modes.add(mode)
+
+
+def unregister_gbi_z64_compat(mode: str):
+    _z64_compat_modes.discard(mode)
+
+
 class ScrollMethod(enum.Enum):
     Vertex = 1
     Tile = 2
@@ -65,13 +85,6 @@ dlTypeEnum = [
 # 1-8 for F3DEX2 etc., 1-10 for F3DEX3
 lightIndex = {f"LIGHT_{n}": n for n in range(1, 11)}
 
-bitSizeDict = {
-    "G_IM_SIZ_4b": 4,
-    "G_IM_SIZ_8b": 8,
-    "G_IM_SIZ_16b": 16,
-    "G_IM_SIZ_32b": 32,
-}
-
 # tuple of max buffer size, max load count.
 vertexBufferSize = {
     "F3D": (16, 16),
@@ -106,28 +119,33 @@ default_draw_layers = {
     "OOT": oot_default_draw_layers,
 }
 
-def normalize_hex_pointer(name: str) -> str:
-    stripped = name.strip()
-    if stripped.lower().startswith("0x"):
-        digits = stripped[2:]
-        if len(digits) >= 2 and digits[0] == "0" and digits[1].upper() in "ABCDEF":
-            digits = digits[1:]
-        return "0x" + digits
-    return stripped
+# --- O2R Export Hook ---
+_o2r_exporter = None
 
 
-def format_asset_path(objectPath: str | None, name: str | None) -> str:
-    sanitized_path = (objectPath or "").replace("\\", "/").strip("/")
-    sanitized_name = (name or "").replace("\\", "/").strip("/")
-    if sanitized_name:
-        if sanitized_name.lower().startswith("0x"):
-            digits = sanitized_name[2:]
-            digits = digits if digits.startswith("0") else "0" + digits
-            return f">0x{digits.upper()}"
-        if sanitized_path:
-            return f"{sanitized_path}/{sanitized_name}"
-        return sanitized_name
-    return sanitized_path
+def register_o2r_exporter(exporter_module):
+    global _o2r_exporter
+    _o2r_exporter = exporter_module
+
+
+def unregister_o2r_exporter():
+    global _o2r_exporter
+    _o2r_exporter = None
+
+
+# --- XML Export Hook ---
+_xml_hooks = None
+
+
+def register_xml_hooks(hooks_module):
+    global _xml_hooks
+    _xml_hooks = hooks_module
+
+
+def unregister_xml_hooks():
+    global _xml_hooks
+    _xml_hooks = None
+
 
 CCMUXDict = {
     "COMBINED": 0,
@@ -1878,6 +1896,11 @@ class FSetTileSizeScrollField:
         self.t = 0
         self.interval = 1
 
+    def to_xml(self, index=0, dimensions=None):
+        if _xml_hooks is not None:
+            return _xml_hooks.FSetTileSizeScrollField_to_xml(self, index, dimensions)
+        raise NotImplementedError("XML export not available")
+
 
 
 def tile_func(direction: str, speed: int, cmd_num: int):
@@ -2152,6 +2175,11 @@ class Vtx:
         flag = "0" if self.packedNormal == 0 else f"{self.packedNormal:#06x}"
         return "{{ " + ", ".join([spc(self.position), flag, spc(self.uv), spc(self.colorOrNormal)]) + " }}"
 
+    def to_xml(self):
+        if _xml_hooks is not None:
+            return _xml_hooks.Vtx_to_xml(self)
+        raise NotImplementedError("XML export not available")
+
 
 class VtxList:
     def __init__(self, name):
@@ -2170,58 +2198,19 @@ class VtxList:
         romfile.write(self.to_binary())
 
     def textureTypeO2R(self) -> int:
-        bitSize = bitSizeDict[self.bitSize]
-        if self.fmt == "G_IM_FMT_RGBA":
-            if bitSize == 32:
-                return 1  # RGBA32bpp
-            if bitSize == 16:
-                return 2  # RGBA16bpp
+        if _o2r_exporter is not None:
+            return _o2r_exporter.VtxList_textureTypeO2R(self)
+        raise NotImplementedError("O2R export not available")
 
-        if self.fmt == "G_IM_FMT_CI":
-            if bitSize == 4:
-                return 3  # Palette4bpp
-            if bitSize == 8:
-                return 4  # Palette8bpp
+    def to_o2r(self, folderPath: str, segments: dict | None = None):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.VtxList_to_o2r(self, folderPath, segments)
+        raise NotImplementedError("O2R export not available")
 
-        if self.fmt == "G_IM_FMT_I":
-            if bitSize == 4:
-                return 5  # Grayscale4bpp
-            if bitSize == 8:
-                return 6  # Grayscale8bpp
-
-        if self.fmt == "G_IM_FMT_IA":
-            if bitSize == 4:
-                return 7  # GrayscaleAlpha4bpp
-            if bitSize == 8:
-                return 8  # GrayscaleAlpha8bpp
-            if bitSize == 16:
-                return 9  # GrayscaleAlpha16bpp
-
-        return 0  # Error
-
-    def toO2R(self, folderPath: str, segments: dict | None = None):
-        data = bytearray(0)
-
-        print(f"VtxList.toO2R {self.name} ({len(self.vertices)} vertices).")
-
-        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F415252, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
-        data.extend(struct.pack("<II", 25, len(self.vertices)))
-
-        for vert in self.vertices:
-            data.extend(
-                struct.pack(
-                    "<hhhhhhBBBB",
-                    vert.position[0],
-                    vert.position[1],
-                    vert.position[2],
-                    vert.packedNormal,
-                    vert.uv[0],
-                    vert.uv[1],
-                    *vert.colorOrNormal,
-                )
-            )
-
-        return data
+    def to_xml(self):
+        if _xml_hooks is not None:
+            return _xml_hooks.VtxList_to_xml(self)
+        raise NotImplementedError("XML export not available")
 
     def size(self):
         return len(self.vertices) * VTX_SIZE
@@ -2326,38 +2315,15 @@ class GfxList:
         return data
 
 
-    def toO2R(self, folderPath: str, segments: dict | None = None):
-        data = bytearray(0)
+    def to_o2r(self, folderPath: str, segments: dict | None = None):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.GfxList_to_o2r(self, folderPath, segments)
+        raise NotImplementedError("O2R export not available")
 
-        print(f"GfxList.toO2R {self.name} ({len(self.commands)} commands).")
-
-        data.extend(struct.pack("<I", 1))
-        data.extend(struct.pack(">IIQIQIQQQI", 0x4F444C54, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
-
-        data.extend(struct.pack(
-            ">bBHI",
-            4,
-            0xFF,
-            0xFFFF,
-            0xFFFFFFFF,
-        ))
-
-        data.extend(struct.pack(">II", 0x33 << 24, 0xBEEFBEEF))
-
-        dlPath = os.path.join(folderPath, self.name)
-        dlPath = dlPath.replace("\\", "/")
-        hash = int(crc64(dlPath), 16)
-        data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
-
-        f3d = get_F3D_GBI()
-        segments = {} if segments is None else segments
-        for command in self.commands:
-            if hasattr(command, "toO2R"):
-                data.extend(command.toO2R(folderPath))
-            else:
-                data.extend(command.to_binary(f3d, segments))
-
-        return data
+    def to_xml(self, objectPath=""):
+        if _xml_hooks is not None:
+            return _xml_hooks.GfxList_to_xml(self, objectPath)
+        raise NotImplementedError("XML export not available")
 
 
 class FFogData:
@@ -2956,6 +2922,21 @@ class FModel:
     def freePalettes(self):
         pass
 
+    def to_xml(self, modelDirPath, objectPath, include_cull_vertices=True, combine_root_meshes=False):
+        if _xml_hooks is not None:
+            return _xml_hooks.FModel_to_xml(self, modelDirPath, objectPath, include_cull_vertices, combine_root_meshes)
+        raise NotImplementedError("XML export not available")
+
+    def save_xml_textures(self, modelDirPath):
+        if _xml_hooks is not None:
+            return _xml_hooks.FModel_save_xml_textures(self, modelDirPath)
+        raise NotImplementedError("XML export not available")
+
+    def save_xml_palettes(self, modelDirPath):
+        if _xml_hooks is not None:
+            return _xml_hooks.FModel_save_xml_palettes(self, modelDirPath)
+        raise NotImplementedError("XML export not available")
+
 
 class FTexRect(FModel):
     def __init__(self, name, matWriteMethod):
@@ -3160,6 +3141,16 @@ class FMesh:
 
         return staticData, dynamicData
 
+    def to_xml(self, modelDirPath, objectPath, include_cull_vertices=True, write_root_draw=True):
+        if _xml_hooks is not None:
+            return _xml_hooks.FMesh_to_xml(self, modelDirPath, objectPath, include_cull_vertices, write_root_draw)
+        raise NotImplementedError("XML export not available")
+
+    def get_xml_root_draw_lines(self, objectPath):
+        if _xml_hooks is not None:
+            return _xml_hooks.FMesh_get_xml_root_draw_lines(self, objectPath)
+        raise NotImplementedError("XML export not available")
+
 
 class FTriGroup:
     def __init__(self, name, index, fMaterial):
@@ -3201,6 +3192,11 @@ class FTriGroup:
             data.append(self.triList.to_c(f3d))
         return data
 
+    def to_xml(self, modelDirPath, objectPath):
+        if _xml_hooks is not None:
+            return _xml_hooks.FTriGroup_to_xml(self, modelDirPath, objectPath)
+        raise NotImplementedError("XML export not available")
+
 
 class FScrollDataField:
     def __init__(self):
@@ -3232,6 +3228,11 @@ class FScrollData:
             self.tile_scroll_tex1.s != 0 or self.tile_scroll_tex1.t != 0
         )
 
+    def to_xml(self):
+        if _xml_hooks is not None:
+            return _xml_hooks.FScrollData_to_xml(self)
+        raise NotImplementedError("XML export not available")
+
 
 
 def get_f3d_mat_from_version(material: bpy.types.Material):
@@ -3245,7 +3246,7 @@ class FMaterial:
         self.texture_DL = GfxList(f"tex_{name}", GfxListTag.Material, DLFormat.Static)
 
         self.revert: Optional[GfxList] = None
-        if bpy.context.scene.gameEditorMode not in {"OOT", "MM"}:
+        if bpy.context.scene.gameEditorMode not in _z64_compat_modes:
             self.revert = GfxList(f"mat_revert_{name}", GfxListTag.MaterialRevert, DLFormat.Static)
 
         self.DLFormat = DLFormat
@@ -3333,6 +3334,11 @@ class FMaterial:
         if self.revert is not None and self.revert.tag.Export:
             data.append(self.revert.to_c(f3d))
         return data
+
+    def to_xml(self, modelDirPath, objectPath):
+        if _xml_hooks is not None:
+            return _xml_hooks.FMaterial_to_xml(self, modelDirPath, objectPath)
+        raise NotImplementedError("XML export not available")
 
 
 # viewport
@@ -3590,47 +3596,14 @@ class FImage:
         romfile.write(self.to_binary())
 
     def textureTypeO2R(self) -> int:
-        bitSize = bitSizeDict[self.bitSize]
-        if self.fmt == "G_IM_FMT_RGBA":
-            if bitSize == 32:
-                return 1  # RGBA32bpp
-            if bitSize == 16:
-                return 2  # RGBA16bpp
+        if _o2r_exporter is not None:
+            return _o2r_exporter.FImage_textureTypeO2R(self)
+        raise NotImplementedError("O2R export not available")
 
-        if self.fmt == "G_IM_FMT_CI":
-            if bitSize == 4:
-                return 3  # Palette4bpp
-            if bitSize == 8:
-                return 4  # Palette8bpp
-
-        if self.fmt == "G_IM_FMT_I":
-            if bitSize == 4:
-                return 5  # Grayscale4bpp
-            if bitSize == 8:
-                return 6  # Grayscale8bpp
-
-        if self.fmt == "G_IM_FMT_IA":
-            if bitSize == 4:
-                return 7  # GrayscaleAlpha4bpp
-            if bitSize == 8:
-                return 8  # GrayscaleAlpha8bpp
-            if bitSize == 16:
-                return 9  # GrayscaleAlpha16bpp
-
-        return 0  # Error
-
-    def toO2R(self, folderPath: str):
-        data = bytearray(0)
-
-        print(
-            f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes"
-        )
-
-        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F544558, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
-        data.extend(struct.pack("<IIII", self.textureTypeO2R(), self.width, self.height, len(self.data)))
-        data.extend(self.data)
-
-        return data
+    def to_o2r(self, folderPath: str):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.FImage_to_o2r(self, folderPath)
+        raise NotImplementedError("O2R export not available")
 
 
 # second arg of Dma is a pointer.
@@ -3681,6 +3654,13 @@ class GbiMacro:
     """
     Type: bool. Used to allow an overriden `to_c` function customize the formatting (identation, newlines, etc).
     """
+
+    def to_xml(self, *args, **kwargs):
+        if _xml_hooks is not None:
+            handler = getattr(_xml_hooks, f"{type(self).__name__}_to_xml", None)
+            if handler is not None:
+                return handler(self, *args, **kwargs)
+        raise NotImplementedError(f"XML export not available for {type(self).__name__}")
 
     def get_ptr_offsets(self, f3d):
         return [4]
@@ -3750,19 +3730,10 @@ class SPMatrix(GbiMacro):
         return address
 
 
-    def toO2R(self, folderPath: str):
-        data = bytearray(0)
-
-        print(f"SPMatrix.toO2R {self.matrix}")
-
-        matPtr = self._resolve_matrix_address()
-        if isinstance(matPtr, int):
-            matPtr = (matPtr & 0x0FFFFFFF) + 1
-
-        f3d = get_F3D_GBI()
-        data.extend(gsDma2p(f3d.G_MTX, matPtr, MTX_SIZE, 0x02 ^ f3d.G_MTX_PUSH, 0))
-
-        return data
+    def to_o2r(self, folderPath: str):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.SPMatrix_to_o2r(self, folderPath)
+        raise NotImplementedError("O2R export not available")
 
 
 # TODO: Divide vertlist into sections
@@ -3805,24 +3776,10 @@ class SPVertex(GbiMacro):
                 header += self.vertList.name + " + " + str(self.offset)
         return header + ", " + str(self.count) + ", " + str(self.index) + ")"
 
-    def toO2R(self, folderPath: str):
-        data = bytearray(0)
-
-        print(f"SPVertex.toO2R {self.vertList.name} {self.offset} {self.count} {self.index}")
-
-        words = (
-            _SHIFTL(0x32, 24, 8) | _SHIFTL(self.count, 12, 8) | _SHIFTL(self.index + self.count, 1, 7),
-            self.offset * VTX_SIZE,
-        )
-
-        data.extend(words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big"))
-
-        vertPath = os.path.join(folderPath, self.vertList.name)
-        vertPath = vertPath.replace("\\", "/")
-        hash_val = int(crc64(vertPath), 16)
-        data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
-
-        return data
+    def to_o2r(self, folderPath: str):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.SPVertex_to_o2r(self, folderPath)
+        raise NotImplementedError("O2R export not available")
 
 
 
@@ -3865,19 +3822,10 @@ class SPDisplayList(GbiMacro):
             return "glistp = " + self.displayList.name + "(glistp)"
 
 
-    def toO2R(self, folderPath: str):
-        data = bytearray(0)
-
-        print(f"SPDisplayList.toO2R {self.displayList.name}")
-
-        data.extend(gsDma1p(0x31, 0, 0, 0x00))
-
-        dlPath = os.path.join(folderPath, self.displayList.name)
-        dlPath = dlPath.replace("\\", "/")
-        hash_val = int(crc64(dlPath), 16)
-        data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
-
-        return data
+    def to_o2r(self, folderPath: str):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.SPDisplayList_to_o2r(self, folderPath)
+        raise NotImplementedError("O2R export not available")
 
 
 @dataclass(unsafe_hash=True)
@@ -3889,19 +3837,10 @@ class SPBranchList(GbiMacro):
         dlPtr = int.from_bytes(encodeSegmentedAddr(self.displayList.startAddress, segments), "big")
         return gsDma1p(f3d.G_DL, dlPtr, 0, f3d.G_DL_NOPUSH)
 
-    def toO2R(self, folderPath: str):
-        data = bytearray(0)
-
-        print(f"SPBranchList.toO2R {self.displayList.name}")
-
-        data.extend(gsDma1p(0x31, 0, 0, 0x01))
-
-        dlPath = os.path.join(folderPath, self.displayList.name)
-        dlPath = dlPath.replace("\\", "/")
-        hash_val = int(crc64(dlPath), 16)
-        data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
-
-        return data
+    def to_o2r(self, folderPath: str):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.SPBranchList_to_o2r(self, folderPath)
+        raise NotImplementedError("O2R export not available")
 
 
 @dataclass(unsafe_hash=True)
@@ -5036,27 +4975,10 @@ class DPSetTextureImage(GbiMacro):
         imagePtr = int.from_bytes(encodeSegmentedAddr(self.image.startAddress, segments), "big")
         return gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr)
 
-    def toO2R(self, folderPath: str):
-        print(f"DPSetTextureImage.toO2R {self.image.name}")
-
-        data = bytearray(0)
-
-        f3d = get_F3D_GBI()
-        fmt = f3d.G_IM_FMT_VARS[self.fmt]
-        siz = f3d.G_IM_SIZ_VARS[self.siz]
-
-        if re.match(r"^0x0(\\d)000000$", self.image.name):
-            imagePtr = int(self.image.name, 16) + 1
-            data.extend(gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr))
-        else:
-            data.extend(gsSetImage(0x20, fmt, siz, self.width, 0))
-
-            imagePath = os.path.join(folderPath, self.image.name)
-            imagePath = imagePath.replace("\\", "/")
-            hash_val = int(crc64(imagePath), 16)
-            data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
-
-        return data
+    def to_o2r(self, folderPath: str):
+        if _o2r_exporter is not None:
+            return _o2r_exporter.DPSetTextureImage_to_o2r(self, folderPath)
+        raise NotImplementedError("O2R export not available")
 
 
 
@@ -5150,8 +5072,6 @@ class DPSetEnvColor(GbiMacro):
     g: int
     b: int
     a: int
-    cosmeticEntry: str = ""
-    cosmeticCategory: str = ""
 
     def to_binary(self, f3d, segments):
         return sDPRGBColor(f3d.G_SETENVCOLOR, self.r, self.g, self.b, self.a)
@@ -5205,8 +5125,6 @@ class DPSetPrimColor(GbiMacro):
     g: int
     b: int
     a: int
-    cosmeticEntry: str = ""
-    cosmeticCategory: str = ""
 
     def to_binary(self, f3d, segments):
         words = (_SHIFTL(f3d.G_SETPRIMCOLOR, 24, 8) | _SHIFTL(self.m, 8, 8) | _SHIFTL(self.l, 0, 8)), (

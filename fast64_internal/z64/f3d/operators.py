@@ -10,32 +10,24 @@ from bpy.utils import register_class, unregister_class
 from mathutils import Matrix
 from typing import Optional
 
-from ...utility import CData, PluginError, ExportUtils, raisePluginError, writeCData, writeXMLData, toAlnum
+from ...utility import CData, PluginError, ExportUtils, raisePluginError, writeCData, toAlnum
 from ...f3d.f3d_parser import importMeshC, getImportData
 from ...f3d.f3d_gbi import DLFormat, TextureExportSettings, ScrollMethod, get_F3D_GBI
 from ...f3d.f3d_writer import TriangleConverterInfo, removeDL, saveStaticModel, getInfoDict
-from ..utility import ootGetObjectPath, ootGetObjectHeaderPath, getOOTScale, checkEmptyName
+from ..utility import ootGetObjectPath, ootGetObjectHeaderPath, getOOTScale
 from ..model_classes import OOTF3DContext, ootGetIncludedAssetData
 from ..texture_array import ootReadTextureArrays
 from ..model_classes import OOTModel, OOTGfxFormatter
 from ..f3d_writer import ootReadActorScale, writeTextureArraysNew, writeTextureArraysExisting
-from .properties import OOTDLImportSettings, OOTDLExportSettings, LIMB_MATRIX_PATHS
+from .properties import OOTDLImportSettings, OOTDLExportSettings
 
 from ..utility import (
     OOTObjectCategorizer,
     ootDuplicateHierarchy,
     ootCleanupScene,
+    ootGetPath,
     addIncludeFiles,
-    get_internal_asset_path,
-)
-
-from ...hm64.z64.operators import (
-    build_extra_xml_entries,
-    get_active_matrix_entries,
-    resolve_custom_export_base,
-    resolve_custom_export_folder,
-    resolve_dl_export_name,
-    ootConvertMeshToXML,
+    getOOTScale,
 )
 
 
@@ -56,10 +48,16 @@ def ootConvertMeshToC(
     settings: OOTDLExportSettings,
 ):
     folderName = settings.folder
-    exportPath = resolve_custom_export_base(settings)
+    exportPath = bpy.path.abspath(settings.customPath)
     isCustomExport = settings.isCustom
     removeVanillaData = settings.removeVanillaData
-    name = resolve_dl_export_name(originalObj, settings)
+
+    obj_name = toAlnum(originalObj.name)
+    assert obj_name is not None
+
+    filename = toAlnum(settings.filename) if settings.isCustomFilename else obj_name
+    assert filename is not None
+
     overlayName = settings.actorOverlayName
     flipbookUses2DArray = settings.flipbookUses2DArray
     flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
@@ -67,7 +65,7 @@ def ootConvertMeshToC(
     try:
         obj, allObjs = ootDuplicateHierarchy(originalObj, None, False, OOTObjectCategorizer())
 
-        fModel = OOTModel(name, DLFormat, None)
+        fModel = OOTModel(obj_name, DLFormat, None)
         triConverterInfo = TriangleConverterInfo(obj, None, fModel.f3d, finalTransform, getInfoDict(obj))
         fMeshes = saveStaticModel(
             triConverterInfo, fModel, obj, finalTransform, fModel.name, not saveTextures, False, "oot"
@@ -75,7 +73,7 @@ def ootConvertMeshToC(
 
         # Since we provide a draw layer override, there should only be one fMesh.
         for fMesh in fMeshes.values():
-            fMesh.draw.name = name
+            fMesh.draw.name = obj_name
 
         ootCleanupScene(originalObj, allObjs)
 
@@ -83,7 +81,6 @@ def ootConvertMeshToC(
         ootCleanupScene(originalObj, allObjs)
         raise Exception(str(e))
 
-    filename = settings.filename if settings.isCustomFilename else name
     data = CData()
     data.header = f"#ifndef {filename.upper()}_H\n" + f"#define {filename.upper()}_H\n\n" + '#include "ultra64.h"\n'
 
@@ -96,8 +93,8 @@ def ootConvertMeshToC(
     else:
         data.header += "\n"
 
-    path = resolve_custom_export_folder(exportPath, folderName)
-    includeDir = get_internal_asset_path(settings, folderName)
+    path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, False, True)
+    includeDir = settings.customAssetIncludeDir if settings.isCustom else f"assets/objects/{folderName}"
     exportData = fModel.to_c(
         TextureExportSettings(False, saveTextures, includeDir, path), OOTF3DGfxFormatter(ScrollMethod.Vertex)
     )
@@ -113,11 +110,11 @@ def ootConvertMeshToC(
 
     if not isCustomExport:
         writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, False, flipbookArrayIndex2D, fModel)
-        addIncludeFiles(folderName, path, name)
+        addIncludeFiles(folderName, path, filename)
         if removeVanillaData:
             headerPath = os.path.join(path, folderName + ".h")
             sourcePath = os.path.join(path, folderName + ".c")
-            removeDL(sourcePath, headerPath, name)
+            removeDL(sourcePath, headerPath, filename)
 
 
 class OOT_ImportDL(Operator):
@@ -175,7 +172,17 @@ class OOT_ImportDL(Operator):
 
             scale = None
             if not isCustomImport:
-                filedata = ootGetIncludedAssetData(basePath, paths, filedata) + filedata
+                filedata = (
+                    ootGetIncludedAssetData(
+                        [
+                            basePath,
+                            str(Path(basePath) / context.scene.fast64.oot.get_extracted_path()),
+                        ],
+                        paths,
+                        filedata,
+                    )
+                    + filedata
+                )
 
                 if overlayName is not None:
                     ootReadTextureArrays(basePath, overlayName, name, f3dContext, False, flipbookArrayIndex2D)
@@ -207,12 +214,16 @@ class OOT_ImportDL(Operator):
 
 
 class OOT_ExportDL(Operator):
+    # set bl_ properties
     bl_idname = "object.oot_export_dl"
     bl_label = "Export DL"
     bl_options = {"REGISTER", "UNDO", "PRESET"}
 
+    # Called on demand (i.e. button press, menu item)
+    # Can also be called from operator search menu (Spacebar)
     def execute(self, context):
         with ExportUtils() as export_utils:
+            obj = None
             if context.mode != "OBJECT":
                 object.mode_set(mode="OBJECT")
             if len(context.selected_objects) == 0:
@@ -227,7 +238,7 @@ class OOT_ExportDL(Operator):
                 saveTextures = context.scene.saveTextures
                 exportSettings = context.scene.fast64.oot.DLExportSettings
 
-                ootConvertMeshToXML(
+                ootConvertMeshToC(
                     obj,
                     finalTransform,
                     DLFormat.Static,

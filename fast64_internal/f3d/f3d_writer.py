@@ -1317,7 +1317,7 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
     useDict = all_combiner_uses(f3dMat)
 
     defaults = create_or_get_world(bpy.context.scene).rdp_defaults
-    fMaterial.mat_only_DL.commands.append(DPPipeSync())
+    saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
 
     # Checking for f3dMat.rdp_settings.g_lighting here will prevent accidental exports,
     # There may be some edge case where this isn't desired.
@@ -1330,6 +1330,8 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
         else:
             fLights = saveLightsDefinition(fModel, fMaterial, f3dMat, materialName + "_lights")
             fMaterial.mat_only_DL.commands.extend([SPSetLights(fLights)])
+
+    fMaterial.mat_only_DL.commands.append(DPPipeSync())
 
     if fMaterial.revert is not None:
         fMaterial.revert.commands.append(DPPipeSync())
@@ -1379,8 +1381,6 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
                     f3dMat.combiner1.D_alpha,
                 )
             )
-
-    saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
 
     if f3dMat.set_ao:
         fMaterial.mat_only_DL.commands.append(
@@ -1461,25 +1461,13 @@ def saveOrGetF3DMaterial(material, fModel, _obj, drawLayer, convertTextureData):
     nodes = material.node_tree.nodes
     if useDict["Primitive"] and f3dMat.set_prim:
         color = exportColor(f3dMat.prim_color[0:3]) + [scaleToU8(f3dMat.prim_color[3])]
-        fMaterial.texture_DL.commands.append(
-            DPSetPrimColor(
-                scaleToU8(f3dMat.prim_lod_min),
-                scaleToU8(f3dMat.prim_lod_frac),
-                *color,
-                cosmeticEntry=f3dMat.prim_dynamic_entry_name if f3dMat.prim_dynamic_entry else "",
-                cosmeticCategory=f3dMat.prim_dynamic_entry_category if f3dMat.prim_dynamic_entry else "",
-            )
+        fMaterial.mat_only_DL.commands.append(
+            DPSetPrimColor(scaleToU8(f3dMat.prim_lod_min), scaleToU8(f3dMat.prim_lod_frac), *color)
         )
 
     if useDict["Environment"] and f3dMat.set_env:
         color = exportColor(f3dMat.env_color[0:3]) + [scaleToU8(f3dMat.env_color[3])]
-        fMaterial.mat_only_DL.commands.append(
-            DPSetEnvColor(
-                *color,
-                cosmeticEntry=f3dMat.env_dynamic_entry_name if f3dMat.env_dynamic_entry else "",
-                cosmeticCategory=f3dMat.env_dynamic_entry_category if f3dMat.env_dynamic_entry else "",
-            )
-        )
+        fMaterial.mat_only_DL.commands.append(DPSetEnvColor(*color))
 
     if useDict["Key"] and f3dMat.set_key:
         if material.mat_ver >= 4:
@@ -1889,8 +1877,71 @@ def removeDL(sourcePath, headerPath, DLName):
         writeFile(headerPath, DLDataH)
 
 
-class Fast64_DLRedirectPanel(bpy.types.Panel):
-    bl_idname = "FAST64_PT_f3d_redirect"
+class F3D_ExportDL(bpy.types.Operator):
+    # set bl_ properties
+    bl_idname = "object.f3d_export_dl"
+    bl_label = "Export Display List"
+    bl_options = {"REGISTER", "UNDO", "PRESET"}
+
+    # Called on demand (i.e. button press, menu item)
+    # Can also be called from operator search menu (Spacebar)
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        try:
+            allObjs = context.selected_objects
+            if len(allObjs) == 0:
+                raise PluginError("No objects selected.")
+            obj = context.selected_objects[0]
+            if obj.type != "MESH":
+                raise PluginError("Object is not a mesh.")
+
+            scaleValue = bpy.context.scene.blenderF3DScale
+            finalTransform = mathutils.Matrix.Diagonal(mathutils.Vector((scaleValue, scaleValue, scaleValue))).to_4x4()
+
+        except Exception as e:
+            raisePluginError(self, e)
+            return {"CANCELLED"}
+
+        try:
+            applyRotation([obj], math.radians(90), "X")
+
+            exportPath = bpy.path.abspath(context.scene.DLExportPath)
+            dlFormat = DLFormat.Static if context.scene.DLExportisStatic else DLFormat.Dynamic
+            texDir = bpy.context.scene.DLTexDir
+            savePNG = bpy.context.scene.saveTextures
+            separateTexDef = bpy.context.scene.DLSeparateTextureDef
+            DLName = toAlnum(bpy.context.scene.DLName)
+            matWriteMethod = getWriteMethodFromEnum(context.scene.matWriteMethod)
+
+            exportF3DtoC(
+                exportPath,
+                obj,
+                dlFormat,
+                finalTransform,
+                texDir,
+                savePNG,
+                separateTexDef,
+                DLName,
+                matWriteMethod,
+            )
+
+            self.report({"INFO"}, "Success!")
+
+            applyRotation([obj], math.radians(-90), "X")
+            return {"FINISHED"}  # must return a set
+
+        except Exception as e:
+            if context.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            applyRotation([obj], math.radians(-90), "X")
+
+            raisePluginError(self, e)
+            return {"CANCELLED"}  # must return a set
+
+
+class F3D_ExportDLPanel(bpy.types.Panel):
+    bl_idname = "F3D_PT_export_dl"
     bl_label = "F3D Exporter"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -1901,13 +1952,26 @@ class Fast64_DLRedirectPanel(bpy.types.Panel):
     def poll(cls, context):
         return True
 
+    # called every frame
     def draw(self, context):
         col = self.layout.column()
-        col.label(text="The DL exporter has been relocated.")
-        col.label(text="Use the DL Exporter in the OOT/MM tab instead.")
+        col.operator(F3D_ExportDL.bl_idname)
+
+        prop_split(col, context.scene, "DLName", "Name")
+        prop_split(col, context.scene, "DLExportPath", "Export Path")
+        prop_split(col, context.scene, "blenderF3DScale", "Scale")
+        prop_split(col, context.scene, "matWriteMethod", "Material Write Method")
+        col.prop(context.scene, "DLExportisStatic")
+
+        if context.scene.saveTextures:
+            prop_split(col, context.scene, "DLTexDir", "Texture Include Path")
+            col.prop(context.scene, "DLSeparateTextureDef")
 
 
-f3d_writer_classes = (Fast64_DLRedirectPanel,)
+f3d_writer_classes = (
+    F3D_ExportDL,
+    F3D_ExportDLPanel,
+)
 
 
 def f3d_writer_register():

@@ -1,6 +1,7 @@
 from bpy.types import Panel, Camera
 from bpy.utils import register_class, unregister_class
-from ...panels import MM_Panel, OOT_Panel
+from ...panels import OOT_Panel
+from ...utility import is_z64_mode
 from .properties import OOTCollisionExportSettings, OOTCameraPositionProperty, OOTMaterialCollisionProperty
 from .operators import OOT_ExportCollision
 
@@ -15,7 +16,7 @@ class OOT_CameraPosPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"} and isinstance(context.object.data, Camera)
+        return is_z64_mode(context.scene) and isinstance(context.object.data, Camera)
 
     def draw(self, context):
         box = self.layout.box().column()
@@ -36,7 +37,7 @@ class OOT_CollisionPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"} and context.material is not None
+        return is_z64_mode(context.scene) and context.material is not None
 
     def draw(self, context):
         box = self.layout.box().column()
@@ -58,19 +59,10 @@ class OOT_ExportCollisionPanel(OOT_Panel):
         exportSettings.draw_props(col)
 
 
-class MM_ExportCollisionPanel(MM_Panel):
-    bl_idname = "Z64_PT_export_collision_mm"
-    bl_label = "Collision Exporter"
-
-    def draw(self, context):
-        OOT_ExportCollisionPanel.draw(self, context)
-
-
 oot_col_panel_classes = (
     OOT_CameraPosPanel,
     OOT_CollisionPanel,
     OOT_ExportCollisionPanel,
-    MM_ExportCollisionPanel,
 )
 
 

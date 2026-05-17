@@ -6,6 +6,7 @@ from dataclasses import dataclass, fields, field
 from html import escape
 import bpy, os, enum, copy
 from ...utility import *
+from ..o2r.crc import crc64
 import struct
 
 from typing import TYPE_CHECKING
@@ -2158,10 +2159,10 @@ class VtxList:
         data.source += "};\n\n"
         return data
 
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"VtxList.toO2R {self.name} ({len(self.vertices)} vertices).")
+        print(f"VtxList.to_o2r {self.name} ({len(self.vertices)} vertices).")
 
         # Write OTR Header
         # I    - Endianness
@@ -2270,10 +2271,10 @@ class GfxList:
             raise PluginError("Invalid GfxList format: " + str(self.DLFormat))
         return data
     
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"GfxList.toO2R {self.name} ({len(self.commands)} commands).")
+        print(f"GfxList.to_o2r {self.name} ({len(self.commands)} commands).")
 
         # Write OTR Header
         # I    - Endianness
@@ -2305,9 +2306,9 @@ class GfxList:
 
         f3d = get_F3D_GBI()
         for command in self.commands:
-            # if command has .toO2R, use that method
-            if hasattr(command, "toO2R"):
-                data.extend(command.toO2R(folderPath))
+            # if command has .to_o2r, use that method
+            if hasattr(command, "to_o2r"):
+                data.extend(command.to_o2r(folderPath))
             else:
                 # else, use default to_binary method
                 data.extend(command.to_binary(f3d, {}))
@@ -3475,10 +3476,10 @@ class FImage:
 
         return 0  # Error
 
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes")
+        print(f"FImage.to_o2r {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes")
 
         # Write OTR Header
         # I    - Endianness
@@ -3584,10 +3585,10 @@ class SPMatrix(GbiMacro):
         else:
             return gsDma1p(f3d.G_MTX, matPtr, MTX_SIZE, self.param)
 
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"SPMatrix.toO2R {self.matrix}")
+        print(f"SPMatrix.to_o2r {self.matrix}")
 
         matPtr = int(self.matrix, 16)
         matPtr = (matPtr & 0x0FFFFFFF) + 1
@@ -3639,10 +3640,10 @@ class SPVertex(GbiMacro):
             header += self.vertList.name + " + " + str(self.offset)
         return header + ", " + str(self.count) + ", " + str(self.index) + ")"
 
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"SPVertex.toO2R {self.vertList.name} {self.offset} {self.count} {self.index}")
+        print(f"SPVertex.to_o2r {self.vertList.name} {self.offset} {self.count} {self.index}")
 
         words = (
             _SHIFTL(0x32, 24, 8) | _SHIFTL(self.count, 12, 8) | _SHIFTL(self.index + self.count, 1, 7), self.offset * VTX_SIZE,
@@ -3698,10 +3699,10 @@ class SPDisplayList(GbiMacro):
         else:
             return "glistp = " + self.displayList.name + "(glistp)"
 
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"SPDisplayList.toO2R {self.displayList.name}")
+        print(f"SPDisplayList.to_o2r {self.displayList.name}")
 
         data.extend(gsDma1p(0x31, 0, 0, 0x00))
 
@@ -3724,10 +3725,10 @@ class SPBranchList(GbiMacro):
         dlPtr = int.from_bytes(encodeSegmentedAddr(self.displayList.startAddress, segments), "big")
         return gsDma1p(f3d.G_DL, dlPtr, 0, f3d.G_DL_NOPUSH)
         
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"SPBranchList.toO2R {self.displayList.name}")
+        print(f"SPBranchList.to_o2r {self.displayList.name}")
 
         data.extend(gsDma1p(0x31, 0, 0, 0x01))
 
@@ -4203,10 +4204,10 @@ class SPBranchLessZraw(GbiMacro):
     def size(self, f3d):
         return GFX_SIZE * 2
 
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
-        print(f"SPBranchLessZraw.toO2R {self.dl.name} TODO! This is not implemented yet!")
+        print(f"SPBranchLessZraw.to_o2r {self.dl.name} TODO! This is not implemented yet!")
 
         # dlPath = os.path.join(folderPath, self.dl.name)
         # For windows paths, replace backslashes with forward slashes
@@ -4886,8 +4887,8 @@ class DPSetTextureImage(GbiMacro):
         imagePtr = int.from_bytes(encodeSegmentedAddr(self.image.startAddress, segments), "big")
         return gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr)
     
-    def toO2R(self, folderPath: str):
-        print(f"DPSetTextureImage.toO2R {self.image.name}")
+    def to_o2r(self, folderPath: str):
+        print(f"DPSetTextureImage.to_o2r {self.image.name}")
 
         data = bytearray(0)
 
@@ -5017,7 +5018,7 @@ class DPSetEnvColor(GbiMacro):
     def to_binary(self, f3d, segments):
         return sDPRGBColor(f3d.G_SETENVCOLOR, self.r, self.g, self.b, self.a)
 
-    def to_soh_xml(self, objectPath=""):
+    def to_xml(self, objectPath=""):
         return (
             f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
             f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
@@ -5080,7 +5081,7 @@ class DPSetPrimColor(GbiMacro):
         )
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
-    def to_soh_xml(self, objectPath=""):
+    def to_xml(self, objectPath=""):
         return (
             f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
             f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
@@ -5174,7 +5175,7 @@ class DPLoadTile(GbiMacro):
     def to_binary(self, f3d, segments):
         return gsDPLoadTileGeneric(f3d.G_LOADTILE, self.tile, self.uls, self.ult, self.lrs, self.lrt)
 
-    def to_soh_xml(self, objectPath=""):
+    def to_xml(self, objectPath=""):
         return (
             f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
             f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'

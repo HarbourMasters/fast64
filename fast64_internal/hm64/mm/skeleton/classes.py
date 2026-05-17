@@ -3,7 +3,7 @@ import struct
 import os
 from ....f3d.f3d_writer import GfxList
 from ....utility import CData, toAlnum
-from ....z64.constants import o2rLimbNames
+from .constants import o2rLimbNames
 
 
 class OOTSkeleton:
@@ -92,7 +92,7 @@ class OOTSkeleton:
 
         return limbData
     
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
         # Write OTR Header
@@ -249,7 +249,7 @@ class OOTLimb:
             self.children[i].setLinks()
         # self -> child -> sibling
     
-    def toO2R(self, folderPath: str):
+    def to_o2r(self, folderPath: str):
         data = bytearray(0)
 
         # Write OTR Header

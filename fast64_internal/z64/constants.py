@@ -459,27 +459,3 @@ oot_world_defaults = {
         "cycleType": "G_CYC_2CYCLE",
     },
 }
-
-o2rLimbNames = [
-    "Root",
-    "Waist",
-    "LowerRoot",
-    "RightThigh",
-    "RightShin",
-    "RightFoot",
-    "LeftThigh",
-    "LeftShin",
-    "LeftFoot",
-    "UpperRoot",
-    "Head",
-    "Hat",
-    "Collar",
-    "LeftShoulder",
-    "LeftForearm",
-    "LeftHand",
-    "RightShoulder",
-    "RightForearm",
-    "RightHand",
-    "Sheath",
-    "Torso",
-]

@@ -1,6 +1,6 @@
 from bpy.types import Panel, Curve
 from bpy.utils import register_class, unregister_class
-from ...utility import prop_split
+from ...utility import prop_split, is_z64_mode
 from ..utility import getSceneObj, drawEnumWithCustom
 from ..actor.properties import OOTActorHeaderProperty
 from .properties import OOTSplineProperty
@@ -16,7 +16,7 @@ class OOTSplinePanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode in {"OOT", "MM"} and (
+        return is_z64_mode(context.scene) and (
             context.object is not None and type(context.object.data) == Curve
         )
 

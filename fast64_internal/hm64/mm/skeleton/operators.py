@@ -2,10 +2,11 @@ import bpy
 from bpy.ops import object
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
+from bpy.path import abspath
 from mathutils import Matrix
 
 from ....f3d.f3d_gbi import DLFormat
-from ....z64.skeleton.properties import OOTSkeletonExportSettings
+from ....z64.skeleton.properties import OOTSkeletonExportSettings, OOTSkeletonImportSettings
 from ....z64.utility import getOOTScale
 from ....utility import ExportUtils, PluginError, raisePluginError
 from .functions import ootConvertArmatureToO2R
@@ -56,7 +57,34 @@ class MM_ExportSkeleton(Operator):
                 return {"CANCELLED"}
 
 
-mm_skeleton_classes = (MM_ExportSkeleton,)
+class MM_ImportSkeleton(Operator):
+    bl_idname = "object.mm_import_skeleton"
+    bl_label = "Import MM Skeleton"
+    bl_options = {"REGISTER", "UNDO", "PRESET"}
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            object.mode_set(mode="OBJECT")
+
+        try:
+            from .mm_importer import ootImportSkeletonC
+
+            importSettings: OOTSkeletonImportSettings = context.scene.fast64.oot.skeletonImportSettings
+            decompPath = abspath(context.scene.ootDecompPath)
+
+            ootImportSkeletonC(decompPath, importSettings)
+
+            self.report({"INFO"}, "Success!")
+            return {"FINISHED"}
+
+        except Exception as e:
+            if context.mode != "OBJECT":
+                object.mode_set(mode="OBJECT")
+            raisePluginError(self, e)
+            return {"CANCELLED"}
+
+
+mm_skeleton_classes = (MM_ExportSkeleton, MM_ImportSkeleton)
 
 
 def mm_skeleton_ops_register():

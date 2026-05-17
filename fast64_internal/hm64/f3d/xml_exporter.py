@@ -1,9 +1,11 @@
-"""SOH XML export extensions for F3D GBI classes.
-Monkey-patches to_soh_xml() and related methods onto F3D classes at registration time.
+"""HM64 XML export extensions for F3D GBI classes.
+Registers to_xml() and related methods onto F3D classes at registration time.
+Also registers with the export_registry so upstream code can discover XML export availability.
 All methods are removed at unregistration time.
 """
 
 import os
+import sys
 import bpy
 from html import escape
 from struct import pack
@@ -49,14 +51,15 @@ from ...f3d.f3d_gbi import (
     SPVertex,
     Vtx,
     VtxList,
-    format_asset_path,
     get_image_from_image_key,
 )
+from ..o2r.exporter import format_asset_path
+from .cosmetic_registry import get_cosmetic
 from ...utility import (
     PluginError,
-    writeXMLData,
     resolve_internal_export_path,
 )
+from ..utility import writeXMLData
 from ...z64.exporter.skeleton.classes import OOTSkeleton, OOTLimb
 
 # --- Helper functions ---
@@ -75,8 +78,8 @@ def getDynamicCosmeticXmlAttrs(cosmeticEntry: str, cosmeticCategory: str):
 
 # --- Extracted methods ---
 
-# FSetTileSizeScrollField.to_soh_xml
-def _FSetTileSizeScrollField_to_soh_xml(self, tex_index, dimensions):
+# FSetTileSizeScrollField.to_xml
+def _FSetTileSizeScrollField_to_xml(self, tex_index, dimensions):
     """Export scroll data for a single texture as XML for SOH.
 
     Args:
@@ -93,8 +96,8 @@ def _FSetTileSizeScrollField_to_soh_xml(self, tex_index, dimensions):
     return f'<TexScroll TexIndex="{tex_index}" S="{self.s}" T="{self.t}" Width="{width}" Height="{height}" Interval="{self.interval}"/>\n'
 
 
-# Vtx.to_soh_xml
-def _Vtx_to_soh_xml(self):
+# Vtx.to_xml
+def _Vtx_to_xml(self):
     baseStr = "<Vtx X=\"{pX}\" Y=\"{pY}\" Z=\"{pZ}\" S=\"{s}\" T=\"{t}\" R=\"{r}\" G=\"{g}\" B=\"{b}\" A=\"{a}\"/>"
     return baseStr.format(
         pX=self.position[0],
@@ -109,39 +112,39 @@ def _Vtx_to_soh_xml(self):
     )
 
 
-# VtxList.to_soh_xml
-def _VtxList_to_soh_xml(self):
+# VtxList.to_xml
+def _VtxList_to_xml(self):
     data = "<Vertex Version=\"0\">\n"
     for vert in self.vertices:
-        data += "\t" + vert.to_soh_xml() + "\n"
+        data += "\t" + vert.to_xml() + "\n"
     data += "</Vertex>\n"
     return data
 
 
-# GfxList.to_soh_xml
-def _GfxList_to_soh_xml(self, modelDirPath, objectPath):
+# GfxList.to_xml
+def _GfxList_to_xml(self, modelDirPath, objectPath):
     data = "<DisplayList Version=\"0\">\n"
     for command in self.commands:
         if isinstance(command, (SPDisplayList, SPBranchList, SPVertex, DPSetTextureImage)):
-            data += "\t" + command.to_soh_xml(objectPath) + "\n"
+            data += "\t" + command.to_xml(objectPath) + "\n"
         else:
-            data += "\t" + command.to_soh_xml() + "\n"
+            data += "\t" + command.to_xml() + "\n"
 
     data += "</DisplayList>\n\n"
 
     return data
 
 
-# FModel.to_soh_xml
-def _FModel_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True, combine_root_meshes=False):
+# FModel.to_xml
+def _FModel_to_xml(self, modelDirPath, objectPath, include_cull_vertices=True, combine_root_meshes=False):
     data = ""
 
     if combine_root_meshes:
         combined_call_lines = []
         combined_other_lines = []
         for mesh in self.meshes.values():
-            data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices, write_root_draw=False)
-            call_lines, other_lines = mesh.get_soh_root_draw_lines(objectPath)
+            data += mesh.to_xml(modelDirPath, objectPath, include_cull_vertices, write_root_draw=False)
+            call_lines, other_lines = mesh.get_xml_root_draw_lines(objectPath)
             combined_call_lines.extend(call_lines)
             if call_lines or other_lines:
                 combined_other_lines = other_lines
@@ -154,23 +157,23 @@ def _FModel_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=Tru
             )
     else:
         for mesh in self.meshes.values():
-            data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices)
+            data += mesh.to_xml(modelDirPath, objectPath, include_cull_vertices)
 
     for lod in self.LODGroups.values():
-        data += lod.to_soh_xml(modelDirPath)
+        data += lod.to_xml(modelDirPath)
 
     for fMaterial, _ in self.materials.values():
-        data += fMaterial.to_soh_xml(modelDirPath, objectPath)
+        data += fMaterial.to_xml(modelDirPath, objectPath)
 
-    self.texturesSavedLastExport = self.save_soh_textures(modelDirPath)
-    self.save_soh_palettes(modelDirPath)
+    self.texturesSavedLastExport = self.save_xml_textures(modelDirPath)
+    self.save_xml_palettes(modelDirPath)
     self.freePalettes()
 
     return data
 
 
-# FModel.save_soh_textures
-def _FModel_save_soh_textures(self, exportPath):
+# FModel.save_xml_textures
+def _FModel_save_xml_textures(self, exportPath):
     texturesSaved = 0
 
     for key, texture in self.textures.items():
@@ -274,8 +277,8 @@ def _FModel_save_soh_textures(self, exportPath):
     return texturesSaved
 
 
-# FModel.save_soh_palettes
-def _FModel_save_soh_palettes(self, exportPath):
+# FModel.save_xml_palettes
+def _FModel_save_xml_palettes(self, exportPath):
     palettesSaved = 0
     for key, texture in self.textures.items():
         if not isinstance(key, FPaletteKey):
@@ -359,12 +362,12 @@ def _FModel_save_soh_palettes(self, exportPath):
     return palettesSaved
 
 
-# FMesh.get_soh_root_draw_lines
-def _FMesh_get_soh_root_draw_lines(self, objectPath):
+# FMesh.get_xml_root_draw_lines
+def _FMesh_get_xml_root_draw_lines(self, objectPath):
     def command_xml(command):
         if isinstance(command, (SPDisplayList, SPBranchList, DPSetTextureImage)):
-            return "\t" + command.to_soh_xml(objectPath) + "\n"
-        return "\t" + command.to_soh_xml() + "\n"
+            return "\t" + command.to_xml(objectPath) + "\n"
+        return "\t" + command.to_xml() + "\n"
 
     call_lines = []
     other_lines = []
@@ -380,40 +383,40 @@ def _FMesh_get_soh_root_draw_lines(self, objectPath):
     return call_lines, other_lines
 
 
-# FMesh.to_soh_xml
-def _FMesh_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True, write_root_draw=True):
+# FMesh.to_xml
+def _FMesh_to_xml(self, modelDirPath, objectPath, include_cull_vertices=True, write_root_draw=True):
     if include_cull_vertices and self.cullVertexList is not None:
-        cullData = self.cullVertexList.to_soh_xml()
+        cullData = self.cullVertexList.to_xml()
         writeXMLData(cullData, os.path.join(modelDirPath, self.cullVertexList.name))
 
     for triGroup in self.triangleGroups:
-        triGroup.to_soh_xml(modelDirPath, objectPath)
+        triGroup.to_xml(modelDirPath, objectPath)
 
     for drawOverride in self.draw_overrides:
-        overrideData = drawOverride.to_soh_xml(modelDirPath)
+        overrideData = drawOverride.to_xml(modelDirPath)
         writeXMLData(overrideData, os.path.join(modelDirPath, drawOverride.name))
 
     if not write_root_draw:
         return ""
 
-    call_lines, other_lines = self.get_soh_root_draw_lines(objectPath)
+    call_lines, other_lines = self.get_xml_root_draw_lines(objectPath)
     drawData = "<DisplayList Version=\"0\">\n" + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
     writeXMLData(drawData, os.path.join(modelDirPath, self.draw.name))
     return drawData
 
 
-# FTriGroup.to_soh_xml
-def _FTriGroup_to_soh_xml(self, modelDirPath, objectPath):
-    vtxData = self.vertexList.to_soh_xml()
+# FTriGroup.to_xml
+def _FTriGroup_to_xml(self, modelDirPath, objectPath):
+    vtxData = self.vertexList.to_xml()
     writeXMLData(vtxData, os.path.join(modelDirPath, self.vertexList.name))
 
-    triListData = self.triList.to_soh_xml(modelDirPath, objectPath)
+    triListData = self.triList.to_xml(modelDirPath, objectPath)
     writeXMLData(triListData, os.path.join(modelDirPath, self.triList.name))
     return ""
 
 
-# FScrollData.to_soh_xml
-def _FScrollData_to_soh_xml(self):
+# FScrollData.to_xml
+def _FScrollData_to_xml(self):
     """Export all tile scroll data as XML for SOH.
 
     Returns:
@@ -424,43 +427,43 @@ def _FScrollData_to_soh_xml(self):
 
     # Export tex0 scroll if present
     if self.tile_scroll_tex0.s != 0 or self.tile_scroll_tex0.t != 0:
-        data += "\t\t" + self.tile_scroll_tex0.to_soh_xml(0, self.dimensions)
+        data += "\t\t" + self.tile_scroll_tex0.to_xml(0, self.dimensions)
 
     # Export tex1 scroll if present
     if self.tile_scroll_tex1.s != 0 or self.tile_scroll_tex1.t != 0:
-        data += "\t\t" + self.tile_scroll_tex1.to_soh_xml(1, self.dimensions)
+        data += "\t\t" + self.tile_scroll_tex1.to_xml(1, self.dimensions)
 
     return data
 
 
-# FMaterial.to_soh_xml
-def _FMaterial_to_soh_xml(self, modelDirPath, objectPath):
+# FMaterial.to_xml
+def _FMaterial_to_xml(self, modelDirPath, objectPath):
     data = ""
 
     if self.material.tag.Export:
-        matData = self.material.to_soh_xml(modelDirPath, objectPath)
+        matData = self.material.to_xml(modelDirPath, objectPath)
         # Insert scroll data before closing DisplayList tag if present
         if self.scrollData.has_scroll_data():
-            scrollData = self.scrollData.to_soh_xml()
+            scrollData = self.scrollData.to_xml()
             matData = matData.replace("</DisplayList>", scrollData + "</DisplayList>")
         writeXMLData(matData, os.path.join(modelDirPath, self.material.name))
 
     if self.revert is not None and self.revert.tag.Export:
-        revData = self.revert.to_soh_xml(modelDirPath, objectPath)
+        revData = self.revert.to_xml(modelDirPath, objectPath)
         writeXMLData(revData, os.path.join(modelDirPath, self.revert.name))
 
     return data
 
 
-# SPMatrix.to_soh_xml
-def _SPMatrix_to_soh_xml(self, objectPath=""):
+# SPMatrix.to_xml
+def _SPMatrix_to_xml(self, objectPath=""):
     name = self.matrix
     path = f"{objectPath}/{name}" if objectPath else f">{name}"
     return f'<Matrix Path="{path}" Param="{self.param}"/>'
 
 
-# SPVertex.to_soh_xml
-def _SPVertex_to_soh_xml(self, objectPath=""):
+# SPVertex.to_xml
+def _SPVertex_to_xml(self, objectPath=""):
     baseStr = "<LoadVertices Path=\"{parent}/{vertexPath}\" VertexBufferIndex=\"{bufferIndex}\" VertexOffset=\"{vertexOffset}\" Count=\"{count}\"/>"
     return baseStr.format(
         parent=objectPath,
@@ -471,82 +474,82 @@ def _SPVertex_to_soh_xml(self, objectPath=""):
     )
 
 
-# SPDisplayList.to_soh_xml
-def _SPDisplayList_to_soh_xml(self, objectPath=""):
+# SPDisplayList.to_xml
+def _SPDisplayList_to_xml(self, objectPath=""):
     name = self.displayList.name
     path = format_asset_path(objectPath, name)
     return f'<CallDisplayList Path="{path}"/>'
 
 
-# SPEndDisplayList.to_soh_xml
-def _SPEndDisplayList_to_soh_xml(self):
+# SPEndDisplayList.to_xml
+def _SPEndDisplayList_to_xml(self):
     return "<EndDisplayList/>"
 
 
-# SP1Triangle.to_soh_xml
-def _SP1Triangle_to_soh_xml(self, objectPath=""):
+# SP1Triangle.to_xml
+def _SP1Triangle_to_xml(self, objectPath=""):
     return f'<Triangle1 V00="{self.v0}" V01="{self.v1}" V02="{self.v2}"/>'
 
 
-# SP2Triangles.to_soh_xml
-def _SP2Triangles_to_soh_xml(self, objectPath=""):
+# SP2Triangles.to_xml
+def _SP2Triangles_to_xml(self, objectPath=""):
     first = f'<Triangle1 V00="{self.v00}" V01="{self.v01}" V02="{self.v02}"/>'
     second = f'<Triangle1 V00="{self.v10}" V01="{self.v11}" V02="{self.v12}"/>'
     return first + "\n\t" + second
 
 
-# SPCullDisplayList.to_soh_xml
-def _SPCullDisplayList_to_soh_xml(self, objectPath=""):
+# SPCullDisplayList.to_xml
+def _SPCullDisplayList_to_xml(self, objectPath=""):
     return f'<CullDisplayList Start="{self.vstart}" End="{self.vend}"/>'
 
 
-# SPSetLights.to_soh_xml
-def _SPSetLights_to_soh_xml(self, objectPath=""):
+# SPSetLights.to_xml
+def _SPSetLights_to_xml(self, objectPath=""):
     return ""
 
 
-# SPTexture.to_soh_xml
-def _SPTexture_to_soh_xml(self, objectPath=""):
+# SPTexture.to_xml
+def _SPTexture_to_xml(self, objectPath=""):
     return f'<Texture S="{self.s}" T="{self.t}" Level="{self.level}" Tile="{self.tile}" On="{self.on}"/>'
 
 
-# SPSetGeometryMode.to_soh_xml
-def _SPSetGeometryMode_to_soh_xml(self, objectPath=""):
+# SPSetGeometryMode.to_xml
+def _SPSetGeometryMode_to_xml(self, objectPath=""):
     if not self.flagList:
         return "<SetGeometryMode/>"
     flags = " ".join(f'{flag}="1"' for flag in sorted(self.flagList, key=str))
     return f"<SetGeometryMode {flags}/>"
 
 
-# SPClearGeometryMode.to_soh_xml
-def _SPClearGeometryMode_to_soh_xml(self, objectPath=""):
+# SPClearGeometryMode.to_xml
+def _SPClearGeometryMode_to_xml(self, objectPath=""):
     if not self.flagList:
         return "<ClearGeometryMode/>"
     flags = " ".join(f'{flag}="1"' for flag in sorted(self.flagList, key=str))
     return f"<ClearGeometryMode {flags}/>"
 
 
-# SPLoadGeometryMode.to_soh_xml
-def _SPLoadGeometryMode_to_soh_xml(self, objectPath=""):
+# SPLoadGeometryMode.to_xml
+def _SPLoadGeometryMode_to_xml(self, objectPath=""):
     flags = ",".join(sorted(self.flagList))
     return f'<GeometryFlags Mode="Load" Flags="{flags}"/>'
 
 
-# SPSetOtherMode.to_soh_xml
-def _SPSetOtherMode_to_soh_xml(self, objectPath=""):
+# SPSetOtherMode.to_xml
+def _SPSetOtherMode_to_xml(self, objectPath=""):
     if not self.flagList:
         return f'<SetOtherMode Cmd="{self.cmd}" Sft="{self.sft}" Length="{self.length}"/>'
     flags = " ".join(f'{flag}="1"' for flag in sorted(self.flagList, key=str))
     return f'<SetOtherMode Cmd="{self.cmd}" Sft="{self.sft}" Length="{self.length}" {flags}/>'
 
 
-# DPSetTextureLUT.to_soh_xml
-def _DPSetTextureLUT_to_soh_xml(self, objectPath=""):
+# DPSetTextureLUT.to_xml
+def _DPSetTextureLUT_to_xml(self, objectPath=""):
     return f'<SetTextureLUT Mode="{self.mode}"/>'
 
 
-# DPSetTextureImage.to_soh_xml
-def _DPSetTextureImage_to_soh_xml(self, objectPath=""):
+# DPSetTextureImage.to_xml
+def _DPSetTextureImage_to_xml(self, objectPath=""):
     prefix = self.image.internal_path if self.image.internal_path else (objectPath if self.image.filename is not None else "")
     imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
     return (
@@ -554,8 +557,8 @@ def _DPSetTextureImage_to_soh_xml(self, objectPath=""):
     )
 
 
-# DPSetCombineMode.to_soh_xml
-def _DPSetCombineMode_to_soh_xml(self, objectPath=""):
+# DPSetCombineMode.to_xml
+def _DPSetCombineMode_to_xml(self, objectPath=""):
     def _cc(name: str) -> str:
         return name if name.startswith("G_CCMUX_") else f"G_CCMUX_{name}"
 
@@ -571,40 +574,42 @@ def _DPSetCombineMode_to_soh_xml(self, objectPath=""):
     )
 
 
-# DPSetEnvColor.to_soh_xml
-def _DPSetEnvColor_to_soh_xml(self, objectPath=""):
+# DPSetEnvColor.to_xml
+def _DPSetEnvColor_to_xml(self, objectPath=""):
+    cosmetic = get_cosmetic(self)
     return (
         f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-        f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+        f'{getDynamicCosmeticXmlAttrs(cosmetic["entry"], cosmetic["category"])}/>'
     )
 
 
-# DPSetPrimColor.to_soh_xml
-def _DPSetPrimColor_to_soh_xml(self, objectPath=""):
+# DPSetPrimColor.to_xml
+def _DPSetPrimColor_to_xml(self, objectPath=""):
+    cosmetic = get_cosmetic(self)
     return (
         f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-        f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+        f'{getDynamicCosmeticXmlAttrs(cosmetic["entry"], cosmetic["category"])}/>'
     )
 
 
-# DPSetTileSize.to_soh_xml
-def _DPSetTileSize_to_soh_xml(self, objectPath=""):
+# DPSetTileSize.to_xml
+def _DPSetTileSize_to_xml(self, objectPath=""):
     return (
         f'<SetTileSize T="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
         f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
     )
 
 
-# DPLoadTile.to_soh_xml
-def _DPLoadTile_to_soh_xml(self, objectPath=""):
+# DPLoadTile.to_xml
+def _DPLoadTile_to_xml(self, objectPath=""):
     return (
         f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
         f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
     )
 
 
-# DPSetTile.to_soh_xml
-def _DPSetTile_to_soh_xml(self, objectPath=""):
+# DPSetTile.to_xml
+def _DPSetTile_to_xml(self, objectPath=""):
     return (
         f'<SetTile Format="{self.fmt}" Size="{self.siz}" Line="{self.line}" TMem="{self.tmem}" '
         f'Tile="{self.tile}" Palette="{self.palette}" Cms0="{self.cms[0]}" Cms1="{self.cms[1]}" '
@@ -613,43 +618,43 @@ def _DPSetTile_to_soh_xml(self, objectPath=""):
     )
 
 
-# DPLoadBlock.to_soh_xml
-def _DPLoadBlock_to_soh_xml(self, objectPath=""):
+# DPLoadBlock.to_xml
+def _DPLoadBlock_to_xml(self, objectPath=""):
     return (
         f'<LoadBlock Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
         f'Lrs="{self.lrs}" Dxt="{self.dxt}" />'
     )
 
 
-# DPLoadTLUTCmd.to_soh_xml
-def _DPLoadTLUTCmd_to_soh_xml(self, objectPath=""):
+# DPLoadTLUTCmd.to_xml
+def _DPLoadTLUTCmd_to_xml(self, objectPath=""):
     return f'<LoadTLUTCmd Tile="{self.tile}" Count="{self.count}"/>'
 
 
-# DPFullSync.to_soh_xml
-def _DPFullSync_to_soh_xml(self):
+# DPFullSync.to_xml
+def _DPFullSync_to_xml(self):
     return "<FullSync/>"
 
 
-# DPTileSync.to_soh_xml
-def _DPTileSync_to_soh_xml(self):
+# DPTileSync.to_xml
+def _DPTileSync_to_xml(self):
     return "<TileSync/>"
 
 
-# DPPipeSync.to_soh_xml
-def _DPPipeSync_to_soh_xml(self):
+# DPPipeSync.to_xml
+def _DPPipeSync_to_xml(self):
     return "<PipeSync/>"
 
 
-# DPLoadSync.to_soh_xml
-def _DPLoadSync_to_soh_xml(self):
+# DPLoadSync.to_xml
+def _DPLoadSync_to_xml(self):
     return "<LoadSync/>"
 
 
 # --- Patch registry ---
 
-# OOTSkeleton.toSohXML
-def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
+# OOTSkeleton.to_xml
+def _OOTSkeleton_to_xml(self, modelDirPath, objectPath):
     limbData = ""
     data = ""
 
@@ -669,7 +674,7 @@ def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
         limbData += "Normal\" LimbCount=\"{lc}\">\n".format(lc=self.getNumLimbs())
 
     for limb in limbList:
-        indLimbData = limb.toSohXML(self.hasLOD, objectPath)
+        indLimbData = limb.to_xml(self.hasLOD, objectPath)
 
         writeXMLData(indLimbData, os.path.join(modelDirPath, limb.name()))
 
@@ -681,8 +686,8 @@ def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
     return limbData
 
 
-# OOTLimb.toSohXML
-def _OOTLimb_toSohXML(self, isLOD, objectPath):
+# OOTLimb.to_xml
+def _OOTLimb_to_xml(self, isLOD, objectPath):
     data = "<SkeletonLimb Version=\"0\" Type=\""
 
     if not isLOD:
@@ -712,131 +717,135 @@ def _OOTLimb_toSohXML(self, isLOD, objectPath):
 
 _PATCHES = {
     FSetTileSizeScrollField: {
-        "to_soh_xml": _FSetTileSizeScrollField_to_soh_xml,
+        "to_xml": _FSetTileSizeScrollField_to_xml,
     },
     Vtx: {
-        "to_soh_xml": _Vtx_to_soh_xml,
+        "to_xml": _Vtx_to_xml,
     },
     VtxList: {
-        "to_soh_xml": _VtxList_to_soh_xml,
+        "to_xml": _VtxList_to_xml,
     },
     GfxList: {
-        "to_soh_xml": _GfxList_to_soh_xml,
+        "to_xml": _GfxList_to_xml,
     },
     FModel: {
-        "to_soh_xml": _FModel_to_soh_xml,
-        "save_soh_textures": _FModel_save_soh_textures,
-        "save_soh_palettes": _FModel_save_soh_palettes,
+        "to_xml": _FModel_to_xml,
+        "save_xml_textures": _FModel_save_xml_textures,
+        "save_xml_palettes": _FModel_save_xml_palettes,
     },
     FMesh: {
-        "get_soh_root_draw_lines": _FMesh_get_soh_root_draw_lines,
-        "to_soh_xml": _FMesh_to_soh_xml,
+        "get_xml_root_draw_lines": _FMesh_get_xml_root_draw_lines,
+        "to_xml": _FMesh_to_xml,
     },
     FTriGroup: {
-        "to_soh_xml": _FTriGroup_to_soh_xml,
+        "to_xml": _FTriGroup_to_xml,
     },
     FScrollData: {
-        "to_soh_xml": _FScrollData_to_soh_xml,
+        "to_xml": _FScrollData_to_xml,
     },
     FMaterial: {
-        "to_soh_xml": _FMaterial_to_soh_xml,
+        "to_xml": _FMaterial_to_xml,
     },
     SPMatrix: {
-        "to_soh_xml": _SPMatrix_to_soh_xml,
+        "to_xml": _SPMatrix_to_xml,
     },
     SPVertex: {
-        "to_soh_xml": _SPVertex_to_soh_xml,
+        "to_xml": _SPVertex_to_xml,
     },
     SPDisplayList: {
-        "to_soh_xml": _SPDisplayList_to_soh_xml,
+        "to_xml": _SPDisplayList_to_xml,
     },
     SPEndDisplayList: {
-        "to_soh_xml": _SPEndDisplayList_to_soh_xml,
+        "to_xml": _SPEndDisplayList_to_xml,
     },
     SP1Triangle: {
-        "to_soh_xml": _SP1Triangle_to_soh_xml,
+        "to_xml": _SP1Triangle_to_xml,
     },
     SP2Triangles: {
-        "to_soh_xml": _SP2Triangles_to_soh_xml,
+        "to_xml": _SP2Triangles_to_xml,
     },
     SPCullDisplayList: {
-        "to_soh_xml": _SPCullDisplayList_to_soh_xml,
+        "to_xml": _SPCullDisplayList_to_xml,
     },
     SPSetLights: {
-        "to_soh_xml": _SPSetLights_to_soh_xml,
+        "to_xml": _SPSetLights_to_xml,
     },
     SPTexture: {
-        "to_soh_xml": _SPTexture_to_soh_xml,
+        "to_xml": _SPTexture_to_xml,
     },
     SPSetGeometryMode: {
-        "to_soh_xml": _SPSetGeometryMode_to_soh_xml,
+        "to_xml": _SPSetGeometryMode_to_xml,
     },
     SPClearGeometryMode: {
-        "to_soh_xml": _SPClearGeometryMode_to_soh_xml,
+        "to_xml": _SPClearGeometryMode_to_xml,
     },
     SPLoadGeometryMode: {
-        "to_soh_xml": _SPLoadGeometryMode_to_soh_xml,
+        "to_xml": _SPLoadGeometryMode_to_xml,
     },
     SPSetOtherMode: {
-        "to_soh_xml": _SPSetOtherMode_to_soh_xml,
+        "to_xml": _SPSetOtherMode_to_xml,
     },
     DPSetTextureLUT: {
-        "to_soh_xml": _DPSetTextureLUT_to_soh_xml,
+        "to_xml": _DPSetTextureLUT_to_xml,
     },
     DPSetTextureImage: {
-        "to_soh_xml": _DPSetTextureImage_to_soh_xml,
+        "to_xml": _DPSetTextureImage_to_xml,
     },
     DPSetCombineMode: {
-        "to_soh_xml": _DPSetCombineMode_to_soh_xml,
+        "to_xml": _DPSetCombineMode_to_xml,
     },
     DPSetEnvColor: {
-        "to_soh_xml": _DPSetEnvColor_to_soh_xml,
+        "to_xml": _DPSetEnvColor_to_xml,
     },
     DPSetPrimColor: {
-        "to_soh_xml": _DPSetPrimColor_to_soh_xml,
+        "to_xml": _DPSetPrimColor_to_xml,
     },
     DPSetTileSize: {
-        "to_soh_xml": _DPSetTileSize_to_soh_xml,
+        "to_xml": _DPSetTileSize_to_xml,
     },
     DPLoadTile: {
-        "to_soh_xml": _DPLoadTile_to_soh_xml,
+        "to_xml": _DPLoadTile_to_xml,
     },
     DPSetTile: {
-        "to_soh_xml": _DPSetTile_to_soh_xml,
+        "to_xml": _DPSetTile_to_xml,
     },
     DPLoadBlock: {
-        "to_soh_xml": _DPLoadBlock_to_soh_xml,
+        "to_xml": _DPLoadBlock_to_xml,
     },
     DPLoadTLUTCmd: {
-        "to_soh_xml": _DPLoadTLUTCmd_to_soh_xml,
+        "to_xml": _DPLoadTLUTCmd_to_xml,
     },
     DPFullSync: {
-        "to_soh_xml": _DPFullSync_to_soh_xml,
+        "to_xml": _DPFullSync_to_xml,
     },
     DPTileSync: {
-        "to_soh_xml": _DPTileSync_to_soh_xml,
+        "to_xml": _DPTileSync_to_xml,
     },
     DPPipeSync: {
-        "to_soh_xml": _DPPipeSync_to_soh_xml,
+        "to_xml": _DPPipeSync_to_xml,
     },
     DPLoadSync: {
-        "to_soh_xml": _DPLoadSync_to_soh_xml,
+        "to_xml": _DPLoadSync_to_xml,
     },
     OOTSkeleton: {
-        "toSohXML": _OOTSkeleton_toSohXML,
+        "to_xml": _OOTSkeleton_to_xml,
     },
     OOTLimb: {
-        "toSohXML": _OOTLimb_toSohXML,
+        "to_xml": _OOTLimb_to_xml,
     },
 }
 
+
 def register():
-    for cls, methods in _PATCHES.items():
-        for name, func in methods.items():
-            setattr(cls, name, func)
+    from ...f3d.export_registry import register_xml_exporter
+    from ...f3d.f3d_gbi import register_xml_hooks
+    import sys
+    register_xml_exporter(sys.modules[__name__])
+    register_xml_hooks(sys.modules[__name__])
+
 
 def unregister():
-    for cls, methods in _PATCHES.items():
-        for name in methods:
-            if hasattr(cls, name):
-                delattr(cls, name)
+    from ...f3d.export_registry import register_xml_exporter
+    from ...f3d.f3d_gbi import unregister_xml_hooks
+    register_xml_exporter(None)
+    unregister_xml_hooks()

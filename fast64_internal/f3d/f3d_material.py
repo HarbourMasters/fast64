@@ -28,7 +28,7 @@ from bpy.types import (
 )
 from bl_operators.presets import AddPresetBase
 from bpy.utils import register_class, unregister_class
-from mathutils import Color, Vector
+from mathutils import Color
 
 from .f3d_enums import *
 from .f3d_gbi import (
@@ -50,6 +50,74 @@ from ..render_settings import (
 from .f3d_material_helpers import F3DMaterial_UpdateLock, node_tree_copy
 from bpy.app.handlers import persistent
 from typing import Generator, Optional, Tuple, Any, Dict, Union
+
+# --- HM64 Extension Hooks ---
+_extra_default_presets = {}  # {game_key: {category: preset_name}}
+_prim_ui_extensions = []
+_env_ui_extensions = []
+_light_update_override = None
+
+
+def register_default_presets(game_key, presets):
+    _extra_default_presets[game_key] = presets
+    for category, preset_name in presets.items():
+        if category in defaultMaterialPresets:
+            defaultMaterialPresets[category][game_key] = preset_name
+
+
+def unregister_default_presets(game_key):
+    presets = _extra_default_presets.pop(game_key, {})
+    for category in presets:
+        if category in defaultMaterialPresets:
+            defaultMaterialPresets[category].pop(game_key, None)
+
+
+def register_prim_ui_extension(func):
+    _prim_ui_extensions.append(func)
+
+
+def unregister_prim_ui_extension(func):
+    _prim_ui_extensions.remove(func)
+
+
+def register_env_ui_extension(func):
+    _env_ui_extensions.append(func)
+
+
+def unregister_env_ui_extension(func):
+    _env_ui_extensions.remove(func)
+
+
+def register_light_update_override(func):
+    global _light_update_override
+    _light_update_override = func
+
+
+def unregister_light_update_override():
+    global _light_update_override
+    _light_update_override = None
+
+
+# --- Game mode compatibility hooks ---
+_z64_compatible_modes = {"OOT", "MM"}
+
+
+def register_z64_compatible_mode(mode: str):
+    _z64_compatible_modes.add(mode)
+
+
+def unregister_z64_compatible_mode(mode: str):
+    _z64_compatible_modes.discard(mode)
+
+
+def _resolve_base_game(mode: str) -> str:
+    """Resolve HM64 modes to their decomp base game."""
+    try:
+        from ... import get_base_game
+        return get_base_game(mode)
+    except ImportError:
+        return mode
+
 
 F3D_MAT_CUR_VERSION = 6  # Increment this when changing the nodes
 
@@ -149,16 +217,8 @@ enumF3DSource = [
 ]
 
 defaultMaterialPresets = {
-    "Shaded Solid": {
-        "SM64": "Shaded Solid",
-        "OOT": "oot_shaded_solid",
-        "MM": "mm_shaded_solid",
-    },
-    "Shaded Texture": {
-        "SM64": "Shaded Texture",
-        "OOT": "oot_shaded_texture",
-        "MM": "mm_shaded_texture",
-    },
+    "Shaded Solid": {"SM64": "Shaded Solid", "OOT": "oot_shaded_solid"},
+    "Shaded Texture": {"SM64": "Shaded Texture", "OOT": "oot_shaded_texture"},
 }
 
 F3D_GEO_MODES = {
@@ -240,9 +300,10 @@ def update_draw_layer(self, context):
             return
 
         drawLayer = material.f3d_mat.draw_layer
-        if context.scene.gameEditorMode == "SM64":
+        game = _resolve_base_game(context.scene.gameEditorMode)
+        if game == "SM64":
             drawLayer.oot = drawLayerSM64toOOT[drawLayer.sm64]
-        elif context.scene.gameEditorMode in {"OOT", "MM"}:
+        elif game in _z64_compatible_modes:
             if material.f3d_mat.draw_layer.oot == "Opaque":
                 if int(material.f3d_mat.draw_layer.sm64) > 4:
                     material.f3d_mat.draw_layer.sm64 = "1"
@@ -289,7 +350,7 @@ def rendermode_preset_to_advanced(material: bpy.types.Material):
 
     cycle_1, cycle_2 = settings.rendermode_preset_cycle_1, settings.rendermode_preset_cycle_2
     if not settings.set_rendermode:
-        game_mode = scene.gameEditorMode
+        game_mode = _resolve_base_game(scene.gameEditorMode)
         layer = getattr(f3d_mat.draw_layer, game_mode.lower(), None)
         if layer is None:  # Game mode has no layer, don´t change anything
             return
@@ -465,7 +526,10 @@ def F3DOrganizeLights(self, context):
         self.f3d_light6 = lightList[5] if len(lightList) > 5 else None
         self.f3d_light7 = lightList[6] if len(lightList) > 6 else None
 
-        update_light_colors(material, context)
+        if _light_update_override is not None:
+            _light_update_override(material, context)
+        else:
+            update_light_colors(material, context)
 
 
 def combiner_uses(
@@ -850,13 +914,6 @@ class F3DPanel(Panel):
         prop_input_group.enabled = not material.scale_autoprop
         return inputGroup
 
-    def ui_dynamic_cosmetic_entry(self, f3dMat, layout, enabledProp, nameProp, categoryProp):
-        layout.prop(f3dMat, enabledProp, text="Dynamic Cosmetic Entry")
-        if getattr(f3dMat, enabledProp):
-            dynamicEntry = layout.column()
-            dynamicEntry.prop(f3dMat, nameProp, text="Name")
-            dynamicEntry.prop(f3dMat, categoryProp, text="Category")
-
     def ui_prim(self, material, layout, setName, setProp, showCheckBox):
         f3dMat = material.f3d_mat
         inputGroup = layout.row()
@@ -870,13 +927,8 @@ class F3DPanel(Panel):
         prop_input.prop(f3dMat, "prim_color", text="")
         prop_input.prop(f3dMat, "prim_lod_frac", text="Prim LOD Fraction")
         prop_input.prop(f3dMat, "prim_lod_min", text="Min LOD Ratio")
-        self.ui_dynamic_cosmetic_entry(
-            f3dMat,
-            prop_input,
-            "prim_dynamic_entry",
-            "prim_dynamic_entry_name",
-            "prim_dynamic_entry_category",
-        )
+        for ext in _prim_ui_extensions:
+            ext(self, f3dMat, prop_input)
         prop_input.enabled = setProp
         return inputGroup
 
@@ -891,13 +943,8 @@ class F3DPanel(Panel):
         else:
             prop_input_name.label(text="Environment Color")
         prop_input.prop(f3dMat, "env_color", text="")
-        self.ui_dynamic_cosmetic_entry(
-            f3dMat,
-            prop_input,
-            "env_dynamic_entry",
-            "env_dynamic_entry_name",
-            "env_dynamic_entry_category",
-        )
+        for ext in _env_ui_extensions:
+            ext(self, f3dMat, prop_input)
         setProp = f3dMat.set_env
         prop_input.enabled = setProp
         return inputGroup
@@ -1087,9 +1134,10 @@ class F3DPanel(Panel):
                 uvErrorBox.label(text="This will cause incorrect UVs to display.")
 
     def ui_draw_layer(self, material, layout, context):
-        if context.scene.gameEditorMode == "SM64":
+        game = _resolve_base_game(context.scene.gameEditorMode)
+        if game == "SM64":
             prop_split(layout, material.f3d_mat.draw_layer, "sm64", "Draw Layer")
-        elif context.scene.gameEditorMode in {"OOT", "MM"}:
+        elif game in _z64_compatible_modes:
             prop_split(layout, material.f3d_mat.draw_layer, "oot", "Draw Layer")
 
     def ui_misc(self, f3dMat: "F3DMaterialProperty", inputCol: UILayout, showCheckBox: bool) -> None:
@@ -1894,128 +1942,9 @@ def set_output_node_groups(material: Material):
     material.node_tree.links.new(output_node.outputs[0], nodes["Material Output F3D"].inputs[0])
 
 
-def get_named_node_input(node, socket_name: str):
-    return next((socket for socket in node.inputs if socket.name == socket_name), None)
-
-
-def relink_preview_light_socket(material: Material, input_name: str, from_node_name: str):
-    nodes = material.node_tree.nodes
-    shade_node = nodes.get("Shade Color")
-    from_node = nodes.get(from_node_name)
-    if shade_node is None or from_node is None or not from_node.outputs:
-        return
-
-    shade_input = get_named_node_input(shade_node, input_name)
-    if shade_input is not None:
-        link_if_none_exist(material, from_node.outputs[0], shade_input)
-
-
-def relink_preview_reroute_socket(material: Material, socket_name: str):
-    nodes = material.node_tree.nodes
-    target_node = nodes.get(socket_name)
-    scene_props = nodes.get("SceneProperties")
-    if target_node is None or scene_props is None or not target_node.inputs:
-        return
-
-    link_if_none_exist(material, scene_props.outputs[socket_name], target_node.inputs[0])
-
-
-def override_preview_reroute_socket(material: Material, socket_name: str, value):
-    target_node = material.node_tree.nodes.get(socket_name)
-    if target_node is None or not target_node.inputs:
-        return
-
-    remove_first_link_if_exists(material, target_node.inputs[0].links)
-    target_node.inputs[0].default_value = value
-
-
-def get_preview_light_weight(light_data: dict[str, Any]) -> float:
-    color = light_data["color"]
-    return color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
-
-
-def get_preview_light_entries(
-    f3dMat: "F3DMaterialProperty", renderSettings: "Fast64RenderSettings_Properties"
-) -> list[dict[str, Any]]:
-    default_dirs = [Vector(renderSettings.light0Direction), Vector(renderSettings.light1Direction)]
-    default_sizes = [float(renderSettings.light0SpecSize), float(renderSettings.light1SpecSize)]
-    entries: list[dict[str, Any]] = []
-
-    for light_index in range(7):
-        light = getattr(f3dMat, f"f3d_light{light_index + 1}")
-        if light is None:
-            continue
-
-        color = [float(light.color[0]), float(light.color[1]), float(light.color[2]), 1.0]
-        light_objects = [
-            obj for obj in bpy.context.scene.objects if obj.type == "LIGHT" and obj.data == getattr(light, "original", light)
-        ]
-        if not light_objects:
-            light_objects = [None]
-
-        for obj in light_objects:
-            direction = default_dirs[light_index % 2]
-            if obj is not None:
-                direction = Vector(getObjDirectionVec(obj, True))
-            entries.append(
-                {
-                    "color": color.copy(),
-                    "direction": direction.normalized() if direction.length_squared != 0 else default_dirs[0],
-                    "size": default_sizes[light_index % 2],
-                }
-            )
-
-    return entries
-
-
-def compress_preview_lights(light_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if len(light_entries) <= 2:
-        return light_entries
-
-    sorted_entries = sorted(light_entries, key=get_preview_light_weight, reverse=True)
-    buckets = []
-    for entry in sorted_entries[:2]:
-        weight = max(get_preview_light_weight(entry), 0.001)
-        buckets.append(
-            {
-                "color": entry["color"].copy(),
-                "direction": entry["direction"].copy(),
-                "direction_accum": entry["direction"] * weight,
-                "size_total": entry["size"] * weight,
-                "weight_total": weight,
-            }
-        )
-
-    for entry in sorted_entries[2:]:
-        weight = max(get_preview_light_weight(entry), 0.001)
-        bucket_index = (
-            0
-            if entry["direction"].dot(buckets[0]["direction"]) >= entry["direction"].dot(buckets[1]["direction"])
-            else 1
-        )
-        bucket = buckets[bucket_index]
-        for i in range(3):
-            bucket["color"][i] = min(1.0, bucket["color"][i] + entry["color"][i])
-        bucket["direction_accum"] += entry["direction"] * weight
-        bucket["size_total"] += entry["size"] * weight
-        bucket["weight_total"] += weight
-
-    compressed = []
-    for bucket in buckets:
-        direction = bucket["direction_accum"]
-        compressed.append(
-            {
-                "color": bucket["color"],
-                "direction": direction.normalized() if direction.length_squared != 0 else bucket["direction"],
-                "size": bucket["size_total"] / bucket["weight_total"],
-            }
-        )
-    return compressed
-
 def update_light_colors(material, context):
     f3dMat: "F3DMaterialProperty" = material.f3d_mat
     nodes = material.node_tree.nodes
-    renderSettings: "Fast64RenderSettings_Properties" = context.scene.fast64.renderSettings
 
     if f3dMat.use_default_lighting and f3dMat.set_ambient_from_light:
         amb = Color(f3dMat.default_light_color[:3])
@@ -2035,37 +1964,13 @@ def update_light_colors(material, context):
         # TODO: feature to toggle gamma correction
         light0 = f3dMat.default_light_color
         light1 = [0.0, 0.0, 0.0, 1.0]
-        light0_direction = Vector(renderSettings.light0Direction)
-        light1_direction = Vector(renderSettings.light1Direction)
-        light0_size = float(renderSettings.light0SpecSize)
-        light1_size = float(renderSettings.light1SpecSize)
         if not f3dMat.use_default_lighting:
-            preview_lights = compress_preview_lights(get_preview_light_entries(f3dMat, renderSettings))
-            if preview_lights:
-                light0 = preview_lights[0]["color"]
-                light0_direction = preview_lights[0]["direction"]
-                light0_size = preview_lights[0]["size"]
-            else:
-                light0 = [1.0, 1.0, 1.0, 1.0]
-
-            if len(preview_lights) > 1:
-                light1 = preview_lights[1]["color"]
-                light1_direction = preview_lights[1]["direction"]
-                light1_size = preview_lights[1]["size"]
+            light0 = f3dMat.f3d_light1.color if f3dMat.f3d_light1 is not None else [1.0, 1.0, 1.0, 1.0]
+            light1 = f3dMat.f3d_light2.color if f3dMat.f3d_light2 is not None else light1
 
         nodes["Shade Color"].inputs["AmbientColor"].default_value = s_rgb_alpha_1_tuple(f3dMat.ambient_light_color)
         nodes["Shade Color"].inputs["Light0Color"].default_value = s_rgb_alpha_1_tuple(light0)
         nodes["Shade Color"].inputs["Light1Color"].default_value = s_rgb_alpha_1_tuple(light1)
-        if f3dMat.set_lights and not f3dMat.use_default_lighting:
-            override_preview_reroute_socket(material, "Light0Dir", tuple(light0_direction))
-            override_preview_reroute_socket(material, "Light0Size", light0_size)
-            override_preview_reroute_socket(material, "Light1Dir", tuple(light1_direction))
-            override_preview_reroute_socket(material, "Light1Size", light1_size)
-        else:
-            relink_preview_reroute_socket(material, "Light0Dir")
-            relink_preview_reroute_socket(material, "Light0Size")
-            relink_preview_reroute_socket(material, "Light1Dir")
-            relink_preview_reroute_socket(material, "Light1Size")
     else:
         nodes["Shade Color"].inputs["AmbientColor"].default_value = (0.5, 0.5, 0.5, 1.0)
         nodes["Shade Color"].inputs["Light0Color"].default_value = (1.0, 1.0, 1.0, 1.0)
@@ -2073,10 +1978,6 @@ def update_light_colors(material, context):
         link_if_none_exist(material, nodes["AmbientColorOut"].outputs[0], nodes["Shade Color"].inputs["AmbientColor"])
         link_if_none_exist(material, nodes["Light0ColorOut"].outputs[0], nodes["Shade Color"].inputs["Light0Color"])
         link_if_none_exist(material, nodes["Light1ColorOut"].outputs[0], nodes["Shade Color"].inputs["Light1Color"])
-        relink_preview_reroute_socket(material, "Light0Dir")
-        relink_preview_reroute_socket(material, "Light0Size")
-        relink_preview_reroute_socket(material, "Light1Dir")
-        relink_preview_reroute_socket(material, "Light1Size")
 
 
 def update_color_node(combiner_inputs, color: Color, prefix: str):
@@ -4404,7 +4305,7 @@ class MATERIAL_MT_f3d_presets(Menu):
         props_default = getattr(self, "preset_operator_defaults", None)
         add_operator = getattr(self, "preset_add_operator", None)
 
-        game = bpy.context.scene.gameEditorMode.lower()
+        game = _resolve_base_game(bpy.context.scene.gameEditorMode).lower()
         paths = bpy.utils.preset_paths("f3d/user")
         if not bpy.context.scene.f3dUserPresetsOnly:
             if game == "sm64":
@@ -4416,8 +4317,8 @@ class MATERIAL_MT_f3d_presets(Menu):
                 paths += bpy.utils.preset_paths("f3d/oot")
                 if bpy.context.scene.f3d_type == "F3DEX3":
                     paths += bpy.utils.preset_paths("f3d/oot_f3dex3")
-            elif game == "mm":
-                paths += bpy.utils.preset_paths("f3d/mm")
+            else:
+                paths += bpy.utils.preset_paths(f"f3d/{game}")
         self.path_menu(
             paths,
             self.preset_operator,
@@ -5413,12 +5314,13 @@ class F3DRenderSettingsPanel(Panel):
             prop_split(globalSettingsBox, renderSettings, "light1SpecSize", "Light 1 Specular Size")
         prop_split(globalSettingsBox, renderSettings, "useWorldSpaceLighting", "Use World Space Lighting")
 
-        if context.scene.gameEditorMode in ["SM64", "OOT"]:
+        base_game = _resolve_base_game(context.scene.gameEditorMode)
+        if base_game in ["SM64", "OOT"]:
             layout.separator(factor=0.5)
             gameSettingsBox = layout.box()
             gameSettingsBox.label(text="Preview Context")
 
-            match context.scene.gameEditorMode:
+            match base_game:
                 case "SM64":
                     if renderSettings.sm64Area is not None:
                         gameSettingsBox.prop(renderSettings, "useObjectRenderPreview", text="Use Area for Preview")
@@ -5537,7 +5439,7 @@ def mat_register():
     savePresets()
 
     Scene.f3d_type = bpy.props.EnumProperty(
-        name="Microcode", items=enumF3D, default="F3DEX2/LX2", update=update_all_material_nodes
+        name="Microcode", items=enumF3D, default="F3D", update=update_all_material_nodes
     )
     Scene.packed_normals_algorithm = bpy.props.EnumProperty(name="Packed normals alg", items=enumPackedNormalsAlgorithm)
 

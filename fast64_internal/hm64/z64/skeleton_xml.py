@@ -14,8 +14,8 @@ from ...utility import (
     toAlnum,
     get_internal_asset_path,
     sanitize_internal_asset_path,
-    writeXMLData,
 )
+from ..utility import writeXMLData
 
 from ...z64.utility import (
     addIncludeFiles,
@@ -107,8 +107,8 @@ def ootConvertArmatureToXML(
         folder_path_for_export = sanitize_internal_asset_path(folderName)
     path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folder_path_for_export, False, True)
     includeDir = get_internal_asset_path(settings, folderName)
-    fModel.to_soh_xml(path, includeDir)
-    skeletonXML = skeleton.toSohXML(path, includeDir)
+    fModel.to_xml(path, includeDir)
+    skeletonXML = skeleton.to_xml(path, includeDir)
     writeXMLData(skeletonXML, os.path.join(path, skeletonName))
 
     if not isCustomExport:

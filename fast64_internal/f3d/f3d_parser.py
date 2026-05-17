@@ -2008,7 +2008,7 @@ def parseVertexData(dlData: str, vertexDataName: str, f3dContext: F3DContext):
     pathMatch = re.search(r'\#include\s*"([^"]*)"', data)
     if pathMatch is not None:
         path = pathMatch.group(1)
-        if bpy.context.scene.gameEditorMode in {"OOT", "MM"}:
+        if bpy.context.scene.gameEditorMode in _z64_compat_modes:
             path = str(oot_get_assets_path(path, check_exists=False))
         data = readFile(f3dContext.getVTXPathFromInclude(path))
 
@@ -2114,7 +2114,7 @@ def parseTextureData(dlData, textureName, f3dContext, imageFormat, imageSize, wi
     pathMatch = re.search(r'\#include\s*"(.*?)"', data, re.DOTALL)
     if pathMatch is not None:
         path = pathMatch.group(1)
-        is_oot = bpy.context.scene.gameEditorMode in {"OOT", "MM"}
+        is_oot = bpy.context.scene.gameEditorMode in _z64_compat_modes
         if is_oot:
             path = str(oot_get_assets_path(path, check_exists=False))
         originalImage = bpy.data.images.load(f3dContext.getImagePathFromInclude(path, is_oot))
@@ -2321,8 +2321,8 @@ def importMeshC(
     f3dContext: F3DContext,
     callClearMaterial: bool = True,
 ) -> bpy.types.Object:
-    mesh = bpy.data.meshes.new(name)
-    obj = bpy.data.objects.new(name, mesh)
+    mesh = bpy.data.meshes.new(name + "_mesh")
+    obj = bpy.data.objects.new(name + "_mesh", mesh)
     bpy.context.collection.objects.link(obj)
 
     transformMatrix = mathutils.Matrix.Scale(1 / scale, 4)
@@ -2445,8 +2445,28 @@ f3d_parser_classes = (
 
 
 def f3d_parser_register():
-    pass
+    for cls in f3d_parser_classes:
+        register_class(cls)
+
+    bpy.types.Scene.DLImportName = bpy.props.StringProperty(name="Name")
+    bpy.types.Scene.DLImportPath = bpy.props.StringProperty(name="Directory", subtype="FILE_PATH")
+    bpy.types.Scene.DLImportBasePath = bpy.props.StringProperty(name="Directory", subtype="FILE_PATH")
+    bpy.types.Scene.DLRemoveDoubles = bpy.props.BoolProperty(name="Remove Doubles", default=True)
+    bpy.types.Scene.DLImportNormals = bpy.props.BoolProperty(name="Import Normals", default=True)
+    bpy.types.Scene.DLImportDrawLayer = bpy.props.EnumProperty(name="Draw Layer", items=ootEnumDrawLayers)
+    bpy.types.Scene.DLImportOtherFiles = bpy.props.CollectionProperty(type=ImportFileProperty)
+    bpy.types.Scene.DLImportOtherFilesIndex = bpy.props.IntProperty()
 
 
 def f3d_parser_unregister():
-    pass
+    for cls in reversed(f3d_parser_classes):
+        unregister_class(cls)
+
+    del bpy.types.Scene.DLImportName
+    del bpy.types.Scene.DLImportPath
+    del bpy.types.Scene.DLRemoveDoubles
+    del bpy.types.Scene.DLImportNormals
+    del bpy.types.Scene.DLImportDrawLayer
+    del bpy.types.Scene.DLImportBasePath
+    del bpy.types.Scene.DLImportOtherFiles
+    del bpy.types.Scene.DLImportOtherFilesIndex

@@ -9,19 +9,16 @@ from ...f3d_writer import ootProcessVertexGroup, writeTextureArraysNew, writeTex
 from ...model_classes import OOTModel, OOTGfxFormatter
 from ...skeleton.constants import ootSkeletonImportDict
 from ...skeleton.properties import OOTSkeletonExportSettings
-from ...skeleton.utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices
-from .classes import OOTDLReference, OOTLimb, OOTSkeleton
+from ...skeleton.utility import ootDuplicateArmatureAndRemoveRotations, getGroupIndices, ootRemoveSkeleton
+from .classes import OOTLimb, OOTSkeleton
 
 from ....utility import (
     PluginError,
     CData,
     getGroupIndexFromname,
     writeCData,
-    writeXMLData,
     toAlnum,
     cleanupDuplicatedObjects,
-    get_internal_asset_path,
-    sanitize_internal_asset_path,
 )
 
 from ...utility import (
@@ -32,19 +29,6 @@ from ...utility import (
     ootGetPath,
     addIncludeFiles,
 )
-
-from ....hm64.z64.skeleton_xml import ootConvertArmatureToXML
-
-
-def _normalize_folder_for_path(
-    folderName: str, keep_objects_prefix: bool = False, ensure_objects_prefix: bool = False
-) -> str:
-    folder_path = sanitize_internal_asset_path(folderName)
-    if folder_path.startswith("objects/") and not keep_objects_prefix:
-        folder_path = folder_path[len("objects/") :]
-    if ensure_objects_prefix and folder_path and not folder_path.startswith("objects/"):
-        folder_path = "objects/" + folder_path
-    return folder_path
 
 
 def ootProcessBone(
@@ -85,7 +69,7 @@ def ootProcessBone(
             boneName,
             convertTransformMatrix,
             armatureObj,
-            "",
+            namePrefix,
             meshInfo,
             drawLayer,
             convertTextureData,
@@ -111,10 +95,6 @@ def ootProcessBone(
                 + " has vertices in its vertex group but is not set to deformable. Make sure to enable deform on this bone."
             )
         DL = mesh.draw
-
-    if DL is None:
-        # Maintain a placeholder DL when geometry was removed or overridden.
-        DL = OOTDLReference("gEmptyDL")
 
     if isinstance(parentLimb, OOTSkeleton):
         skeleton = parentLimb
@@ -239,9 +219,10 @@ def ootConvertArmatureToC(
     drawLayer: str,
     settings: OOTSkeletonExportSettings,
 ):
-    if settings.mode != "Generic":
+    if settings.mode != "Generic" and not settings.isCustom:
         importInfo = ootSkeletonImportDict[settings.mode]
         skeletonName = importInfo.skeletonName
+        filename = skeletonName
         folderName = importInfo.folderName
         overlayName = importInfo.actorOverlayName
         flipbookUses2DArray = importInfo.flipbookArrayIndex2D is not None
@@ -249,20 +230,21 @@ def ootConvertArmatureToC(
         isLink = importInfo.isLink
     else:
         skeletonName = toAlnum(originalArmatureObj.name)
+        filename = settings.filename if settings.isCustomFilename else skeletonName
         folderName = settings.folder
-        overlayName = settings.actorOverlayName
+        overlayName = settings.actorOverlayName if not settings.isCustom else None
         flipbookUses2DArray = settings.flipbookUses2DArray
         flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
         isLink = False
 
-    filename = skeletonName
-
     exportPath = bpy.path.abspath(settings.customPath)
     isCustomExport = settings.isCustom
+    removeVanillaData = settings.removeVanillaData
+    optimize = settings.optimize
 
     fModel = OOTModel(skeletonName, DLFormat, drawLayer)
     skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
+        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, optimize
     )
 
     if originalArmatureObj.ootSkeleton.LOD is not None:
@@ -273,7 +255,7 @@ def ootConvertArmatureToC(
             skeletonName + "_lod",
             not savePNG,
             drawLayer,
-            False,
+            optimize,
         )
     else:
         lodSkeleton = None
@@ -313,28 +295,8 @@ def ootConvertArmatureToC(
     else:
         data.header += "\n"
 
-    data.header = f"#ifndef {header_filename.upper()}_H\n" + f"#define {header_filename.upper()}_H\n\n"
-
-    if bpy.context.scene.fast64.oot.is_globalh_present():
-        data.header += '#include "ultra64.h"\n' + '#include "global.h"\n'
-    elif bpy.context.scene.fast64.oot.is_z64sceneh_present():
-        data.header += '#include "ultra64.h"\n' + '#include "array_count.h"\n' + '#include "z64animation.h"\n'
-    else:
-        data.header += '#include "ultra64.h"\n' + '#include "array_count.h"\n' + '#include "animation.h"\n'
-
-    data.source = f'#include "{header_filename}.h"\n\n'
-    if not isCustomExport:
-        data.header += f'#include "{folderName}.h"\n\n'
-    else:
-        data.header += "\n"
-
-    folder_path_for_export = _normalize_folder_for_path(
-        folderName, keep_objects_prefix=isCustomExport, ensure_objects_prefix=isCustomExport
-    )
-    if not folder_path_for_export:
-        folder_path_for_export = sanitize_internal_asset_path(folderName)
-    path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folder_path_for_export, True, True)
-    includeDir = get_internal_asset_path(settings, folderName)
+    path = ootGetPath(exportPath, isCustomExport, "assets/objects/", folderName, True, True)
+    includeDir = settings.customAssetIncludeDir if settings.isCustom else f"assets/objects/{folderName}"
     exportData = fModel.to_c(
         TextureExportSettings(False, savePNG, includeDir, path), OOTGfxFormatter(ScrollMethod.Vertex)
     )
@@ -353,3 +315,5 @@ def ootConvertArmatureToC(
     if not isCustomExport:
         writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel)
         addIncludeFiles(folderName, path, filename)
+        if removeVanillaData:
+            ootRemoveSkeleton(path, folderName, skeletonName)

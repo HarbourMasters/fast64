@@ -1,8 +1,9 @@
-"""HM64 matrix-call properties extracted from z64/f3d/properties.py."""
+"""HM64 matrix-call properties."""
 
 import bpy
-from bpy.types import PropertyGroup
-from bpy.props import StringProperty, EnumProperty
+from bpy.types import PropertyGroup, Object
+from bpy.props import StringProperty, EnumProperty, CollectionProperty, IntProperty
+from bpy.utils import register_class, unregister_class
 
 
 LIMB_MATRIX_OPTIONS = (
@@ -48,3 +49,20 @@ class OOTDLMatrixCallPair(PropertyGroup):
     @property
     def matrix_path(self) -> str:
         return LIMB_MATRIX_PATHS.get(self.limb, "")
+
+
+hm64_property_classes = (OOTDLMatrixCallPair,)
+
+
+def register():
+    for cls in hm64_property_classes:
+        register_class(cls)
+    Object.oot_matrix_calls = CollectionProperty(type=OOTDLMatrixCallPair)
+    Object.oot_matrix_calls_index = IntProperty(default=0)
+
+
+def unregister():
+    del Object.oot_matrix_calls
+    del Object.oot_matrix_calls_index
+    for cls in reversed(hm64_property_classes):
+        unregister_class(cls)

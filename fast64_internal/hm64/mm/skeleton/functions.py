@@ -42,10 +42,10 @@ from ....utility import (
     writeCData,
     toAlnum,
     cleanupDuplicatedObjects,
-    crc64,
     get_internal_asset_path,
     resolve_internal_export_path,
 )
+from ...o2r.crc import crc64
 
 from ....z64.utility import (
     checkEmptyName,
@@ -427,30 +427,30 @@ def ootConvertArmatureToO2R(
         if target_dir and not os.path.exists(target_dir):
             os.makedirs(target_dir, exist_ok=True)
         with open(target_path, "wb") as f:
-            f.write(fImage.toO2R(folderPath))
+            f.write(fImage.to_o2r(folderPath))
 
     # dict[Tuple[bpy.types.Material, str, FAreaData], Tuple[FMaterial, Tuple[int, int]]]
     for _, (fMaterial, _) in fModel.materials.items():
         if fMaterial.material is not None:
             with open(os.path.join(exportFolderPath, fMaterial.material.name), "wb") as f:
-                f.write(fMaterial.material.toO2R(folderPath))
+                f.write(fMaterial.material.to_o2r(folderPath))
 
         if fMaterial.revert is not None:
             with open(os.path.join(exportFolderPath, fMaterial.revert.name), "wb") as f:
-                f.write(fMaterial.revert.toO2R(folderPath))
+                f.write(fMaterial.revert.to_o2r(folderPath))
 
     for _, (fMaterial, _) in fModel.materials.items():
         if fMaterial is not None:
-            fMaterial.to_soh_xml(exportFolderPath, objectPath)
+            fMaterial.to_xml(exportFolderPath, objectPath)
 
     # dict[str, FMesh]
     for _, mesh in fModel.meshes.items():
         if mesh.draw is not None:
-            mesh.to_soh_xml(exportFolderPath, objectPath, include_cull_vertices=False)
+            mesh.to_xml(exportFolderPath, objectPath, include_cull_vertices=False)
 
     with open(os.path.join(exportFolderPath, filename), "wb") as f:
-        f.write(skeleton.toO2R(folderPath))
+        f.write(skeleton.to_o2r(folderPath))
 
     for limb in limbList:
         with open(os.path.join(exportFolderPath, limb.o2rName()), "wb") as f:
-            f.write(limb.toO2R(folderPath))
+            f.write(limb.to_o2r(folderPath))

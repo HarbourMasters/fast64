@@ -247,7 +247,10 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     isCustomImport = importSettings.isCustom
 
     if importSettings.mode != "Generic" and not importSettings.isCustom:
-        importInfo = game_data.z64.skeleton_dict[importSettings.mode]
+        from ....z64.skeleton.constants import find_skeleton_import_info
+        importInfo = find_skeleton_import_info(importSettings.mode, bpy.context.scene.gameEditorMode)
+        if importInfo is None:
+            raise PluginError(f"Unknown skeleton import mode '{importSettings.mode}'")
         skeletonName = importInfo.skeletonName
         folderName = importInfo.folderName
         overlayName = importInfo.actorOverlayName
