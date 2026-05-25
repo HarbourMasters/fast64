@@ -42,8 +42,11 @@ from .utility import is_hackeroot
 
 
 # read included asset data
-def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -> str:
+def ootGetIncludedAssetData(
+    basePath: Union[str, os.PathLike, list[Union[str, os.PathLike]]], currentPaths: list[str], data: str
+) -> str:
     includeData = ""
+    basePaths = basePath if isinstance(basePath, list) else [basePath]
     searchedPaths = currentPaths[:]
 
     print("Included paths:")
@@ -51,26 +54,27 @@ def ootGetIncludedAssetData(basePath: str, currentPaths: list[str], data: str) -
 
     # search assets
     for includeMatch in re.finditer(r"\#include\s*\"(assets/objects/(.*?)\.h)\"", data):
-        h_p = Path(basePath) / includeMatch.group(1)
-        print("", str(h_p))
-        includeData += getImportData([str(h_p)]) + "\n"
-        for path_p in h_p.parent.glob("*.c"):
-            path = str(path_p)
-            if path in searchedPaths:
-                continue
-            searchedPaths.append(path)
-            subIncludeData = getImportData([path]) + "\n"
-            includeData += subIncludeData
-            print(" ", path)
-
-            for subIncludeMatch in re.finditer(r"\#include\s*\"(((?![/\"]).)*\.[ch])\"", subIncludeData):
-                sub_inc_p = Path(path).parent / subIncludeMatch.group(1)
-                subPath = str(sub_inc_p)
-                if subPath in searchedPaths:
+        for basePathItem in basePaths:
+            h_p = Path(basePathItem) / includeMatch.group(1)
+            print("", str(h_p))
+            includeData += getImportData([str(h_p)]) + "\n"
+            for path_p in h_p.parent.glob("*.c"):
+                path = str(path_p)
+                if path in searchedPaths:
                     continue
-                searchedPaths.append(subPath)
-                print("   ", subPath)
-                includeData += getImportData([subPath]) + "\n"
+                searchedPaths.append(path)
+                subIncludeData = getImportData([path]) + "\n"
+                includeData += subIncludeData
+                print(" ", path)
+
+                for subIncludeMatch in re.finditer(r"\#include\s*\"(((?![/\"]).)*\.[ch])\"", subIncludeData):
+                    sub_inc_p = Path(path).parent / subIncludeMatch.group(1)
+                    subPath = str(sub_inc_p)
+                    if subPath in searchedPaths:
+                        continue
+                    searchedPaths.append(subPath)
+                    print("   ", subPath)
+                    includeData += getImportData([subPath]) + "\n"
 
     print("More included paths:")
 
