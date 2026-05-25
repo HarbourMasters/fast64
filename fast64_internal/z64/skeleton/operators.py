@@ -5,11 +5,10 @@ from bpy.path import abspath
 from mathutils import Matrix
 from ...f3d.f3d_gbi import DLFormat
 from ...utility import PluginError, ExportUtils, raisePluginError
-from ..utility import getStartBone, getNextBone, getOOTScale
-from ..exporter.skeleton import ootConvertArmatureToXML
+from ..utility import getStartBone, getNextBone, getOOTScale, is_hm64
+from ..exporter.skeleton import ootConvertArmatureToC
 from .importer import ootImportSkeletonC
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
-from ...hm64.mm.skeleton.operators import mm_skeleton_ops_register, mm_skeleton_ops_unregister, MM_ExportSkeleton
 
 
 # Copy data from console into python file
@@ -124,9 +123,16 @@ class OOT_ExportSkeleton(Operator):
                 saveTextures = context.scene.saveTextures
                 drawLayer = armatureObj.ootDrawLayer
 
-                ootConvertArmatureToXML(
-                    armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings
-                )
+                if is_hm64():
+                    from ...hm64.z64.skeleton_xml import ootConvertArmatureToXML
+
+                    ootConvertArmatureToXML(
+                        armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings
+                    )
+                else:
+                    ootConvertArmatureToC(
+                        armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings
+                    )
 
                 self.report({"INFO"}, "Success!")
                 return {"FINISHED"}
@@ -148,10 +154,8 @@ oot_skeleton_classes = (
 def skeleton_ops_register():
     for cls in oot_skeleton_classes:
         register_class(cls)
-    mm_skeleton_ops_register()
 
 
 def skeleton_ops_unregister():
-    mm_skeleton_ops_unregister()
     for cls in reversed(oot_skeleton_classes):
         unregister_class(cls)

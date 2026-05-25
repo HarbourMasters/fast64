@@ -1,6 +1,7 @@
 from bpy.types import Panel, Camera
 from bpy.utils import register_class, unregister_class
 from ...panels import MM_Panel, OOT_Panel
+from ..utility import is_hm64
 from .properties import OOTCollisionExportSettings, OOTCameraPositionProperty, OOTMaterialCollisionProperty
 from .operators import OOT_ExportCollision
 
@@ -61,6 +62,10 @@ class OOT_ExportCollisionPanel(OOT_Panel):
 class MM_ExportCollisionPanel(MM_Panel):
     bl_idname = "Z64_PT_export_collision_mm"
     bl_label = "Collision Exporter"
+
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
 
     def draw(self, context):
         OOT_ExportCollisionPanel.draw(self, context)

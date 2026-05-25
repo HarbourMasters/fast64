@@ -1,10 +1,13 @@
 """HM64 MM panels and matrix-call support classes extracted from z64/f3d/panels.py."""
 
 import bpy
-from bpy.types import Panel, Mesh, Operator, UIList
+from bpy.props import CollectionProperty, IntProperty
+from bpy.types import Object, Panel, Mesh, Operator, UIList
 
 from ...panels import MM_Panel
+from ...z64.utility import is_hm64
 from ...z64.f3d.properties import OOTDLExportSettings
+from .properties import OOTDLMatrixCallPair
 
 
 class OOT_UL_MatrixCallPairs(UIList):
@@ -23,7 +26,7 @@ class FAST64_OT_AddObjectMatrixCall(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object is not None and isinstance(context.object.data, Mesh)
+        return is_hm64() and context.object is not None and isinstance(context.object.data, Mesh)
 
     def execute(self, context):
         obj = context.object
@@ -44,7 +47,7 @@ class FAST64_OT_RemoveObjectMatrixCall(Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and isinstance(obj.data, Mesh) and len(obj.oot_matrix_calls) > 0
+        return is_hm64() and obj is not None and isinstance(obj.data, Mesh) and len(obj.oot_matrix_calls) > 0
 
     def execute(self, context):
         obj = context.object
@@ -64,7 +67,7 @@ class MM_DisplayListPanel(MM_Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode == "MM" and (
+        return is_hm64() and context.scene.gameEditorMode == "MM" and (
             context.object is not None and isinstance(context.object.data, Mesh)
         )
 
@@ -83,7 +86,7 @@ class MM_MaterialPanel(MM_Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.material is not None and context.scene.gameEditorMode == "MM"
+        return is_hm64() and context.material is not None and context.scene.gameEditorMode == "MM"
 
     def draw(self, context):
         from ...z64.f3d.panels import OOT_MaterialPanel
@@ -100,7 +103,7 @@ class MM_DrawLayersPanel(MM_Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode == "MM"
+        return is_hm64() and context.scene.gameEditorMode == "MM"
 
     def draw(self, context):
         from ...z64.f3d.panels import OOT_DrawLayersPanel
@@ -110,6 +113,10 @@ class MM_DrawLayersPanel(MM_Panel):
 class MM_ExportDLPanel(MM_Panel):
     bl_idname = "Z64_PT_export_dl_mm"
     bl_label = "DL Exporter"
+
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
 
     def draw(self, context):
         from ...z64.f3d.panels import OOT_ExportDLPanel
@@ -124,6 +131,7 @@ hm64_panel_classes = (
 )
 
 hm64_support_classes = (
+    OOTDLMatrixCallPair,
     OOT_UL_MatrixCallPairs,
     FAST64_OT_AddObjectMatrixCall,
     FAST64_OT_RemoveObjectMatrixCall,
@@ -134,9 +142,13 @@ def register():
     from bpy.utils import register_class
     for cls in (*hm64_panel_classes, *hm64_support_classes):
         register_class(cls)
+    Object.oot_matrix_calls = CollectionProperty(type=OOTDLMatrixCallPair)
+    Object.oot_matrix_calls_index = IntProperty(default=0)
 
 
 def unregister():
     from bpy.utils import unregister_class
+    del Object.oot_matrix_calls
+    del Object.oot_matrix_calls_index
     for cls in reversed((*hm64_panel_classes, *hm64_support_classes)):
         unregister_class(cls)

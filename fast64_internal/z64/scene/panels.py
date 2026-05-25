@@ -2,7 +2,7 @@ from bpy.types import UILayout
 from bpy.utils import register_class, unregister_class
 from ...panels import MM_Panel, OOT_Panel
 from ..constants import ootEnumSceneID
-from ..utility import getEnumName
+from ..utility import getEnumName, is_hm64
 from .properties import (
     OOTExportSceneSettingsProperty,
     OOTImportSceneSettingsProperty,
@@ -67,6 +67,10 @@ class OOT_ExportScenePanel(OOT_Panel):
 class MM_ExportScenePanel(MM_Panel):
     bl_idname = "Z64_PT_export_level_mm"
     bl_label = "Scene Exporter"
+
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
 
     def drawSceneSearchOp(self, layout: UILayout, enumValue: str, opName: str):
         OOT_ExportScenePanel.drawSceneSearchOp(self, layout, enumValue, opName)

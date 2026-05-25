@@ -60,8 +60,13 @@ def ootConvertArmatureToXML(
         flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
         isLink = False
 
-    exportPath = bpy.path.abspath(settings.customPath)
-    isCustomExport = settings.isCustom
+    customPath = (settings.customPath or "").strip()
+    if not customPath:
+        raise PluginError("Export path is empty.")
+    exportPath = bpy.path.abspath(customPath)
+    if not os.path.exists(exportPath):
+        os.makedirs(exportPath, exist_ok=True)
+    isCustomExport = True
 
     from ...z64.exporter.skeleton.functions import ootConvertArmatureToSkeletonWithMesh
 

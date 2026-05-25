@@ -851,6 +851,9 @@ class F3DPanel(Panel):
         return inputGroup
 
     def ui_dynamic_cosmetic_entry(self, f3dMat, layout, enabledProp, nameProp, categoryProp):
+        if not is_hm64_feature_set():
+            return
+
         layout.prop(f3dMat, enabledProp, text="Dynamic Cosmetic Entry")
         if getattr(f3dMat, enabledProp):
             dynamicEntry = layout.column()
@@ -3262,10 +3265,11 @@ class TextureProperty(PropertyGroup):
         }
         if self.use_tex_reference:
             data["reference"] = self.reference_to_dict()
-        if self.custom_palette_name:
-            data["customTLUTName"] = self.custom_palette_name
-        data["paletteColorCount"] = self.palette_color_count
-        data["isVanillaTexture"] = self.is_vanilla_texture
+        if is_hm64_feature_set():
+            if self.custom_palette_name:
+                data["customTLUTName"] = self.custom_palette_name
+            data["paletteColorCount"] = self.palette_color_count
+            data["isVanillaTexture"] = self.is_vanilla_texture
         if self.texture_internal_path:
             data["internalPath"] = self.texture_internal_path
         return data
@@ -3285,9 +3289,10 @@ class TextureProperty(PropertyGroup):
         self.use_tex_reference = "reference" in data
         if self.use_tex_reference:
             self.reference_from_dict(data["reference"])
-        self.custom_palette_name = data.get("customTLUTName", self.custom_palette_name)
-        self.palette_color_count = data.get("paletteColorCount", self.palette_color_count)
-        self.is_vanilla_texture = data.get("isVanillaTexture", self.is_vanilla_texture)
+        if is_hm64_feature_set():
+            self.custom_palette_name = data.get("customTLUTName", self.custom_palette_name)
+            self.palette_color_count = data.get("paletteColorCount", self.palette_color_count)
+            self.is_vanilla_texture = data.get("isVanillaTexture", self.is_vanilla_texture)
         self.texture_internal_path = data.get("internalPath", self.texture_internal_path)
 
     def key(self):
@@ -3371,14 +3376,15 @@ def ui_image(
             if tex is not None:
                 prop_input.label(text="Size: " + str(tex.size[0]) + " x " + str(tex.size[1]))
 
-        if not textureProp.use_tex_reference and textureProp.tex_format[:2] == "CI":
+        if is_hm64_feature_set() and not textureProp.use_tex_reference and textureProp.tex_format[:2] == "CI":
             row = prop_input.row(align=True)
             row.prop(textureProp, "custom_palette_name", text="TLUT Name")
             row = prop_input.row(align=True)
             row.prop(textureProp, "palette_color_count", text="Color Count")
         if not textureProp.use_tex_reference:
-            row = prop_input.row(align=True)
-            row.prop(textureProp, "is_vanilla_texture", text="Is Vanilla Texture?")
+            if is_hm64_feature_set():
+                row = prop_input.row(align=True)
+                row.prop(textureProp, "is_vanilla_texture", text="Is Vanilla Texture?")
             row = prop_input.row(align=True)
             row.prop(textureProp, "texture_internal_path", text="Internal Path")
 
@@ -5185,23 +5191,35 @@ class F3DMaterialProperty(PropertyGroup):
     def n64_colors_to_dict(self, use_dict: dict[str]):
         data = {}
         if use_dict["Environment"]:
-            data["environment"] = {
+            environment = {
                 "set": self.set_env,
                 "color": get_clean_color(self.env_color, include_alpha=True),
-                "dynamicEntry": self.env_dynamic_entry,
-                "dynamicEntryName": self.env_dynamic_entry_name,
-                "dynamicEntryCategory": self.env_dynamic_entry_category,
             }
+            if is_hm64_feature_set():
+                environment.update(
+                    {
+                        "dynamicEntry": self.env_dynamic_entry,
+                        "dynamicEntryName": self.env_dynamic_entry_name,
+                        "dynamicEntryCategory": self.env_dynamic_entry_category,
+                    }
+                )
+            data["environment"] = environment
         if use_dict["Primitive"]:
-            data["primitive"] = {
+            primitive = {
                 "set": self.set_prim,
                 "color": get_clean_color(self.prim_color, include_alpha=True),
                 "minLoDRatio": self.prim_lod_min,
                 "loDFraction": self.prim_lod_frac,
-                "dynamicEntry": self.prim_dynamic_entry,
-                "dynamicEntryName": self.prim_dynamic_entry_name,
-                "dynamicEntryCategory": self.prim_dynamic_entry_category,
             }
+            if is_hm64_feature_set():
+                primitive.update(
+                    {
+                        "dynamicEntry": self.prim_dynamic_entry,
+                        "dynamicEntryName": self.prim_dynamic_entry_name,
+                        "dynamicEntryCategory": self.prim_dynamic_entry_category,
+                    }
+                )
+            data["primitive"] = primitive
         if use_dict["Key"]:
             data["chromaKey"] = {
                 "set": self.set_key,
@@ -5233,9 +5251,10 @@ class F3DMaterialProperty(PropertyGroup):
         self.set_env = enviroment.get("set", self.set_env)
         if "color" in enviroment:
             self.env_color = enviroment.get("color")
-        self.env_dynamic_entry = enviroment.get("dynamicEntry", self.env_dynamic_entry)
-        self.env_dynamic_entry_name = enviroment.get("dynamicEntryName", self.env_dynamic_entry_name)
-        self.env_dynamic_entry_category = enviroment.get("dynamicEntryCategory", self.env_dynamic_entry_category)
+        if is_hm64_feature_set():
+            self.env_dynamic_entry = enviroment.get("dynamicEntry", self.env_dynamic_entry)
+            self.env_dynamic_entry_name = enviroment.get("dynamicEntryName", self.env_dynamic_entry_name)
+            self.env_dynamic_entry_category = enviroment.get("dynamicEntryCategory", self.env_dynamic_entry_category)
         primitive = data.get("primitive", {})
         self.set_prim = primitive.get("set", self.set_prim)
         if "color" in primitive:
@@ -5244,9 +5263,12 @@ class F3DMaterialProperty(PropertyGroup):
             primitive.get("minLoDRatio", self.prim_lod_min),
             primitive.get("loDFraction", self.prim_lod_frac),
         )
-        self.prim_dynamic_entry = primitive.get("dynamicEntry", self.prim_dynamic_entry)
-        self.prim_dynamic_entry_name = primitive.get("dynamicEntryName", self.prim_dynamic_entry_name)
-        self.prim_dynamic_entry_category = primitive.get("dynamicEntryCategory", self.prim_dynamic_entry_category)
+        if is_hm64_feature_set():
+            self.prim_dynamic_entry = primitive.get("dynamicEntry", self.prim_dynamic_entry)
+            self.prim_dynamic_entry_name = primitive.get("dynamicEntryName", self.prim_dynamic_entry_name)
+            self.prim_dynamic_entry_category = primitive.get(
+                "dynamicEntryCategory", self.prim_dynamic_entry_category
+            )
         key = data.get("chromaKey", {})
         self.set_key = key.get("set", self.set_key)
         if "center" in key:
@@ -5635,4 +5657,3 @@ enumMaterialPresets = [
         "Vertex Colored Texture (No Vertex Alpha)",
     ),
 ]
-

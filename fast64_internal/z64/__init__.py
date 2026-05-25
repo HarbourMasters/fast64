@@ -81,6 +81,7 @@ from .tools import (
 feature_set_enum = (
     ("default", "Default", "Default"),
     ("hackeroot", "HackerOoT", "HackerOoT"),
+    ("hm64", "HM64", "HM64"),
 )
 
 

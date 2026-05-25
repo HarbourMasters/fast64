@@ -1471,8 +1471,16 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
                 scaleToU8(f3dMat.prim_lod_min),
                 scaleToU8(f3dMat.prim_lod_frac),
                 *color,
-                cosmeticEntry=f3dMat.prim_dynamic_entry_name if f3dMat.prim_dynamic_entry else "",
-                cosmeticCategory=f3dMat.prim_dynamic_entry_category if f3dMat.prim_dynamic_entry else "",
+                cosmeticEntry=(
+                    f3dMat.prim_dynamic_entry_name
+                    if is_hm64_feature_set() and f3dMat.prim_dynamic_entry
+                    else ""
+                ),
+                cosmeticCategory=(
+                    f3dMat.prim_dynamic_entry_category
+                    if is_hm64_feature_set() and f3dMat.prim_dynamic_entry
+                    else ""
+                ),
             )
         )
 
@@ -1481,8 +1489,16 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         fMaterial.mat_only_DL.commands.append(
             DPSetEnvColor(
                 *color,
-                cosmeticEntry=f3dMat.env_dynamic_entry_name if f3dMat.env_dynamic_entry else "",
-                cosmeticCategory=f3dMat.env_dynamic_entry_category if f3dMat.env_dynamic_entry else "",
+                cosmeticEntry=(
+                    f3dMat.env_dynamic_entry_name
+                    if is_hm64_feature_set() and f3dMat.env_dynamic_entry
+                    else ""
+                ),
+                cosmeticCategory=(
+                    f3dMat.env_dynamic_entry_category
+                    if is_hm64_feature_set() and f3dMat.env_dynamic_entry
+                    else ""
+                ),
             )
         )
 
@@ -1993,4 +2009,3 @@ def f3d_writer_unregister():
         unregister_class(cls)
 
     del bpy.types.Scene.matWriteMethod
-

@@ -1,15 +1,13 @@
 import bpy
 
 from bpy.types import PropertyGroup, Object, World, Material, UILayout, Mesh
-from bpy.props import PointerProperty, StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty
+from bpy.props import PointerProperty, StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty
 from bpy.utils import register_class, unregister_class
 
 from ...f3d.f3d_material import update_world_default_rendermode
 from ...f3d.f3d_parser import ootEnumDrawLayers
 from ...utility import prop_split
-from ..utility import is_hackeroot
-
-from ...hm64.z64.properties import LIMB_MATRIX_OPTIONS, LIMB_MATRIX_PATHS, OOTDLMatrixCallPair
+from ..utility import is_hackeroot, is_hm64
 
 
 class OOTDLExportSettings(PropertyGroup):
@@ -21,12 +19,10 @@ class OOTDLExportSettings(PropertyGroup):
         name="Use Custom DL Name", description="Use a custom DL name instead of the object name"
     )
     customDLName: StringProperty(name="DL Name")
-    folder: StringProperty(name="DL Folder", default="objects/gameplay_keep")
+    folder: StringProperty(name="DL Folder", default="gameplay_keep")
     customPath: StringProperty(name="Custom DL Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
-        name="Use Custom Path",
-        description="Determines whether or not to export to an explicitly specified folder",
-        default=True,
+        name="Use Custom Path", description="Determines whether or not to export to an explicitly specified folder"
     )
     removeVanillaData: BoolProperty(name="Replace Vanilla DLs")
     actorOverlayName: StringProperty(name="Overlay", default="")
@@ -36,33 +32,53 @@ class OOTDLExportSettings(PropertyGroup):
         name="Asset Include Directory",
         default="assets/objects/gameplay_keep",
         description="Used in #include for including image files",
-      )
+    )
 
     def draw_props(self, layout: UILayout, context: bpy.types.Context | None = None):
-          layout.prop(self, "useCustomDLName")
-          if self.useCustomDLName:
-              prop_split(layout, self, "customDLName", "DL Name")
-          prop_split(layout, self, "folder", "Internal Path")
-          prop_split(layout, self, "customPath", "Path")
-          prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
-          owner_info = self._determine_matrix_owner(context)
-          if owner_info:
-              self._draw_matrix_call_section(layout, *owner_info)
+        if is_hm64():
+            layout.prop(self, "useCustomDLName")
+            if self.useCustomDLName:
+                prop_split(layout, self, "customDLName", "DL Name")
+            prop_split(layout, self, "folder", "Internal Path")
+            prop_split(layout, self, "customPath", "Path")
+            prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
+            owner_info = self._determine_matrix_owner(context)
+            if owner_info:
+                self._draw_matrix_call_section(layout, *owner_info)
+            return
+
+        layout.label(text="Object name used for export.", icon="INFO")
+        layout.prop(self, "isCustomFilename")
+        if self.isCustomFilename:
+            prop_split(layout, self, "filename", "Filename")
+        prop_split(layout, self, "folder", "Object" if not self.isCustom else "Folder")
+        if self.isCustom:
+            prop_split(layout, self, "customAssetIncludeDir", "Asset Include Path")
+            prop_split(layout, self, "customPath", "Path")
+        else:
+            prop_split(layout, self, "actorOverlayName", "Overlay (Optional)")
+            layout.prop(self, "flipbookUses2DArray")
+            if self.flipbookUses2DArray:
+                box = layout.box().column()
+                prop_split(box, self, "flipbookArrayIndex2D", "Flipbook Index")
+
+        layout.prop(self, "isCustom")
+        layout.prop(self, "removeVanillaData")
 
     def _determine_matrix_owner(
-          self, context: bpy.types.Context | None
-      ) -> tuple[object, str, str, str, str, str] | None:
-          obj = context.object if context else None
-          if obj is not None and isinstance(obj.data, Mesh):
-              return (
-                  obj,
-                  "oot_matrix_calls",
-                  "oot_matrix_calls_index",
-                  "fast64.oot_add_object_matrix_call",
-                  "fast64.oot_remove_object_matrix_call",
-                  f"Matrix Path + CallDisplayList ({obj.name})",
-              )
-          return None
+        self, context: bpy.types.Context | None
+    ) -> tuple[object, str, str, str, str, str] | None:
+        obj = context.object if context else None
+        if obj is not None and isinstance(obj.data, Mesh):
+            return (
+                obj,
+                "oot_matrix_calls",
+                "oot_matrix_calls_index",
+                "fast64.oot_add_object_matrix_call",
+                "fast64.oot_remove_object_matrix_call",
+                f"Matrix Path + CallDisplayList ({obj.name})",
+            )
+        return None
 
     def _draw_matrix_call_section(
         self,
@@ -227,7 +243,6 @@ class OOTDefaultRenderModesProperty(PropertyGroup):
 
 
 oot_dl_writer_classes = (
-    OOTDLMatrixCallPair,
     OOTDLExportSettings,
     OOTDLImportSettings,
     OOTDynamicMaterialDrawLayerProperty,
@@ -246,8 +261,6 @@ def f3d_props_register():
         register_class(cls)
 
     Object.ootDrawLayer = EnumProperty(items=ootEnumDrawLayers, default="Opaque")
-    Object.oot_matrix_calls = CollectionProperty(type=OOTDLMatrixCallPair)
-    Object.oot_matrix_calls_index = IntProperty(default=0)
 
     # Doesn't work since all static meshes are pre-transformed
     # Object.ootDynamicTransform = PointerProperty(type = OOTDynamicTransformProperty)
@@ -262,5 +275,3 @@ def f3d_props_unregister():
 
     del Material.ootMaterial
     del Object.ootObjectMenu
-    del Object.oot_matrix_calls
-    del Object.oot_matrix_calls_index

@@ -420,7 +420,7 @@ def saveOrGetPaletteDefinition(
         if texProp and texProp.texture_internal_path:
             fPalette.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
         if texProp:
-            fPalette.skip_export = texProp.is_vanilla_texture
+            fPalette.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
         return paletteKey, fPalette
 
     paletteName, filename = getTextureNamesFromBasename(
@@ -430,7 +430,7 @@ def saveOrGetPaletteDefinition(
     if texProp:
         fPalette.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
-        fPalette.skip_export = texProp.is_vanilla_texture
+        fPalette.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
 
     parent.addTexture(paletteKey, fPalette, fMaterial)
     return paletteKey, fPalette
@@ -461,7 +461,7 @@ def saveOrGetTextureDefinition(
         if texProp and texProp.texture_internal_path:
             fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
         if texProp:
-            fImage.skip_export = texProp.is_vanilla_texture
+            fImage.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
         return imageKey, fImage
 
     imageName, filename = getTextureNamesFromProp(texProp, parent)
@@ -470,7 +470,7 @@ def saveOrGetTextureDefinition(
     if texProp:
         fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
-        fImage.skip_export = texProp.is_vanilla_texture
+        fImage.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
 
     parent.addTexture(imageKey, fImage, fMaterial)
     return imageKey, fImage
@@ -627,7 +627,7 @@ class TexInfo:
         if not self.useTex or self.isPalRef:
             return None
         self.custom_palette_requested = False
-        if self.texProp is not None:
+        if is_hm64_feature_set() and self.texProp is not None:
             custom_name = getattr(self.texProp, "custom_palette_name", "")
             if custom_name:
                 stripped = custom_name.strip()
@@ -697,7 +697,11 @@ class TexInfo:
         f3d = fModel.f3d
         palette_load_cmd = None
         if self.loadPal:
-            override = self.texProp.palette_color_count if self.texProp is not None else None
+            override = (
+                self.texProp.palette_color_count
+                if is_hm64_feature_set() and self.texProp is not None
+                else None
+            )
             palette_load_cmd = savePaletteLoad(
                 loadGfx,
                 fPalette,
@@ -722,7 +726,9 @@ class TexInfo:
 
         # Write texture data
         texProp = self.texProp
-        should_write_data = convertTextureData and not (texProp and texProp.is_vanilla_texture)
+        should_write_data = convertTextureData and not (
+            is_hm64_feature_set() and texProp and texProp.is_vanilla_texture
+        )
         if should_write_data:
             if self.isTexRef:
                 if self.loadPal and not self.isPalRef:
