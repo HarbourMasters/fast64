@@ -1041,6 +1041,10 @@ def is_hackeroot():
     return game_data.z64.is_oot() and bpy.context.scene.fast64.oot.feature_set == "hackeroot"
 
 
+def is_hm64():
+    return bpy.context.scene.fast64.oot.feature_set == "hm64"
+
+
 def add_include_to_spec_segment(spec_p: Path, segment: str, inc: str):
     spec_content = spec_p.read_text()
     new_spec_lines = []

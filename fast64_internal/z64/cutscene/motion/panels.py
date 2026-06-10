@@ -1,5 +1,6 @@
 from bpy.utils import register_class, unregister_class
 from ....panels import MM_Panel, OOT_Panel
+from ...utility import is_hm64
 from .properties import CutsceneCmdCameraShotProperty, CutsceneCmdCameraShotPointProperty
 
 
@@ -47,6 +48,10 @@ class MM_CSMotionCameraShotPanel(MM_Panel):
     bl_region_type = "WINDOW"
     bl_context = "object"
     bl_options = {"HIDE_HEADER"}
+
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
 
     def draw(self, context):
         OOT_CSMotionCameraShotPanel.draw(self, context)

@@ -1,5 +1,6 @@
 from bpy.utils import register_class, unregister_class
 from ...panels import MM_Panel, OOT_Panel
+from ..utility import is_hm64
 from .operators import (
     OOT_AddWaterBox,
     OOT_AddDoor,
@@ -33,6 +34,10 @@ class OoT_ToolsPanel(OOT_Panel):
 class MM_OoT_ToolsPanel(MM_Panel):
     bl_idname = "Z64_PT_tools_mm"
     bl_label = "Tools"
+
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
 
     def draw(self, context):
         OoT_ToolsPanel.draw(self, context)

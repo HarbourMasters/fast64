@@ -6,6 +6,7 @@ from ..game_data import game_data
 from ..utility import prop_split
 from ..render_settings import on_update_render_settings
 from ..panels import MM_Panel, OOT_Panel
+from .utility import is_hm64
 
 
 class OOT_FileSettingsPanel(OOT_Panel):
@@ -49,6 +50,10 @@ class MM_FileSettingsPanel(MM_Panel):
     bl_idname = "Z64_PT_file_settings_mm"
     bl_label = "Workspace Settings"
     bl_options = set()
+
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
 
     def draw(self, context):
         OOT_FileSettingsPanel.draw(self, context)

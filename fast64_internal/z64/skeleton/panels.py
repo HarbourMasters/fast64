@@ -2,6 +2,7 @@ from bpy.types import Armature, Panel
 from bpy.utils import register_class, unregister_class
 from ...utility import prop_split
 from ...panels import MM_Panel, OOT_Panel
+from ..utility import is_hm64
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
 from .operators import OOT_ImportSkeleton, OOT_ExportSkeleton
 
@@ -52,9 +53,6 @@ class OOT_BonePanel(Panel):
         context.bone.ootBone.draw_props(col)
 
 
-from ...hm64.mm.skeleton.operators import MM_ExportSkeleton
-
-
 class OOT_ExportSkeletonPanel(OOT_Panel):
     bl_idname = "Z64_PT_export_skeleton"
     bl_label = "Skeleton Exporter"
@@ -75,7 +73,13 @@ class MM_ExportSkeletonPanel(MM_Panel):
     bl_idname = "Z64_PT_export_skeleton_mm"
     bl_label = "MM Skeleton Exporter"
 
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
+
     def draw(self, context):
+        from ...hm64.mm.skeleton.operators import MM_ExportSkeleton
+
         col = self.layout.column()
         col.operator(MM_ExportSkeleton.bl_idname)
         exportSettings: OOTSkeletonExportSettings = context.scene.fast64.oot.skeletonExportSettings

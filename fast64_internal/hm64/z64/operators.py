@@ -83,7 +83,7 @@ def ootConvertMeshToXML(
 ):
     folderName = settings.folder
     exportPath = resolve_custom_export_base(settings)
-    isCustomExport = settings.isCustom
+    isCustomExport = True
     name = resolve_dl_export_name(originalObj, settings)
     overlayName = settings.actorOverlayName
     flipbookUses2DArray = settings.flipbookUses2DArray

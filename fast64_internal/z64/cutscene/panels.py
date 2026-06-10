@@ -3,6 +3,7 @@ from bpy.types import Scene
 from bpy.props import BoolProperty
 from ...utility import prop_split
 from ...panels import MM_Panel, OOT_Panel
+from ..utility import is_hm64
 from .operators import OOT_ExportCutscene, OOT_ExportAllCutscenes, OOT_ImportCutscene
 
 
@@ -65,6 +66,10 @@ class MM_OoT_PreviewSettingsPanel(MM_Panel):
     bl_idname = "Z64_PT_preview_settings_mm"
     bl_label = "CS Preview Settings"
 
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
+
     def draw(self, context):
         OoT_PreviewSettingsPanel.draw(self, context)
 
@@ -74,6 +79,10 @@ class MM_OOT_CutscenePanel(MM_Panel):
     bl_label = "Cutscene Exporter"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
+
+    @classmethod
+    def poll(cls, context):
+        return MM_Panel.poll(context) and is_hm64()
 
     def draw(self, context):
         OOT_CutscenePanel.draw(self, context)

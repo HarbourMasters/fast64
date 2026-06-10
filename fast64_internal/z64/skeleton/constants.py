@@ -284,6 +284,14 @@ def get_skeleton_import_dict(game_mode: str | None) -> OrderedDict[str, OOTSkele
     return mmSkeletonImportDict if game_mode == "MM" else ootSkeletonImportDict
 
 
+ootEnumSkeletonImportMode = [
+    ("Generic", "Generic", "Generic"),
+]
+
+for name, info in ootSkeletonImportDict.items():
+    ootEnumSkeletonImportMode.append((name, name, name))
+
+
 def find_skeleton_import_info(mode: str, game_mode: str | None) -> OOTSkeletonImportInfo | None:
     import_dict = get_skeleton_import_dict(game_mode)
     return import_dict.get(mode)

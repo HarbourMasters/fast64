@@ -33,6 +33,13 @@ class VertexWeightError(PluginError):
     pass
 
 
+def is_hm64_feature_set():
+    scene = getattr(bpy.context, "scene", None)
+    fast64 = getattr(scene, "fast64", None) if scene is not None else None
+    oot = getattr(fast64, "oot", None) if fast64 is not None else None
+    return getattr(oot, "feature_set", None) == "hm64"
+
+
 class Matrix4x4Property(bpy.types.PropertyGroup):  # blender's matrix subtype is broken :))))
     row0: FloatVectorProperty(size=4, default=(1, 0, 0, 0))
     row1: FloatVectorProperty(size=4, default=(0, 1, 0, 0))
