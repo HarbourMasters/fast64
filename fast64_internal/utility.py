@@ -1510,6 +1510,7 @@ def bytesToHexClean(value, byteSize=4):
 
 
 def intToHex(value, byte_size=4, signed=True):
+    value = int(value)
     return format(value if signed else cast_integer(value, byte_size * 8, False), f"#0{(byte_size * 2 + 2)}x")
 
 

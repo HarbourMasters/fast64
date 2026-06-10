@@ -371,13 +371,16 @@ def math_eval(s, f3d):
     def _eval(node):
         if isinstance(node, ast.Expression):
             return _eval(node.body)
-        elif isinstance(node, ast.Str):
-            return node.s
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                return node.value
+            elif isinstance(node.value, int):
+                return int(node.value)
+            else:
+                raise Exception("Unsupported constant type {}".format(type(node.value)))
         elif isinstance(node, ast.Name):
             if hasattr(f3d, node.id):
                 return getattr(f3d, node.id)
-        elif isinstance(node, ast.Num):
-            return node.n
         elif isinstance(node, ast.UnaryOp):
             if isinstance(node.op, ast.USub):
                 return -1 * _eval(node.operand)
@@ -1861,7 +1864,7 @@ class F3DContext:
             raise PluginError("Attempting to delete material context that is None.")
 
     # if deleteMaterialContext is False, then manually call self.deleteMaterialContext() later.
-    def createMesh(self, obj, removeDoubles, importNormals, callDeleteMaterialContext: bool):
+    def createMesh(self, obj: bpy.types.Object, removeDoubles, importNormals, callDeleteMaterialContext: bool):
         mesh = obj.data
         if len(self.verts) % 3 != 0:
             print(len(self.verts))
@@ -1899,13 +1902,26 @@ class F3DContext:
             # There will be one loop for every vertex
             uv_layer[i].uv = self.verts[i].uv
 
-        color_layer = mesh.vertex_colors.new(name="Col").data
-        for i in range(len(mesh.loops)):
-            color_layer[i].color = self.verts[i].rgb.to_4d()
+        # The mesh.vertex_colors API is deprecated since Blender 3.2,
+        # and its usage by fast64 here breaks in Blender 5.1 somehow.
+        # (can't replicate in simple cases)
+        if bpy.app.version < (3, 2, 0):
+            color_layer = mesh.vertex_colors.new(name="Col").data
+            for i in range(len(mesh.loops)):
+                color_layer[i].color = self.verts[i].rgb.to_4d()
 
-        alpha_layer = mesh.vertex_colors.new(name="Alpha").data
-        for i in range(len(mesh.loops)):
-            alpha_layer[i].color = [self.verts[i].alpha] * 3 + [1]
+            alpha_layer = mesh.vertex_colors.new(name="Alpha").data
+            for i in range(len(mesh.loops)):
+                alpha_layer[i].color = [self.verts[i].alpha] * 3 + [1]
+        else:
+            col_attr = mesh.color_attributes.new("Col", "BYTE_COLOR", "CORNER")
+            for i in range(len(mesh.loops)):
+                col_attr.data[i].color = (*self.verts[i].rgb, 1)
+
+            alpha_attr = mesh.color_attributes.new("Alpha", "BYTE_COLOR", "CORNER")
+            for i in range(len(mesh.loops)):
+                a = self.verts[i].alpha
+                alpha_attr.data[i].color = (a, a, a, 1)
 
         if bpy.context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
