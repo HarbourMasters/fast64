@@ -1,8 +1,7 @@
 import mathutils
-import os
 
 from ....f3d.f3d_writer import GfxList
-from ....utility import CData, toAlnum, writeXMLData
+from ....utility import CData, toAlnum
 
 
 class OOTSkeleton:
@@ -41,37 +40,6 @@ class OOTSkeleton:
 
     def limbsName(self):
         return self.name + "Limbs"
-
-    def toSohXML(self, modelDirPath, objectPath):
-        limbData = ""
-        data = ""
-
-        if self.limbRoot is None:
-            return data
-
-        limbList = self.createLimbList()
-        isFlex = self.isFlexSkeleton()
-
-        limbData += "<Skeleton Version=\"0\" Type=\""
-
-        if isFlex:
-            limbData += "Flex\" LimbCount=\"{lc}\" DisplayListCount=\"{dlC}\">\n".format(
-                lc=self.getNumLimbs(), dlC=self.getNumDLs()
-            )
-        else:
-            limbData += "Normal\" LimbCount=\"{lc}\">\n".format(lc=self.getNumLimbs())
-
-        for limb in limbList:
-            indLimbData = limb.toSohXML(self.hasLOD, objectPath)
-
-            writeXMLData(indLimbData, os.path.join(modelDirPath, limb.name()))
-
-            limbData += "\t<SkeletonLimb Path=\"{path}/{name}\"/>\n".format(
-                path=objectPath if len(objectPath) > 0 else ">", name=limb.name()
-            )
-
-        limbData += "</Skeleton>"
-        return limbData
 
     def toC(self):
         limbData = CData()
@@ -233,31 +201,3 @@ class OOTLimb:
                 self.children[i].nextSiblingIndex = self.children[i + 1].index
             self.children[i].setLinks()
         # self -> child -> sibling
-
-
-    def toSohXML(self, isLOD, objectPath):
-        data = "<SkeletonLimb Version=\"0\" Type=\""
-
-        if not isLOD:
-            data += "Standard\" "
-        else:
-            data += "Lod\" "
-
-        DLName = self.DL.name if self.DL is not None else "gEmptyDL"
-
-        if DLName != "gEmptyDL":
-            DLName = (objectPath + "/" if len(objectPath) > 0 else ">") + DLName
-
-        data += (
-            "LegTransX=\"{legTransX}\" LegTransY=\"{legTransY}\" LegTransZ=\"{legTransZ}\" "
-            "ChildIndex=\"{firstChildIndex}\" SiblingIndex=\"{siblingIndex}\" DisplayList1=\"{displayList1}\"/>\n"
-        ).format(
-            legTransX=int(round(self.translation[0])),
-            legTransY=int(round(self.translation[1])),
-            legTransZ=int(round(self.translation[2])),
-            firstChildIndex=self.firstChildIndex,
-            siblingIndex=self.nextSiblingIndex,
-            displayList1=DLName,
-        )
-
-        return data

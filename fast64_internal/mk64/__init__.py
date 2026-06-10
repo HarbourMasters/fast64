@@ -4,9 +4,9 @@ from bpy.types import PropertyGroup
 from bpy.utils import register_class, unregister_class
 
 from .f3d.properties import MK64CourseDLImportSettings
-from .mk64_properties import mk64_props_register, mk64_props_unregister
-from .mk64_operators import mk64_operator_register, mk64_operator_unregister
-from .mk64_panels import mk64_panel_register, mk64_panel_unregister
+from ..hm64.mk64.mk64_properties import mk64_props_register, mk64_props_unregister
+from ..hm64.mk64.mk64_operators import mk64_operator_register, mk64_operator_unregister
+from ..hm64.mk64.mk64_panels import mk64_panel_register, mk64_panel_unregister
 
 
 def mk64_register(registerPanels):

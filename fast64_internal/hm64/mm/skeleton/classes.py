@@ -3,7 +3,7 @@ import struct
 import os
 from ....f3d.f3d_writer import GfxList
 from ....utility import CData, toAlnum
-from ...constants import o2rLimbNames
+from ....z64.constants import o2rLimbNames
 
 
 class OOTSkeleton:

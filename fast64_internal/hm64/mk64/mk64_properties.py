@@ -2,12 +2,12 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, PointerProperty, FloatVectorProperty
 from bpy.types import PropertyGroup, UILayout
 from bpy.utils import register_class, unregister_class
-from ..utility import prop_split
-from ..f3d.f3d_material import ootEnumDrawLayers
+from ...utility import prop_split
+from ...f3d.f3d_material import ootEnumDrawLayers
 
-from .mk64_constants import enum_surface_types, enum_clip_types, enum_draw_layer_types, enum_path_type
+from ...mk64.mk64_constants import enum_surface_types, enum_clip_types, enum_draw_layer_types, enum_path_type
 
-from ..render_settings import on_update_render_settings
+from ...render_settings import on_update_render_settings
 
 # ------------------------------------------------------------------------
 #    Import Properties

@@ -1,3 +1,14 @@
+# info about add on
+bl_info = {
+    "name": "Fast64 (HM64)",
+    "version": (2, 5, 3),
+    "author": "kurethedead (Fast64), Jameriquiah (HM64), PurpleHato (HM64)",
+    "location": "3DView",
+    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games to Harbour Masters 64 PC Port.",
+    "category": "Import-Export",
+    "blender": (3, 2, 0),
+}
+
 import bpy
 
 from bpy.utils import register_class, unregister_class
@@ -28,7 +39,7 @@ from .fast64_internal.z64.actor.properties import initOOTActorProperties
 from .fast64_internal.utility_anim import utility_anim_register, utility_anim_unregister, ArmatureApplyWithMeshOperator
 
 from .fast64_internal.mk64 import mk64_register, mk64_unregister
-from .fast64_internal.mk64.mk64_properties import MK64_ObjectProperties, MK64_Properties
+from .fast64_internal.hm64.mk64.mk64_properties import MK64_ObjectProperties, MK64_Properties
 from .fast64_internal.mk64.mk64_constants import mk64_world_defaults
 
 from .fast64_internal.f3d.f3d_gbi import get_F3D_GBI
@@ -66,17 +77,6 @@ from .fast64_internal.gltf_extension import (
     gltf_extension_register,
     gltf_extension_unregister,
 )
-
-# info about add on
-bl_info = {
-    "name": "Fast64 (HM64)",
-    "version": (2, 5, 3),
-    "author": "kurethedead",
-    "location": "3DView",
-    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games.",
-    "category": "Import-Export",
-    "blender": (3, 2, 0),
-}
 
 gameEditorEnum = (
     # ("SM64", "SM64", "Super Mario 64", 0),
@@ -520,9 +520,17 @@ def register():
     bpy.types.Action.fast64 = bpy.props.PointerProperty(type=Fast64_ActionProperties, name="Fast64 Action Properties")
     bpy.app.handlers.load_post.append(after_load)
 
+    # Register HM64 extensions (XML export, MM support, etc.)
+    from .fast64_internal.hm64 import hm64_register
+    hm64_register()
+
 
 # called on add-on disabling
 def unregister():
+    # Unregister HM64 extensions first
+    from .fast64_internal.hm64 import hm64_unregister
+    hm64_unregister()
+
     utility_anim_unregister()
     op_largetexture_unregister()
     flipbook_unregister()

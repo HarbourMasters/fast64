@@ -4,13 +4,13 @@ import mathutils, bpy, math
 from ....f3d.f3d_gbi import F3D, get_F3D_GBI
 from ....f3d.f3d_parser import getImportData, parseF3D, parseMatrices
 from ....utility import hexOrDecInt, applyRotation, PluginError
-from ...f3d_writer import ootReadActorScale
-from ...model_classes import OOTF3DContext, ootGetIncludedAssetData
-from ...utility import OOTEnum, ootGetObjectPath, getOOTScale, ootGetObjectHeaderPath, ootGetEnums, ootStripComments
-from ...texture_array import ootReadTextureArrays
+from ....z64.f3d_writer import ootReadActorScale
+from ....z64.model_classes import OOTF3DContext, ootGetIncludedAssetData
+from ....z64.utility import OOTEnum, ootGetObjectPath, getOOTScale, ootGetObjectHeaderPath, ootGetEnums, ootStripComments
+from ....z64.texture_array import ootReadTextureArrays
 from ....game_data import game_data
-from ..properties import OOTSkeletonImportSettings
-from ..utility import ootGetLimb, ootGetLimbs, ootGetSkeleton, applySkeletonRestPose
+from ....z64.skeleton.properties import OOTSkeletonImportSettings
+from ....z64.skeleton.utility import ootGetLimb, ootGetLimbs, ootGetSkeleton, applySkeletonRestPose
 
 
 class OOTDLEntry:

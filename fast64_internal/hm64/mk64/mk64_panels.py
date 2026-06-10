@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from bpy.utils import register_class, unregister_class
 
-from ..utility import prop_split
-from ..panels import MK64_Panel
+from ...utility import prop_split
+from ...panels import MK64_Panel
 
 from .mk64_properties import MK64_ImportProperties, MK64_ObjectProperties
 from .mk64_operators import MK64_ImportCourseDL, MK64_ExportCourse

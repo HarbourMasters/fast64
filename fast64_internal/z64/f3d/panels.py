@@ -1,7 +1,7 @@
 import bpy
-from bpy.types import Panel, Mesh, Armature, Operator, UIList
+from bpy.types import Panel, Mesh, Armature
 from bpy.utils import register_class, unregister_class
-from ...panels import MM_Panel, OOT_Panel
+from ...panels import OOT_Panel
 from ...utility import prop_split
 from .operators import OOT_ImportDL, OOT_ExportDL
 from .properties import (
@@ -10,53 +10,6 @@ from .properties import (
     OOTDynamicMaterialProperty,
     OOTDefaultRenderModesProperty,
 )
-
-
-class OOT_UL_MatrixCallPairs(UIList):
-    bl_idname = "OOT_UL_matrix_call_pairs"
-
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        label = item.matrix_path if item.matrix_path else "No matrix"
-        row = layout.row(align=True)
-        row.label(text=label, icon="MESH_TORUS")
-
-
-class FAST64_OT_AddObjectMatrixCall(Operator):
-    bl_idname = "fast64.oot_add_object_matrix_call"
-    bl_label = "Add Matrix Call (Object)"
-    bl_description = "Add a new matrix-call pair to this object"
-
-    @classmethod
-    def poll(cls, context):
-        return context.object is not None and isinstance(context.object.data, Mesh)
-
-    def execute(self, context):
-        obj = context.object
-        settings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
-        entry = obj.oot_matrix_calls.add()
-        obj.oot_matrix_calls_index = len(obj.oot_matrix_calls) - 1
-        entry.limb = "none"
-        entry.call_dl = ""
-        entry.internal_path = settings.folder
-        return {"FINISHED"}
-
-
-class FAST64_OT_RemoveObjectMatrixCall(Operator):
-    bl_idname = "fast64.oot_remove_object_matrix_call"
-    bl_label = "Remove Matrix Call (Object)"
-    bl_description = "Remove the selected matrix-call pair from this object"
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.object
-        return obj is not None and isinstance(obj.data, Mesh) and len(obj.oot_matrix_calls) > 0
-
-    def execute(self, context):
-        obj = context.object
-        index = obj.oot_matrix_calls_index
-        obj.oot_matrix_calls.remove(index)
-        obj.oot_matrix_calls_index = max(0, min(index, len(obj.oot_matrix_calls) - 1))
-        return {"FINISHED"}
 
 
 class OOT_DisplayListPanel(Panel):
@@ -90,23 +43,6 @@ class OOT_DisplayListPanel(Panel):
             actorScaleBox = box.box().column()
             prop_split(actorScaleBox, obj, "ootActorScale", "Actor Scale")
             actorScaleBox.label(text="This applies to actor exports only.", icon="INFO")
-
-class MM_DisplayListPanel(MM_Panel):
-    bl_label = "Display List Inspector"
-    bl_idname = "OBJECT_PT_OOT_DL_Inspector_mm"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "object"
-    bl_options = {"HIDE_HEADER"}
-
-    @classmethod
-    def poll(cls, context):
-        return context.scene.gameEditorMode == "MM" and (
-            context.object is not None and isinstance(context.object.data, Mesh)
-        )
-
-    def draw(self, context):
-        OOT_DisplayListPanel.draw(self, context)
 
 
 class OOT_MaterialPanel(Panel):
@@ -142,22 +78,6 @@ class OOT_MaterialPanel(Panel):
         dynMatProps.draw_props(col.box().column(), mat, drawLayer)
 
 
-class MM_MaterialPanel(MM_Panel):
-    bl_label = "OOT Material"
-    bl_idname = "MATERIAL_PT_OOT_Material_Inspector_mm"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "material"
-    bl_options = {"HIDE_HEADER"}
-
-    @classmethod
-    def poll(cls, context):
-        return context.material is not None and context.scene.gameEditorMode == "MM"
-
-    def draw(self, context):
-        OOT_MaterialPanel.draw(self, context)
-
-
 class OOT_DrawLayersPanel(Panel):
     bl_label = "OOT Draw Layers"
     bl_idname = "WORLD_PT_OOT_Draw_Layers_Panel"
@@ -178,22 +98,6 @@ class OOT_DrawLayersPanel(Panel):
         ootDefaultRenderModeProp.draw_props(self.layout)
 
 
-class MM_DrawLayersPanel(MM_Panel):
-    bl_label = "OOT Draw Layers"
-    bl_idname = "WORLD_PT_OOT_Draw_Layers_Panel_mm"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "world"
-    bl_options = {"HIDE_HEADER"}
-
-    @classmethod
-    def poll(cls, context):
-        return context.scene.gameEditorMode == "MM"
-
-    def draw(self, context):
-        OOT_DrawLayersPanel.draw(self, context)
-
-
 class OOT_ExportDLPanel(OOT_Panel):
     bl_idname = "Z64_PT_export_dl"
     bl_label = "DL Exporter"
@@ -211,37 +115,19 @@ class OOT_ExportDLPanel(OOT_Panel):
         importSettings.draw_props(col)
 
 
-class MM_ExportDLPanel(MM_Panel):
-    bl_idname = "Z64_PT_export_dl_mm"
-    bl_label = "DL Exporter"
-
-    def draw(self, context):
-        OOT_ExportDLPanel.draw(self, context)
-
-
 oot_dl_writer_panel_classes = (
     OOT_DisplayListPanel,
     OOT_MaterialPanel,
     OOT_DrawLayersPanel,
     OOT_ExportDLPanel,
-    MM_DisplayListPanel,
-    MM_MaterialPanel,
-    MM_DrawLayersPanel,
-    MM_ExportDLPanel,
-)
-
-oot_dl_writer_support_classes = (
-    OOT_UL_MatrixCallPairs,
-    FAST64_OT_AddObjectMatrixCall,
-    FAST64_OT_RemoveObjectMatrixCall,
 )
 
 
 def f3d_panels_register():
-    for cls in (*oot_dl_writer_panel_classes, *oot_dl_writer_support_classes):
+    for cls in oot_dl_writer_panel_classes:
         register_class(cls)
 
 
 def f3d_panels_unregister():
-    for cls in reversed((*oot_dl_writer_panel_classes, *oot_dl_writer_support_classes)):
+    for cls in reversed(oot_dl_writer_panel_classes):
         unregister_class(cls)

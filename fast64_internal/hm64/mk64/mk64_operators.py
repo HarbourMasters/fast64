@@ -3,17 +3,17 @@ from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
 from pathlib import Path
-from .mk64_model_classes import MK64F3DContext, parse_course_vtx
+from ...mk64.mk64_model_classes import MK64F3DContext, parse_course_vtx
 from .mk64_course import export_course_c, export_course_xml
 from .mk64_properties import MK64_ImportProperties
-from .f3d.properties import MK64DLExportSettings
+from ...mk64.f3d.properties import MK64DLExportSettings
 
-from ..f3d.f3d_material import createF3DMat
-from ..f3d.f3d_gbi import get_F3D_GBI, DLFormat
-from ..f3d.f3d_parser import getImportData, importMeshC
-from ..f3d.f3d_writer import getWriteMethodFromEnum, exportF3DtoC
+from ...f3d.f3d_material import createF3DMat
+from ...f3d.f3d_gbi import get_F3D_GBI, DLFormat
+from ...f3d.f3d_parser import getImportData, importMeshC
+from ...f3d.f3d_writer import getWriteMethodFromEnum, exportF3DtoC
 
-from ..utility import raisePluginError, applyRotation, toAlnum, PluginError
+from ...utility import raisePluginError, applyRotation, toAlnum, PluginError
 
 class MK64_ImportCourseDL(Operator):
     # set bl_ properties
