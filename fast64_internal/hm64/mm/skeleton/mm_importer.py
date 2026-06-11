@@ -6,7 +6,14 @@ from ....f3d.f3d_parser import getImportData, parseF3D, parseMatrices
 from ....utility import hexOrDecInt, applyRotation, PluginError
 from ....z64.f3d_writer import ootReadActorScale
 from ....z64.model_classes import OOTF3DContext, ootGetIncludedAssetData
-from ....z64.utility import OOTEnum, ootGetObjectPath, getOOTScale, ootGetObjectHeaderPath, ootGetEnums, ootStripComments
+from ....z64.utility import (
+    OOTEnum,
+    ootGetObjectPath,
+    getOOTScale,
+    ootGetObjectHeaderPath,
+    ootGetEnums,
+    ootStripComments,
+)
 from ....z64.texture_array import ootReadTextureArrays
 from ....game_data import game_data
 from ....z64.skeleton.properties import OOTSkeletonImportSettings

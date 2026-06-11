@@ -61,6 +61,7 @@ from ...z64.exporter.skeleton.classes import OOTSkeleton, OOTLimb
 
 # --- Helper functions ---
 
+
 def getDynamicCosmeticXmlAttrs(cosmeticEntry: str, cosmeticCategory: str):
     entry = escape(cosmeticEntry.strip(), quote=True) if cosmeticEntry else ""
     if not entry:
@@ -74,6 +75,7 @@ def getDynamicCosmeticXmlAttrs(cosmeticEntry: str, cosmeticCategory: str):
 
 
 # --- Extracted methods ---
+
 
 # FSetTileSizeScrollField.to_soh_xml
 def _FSetTileSizeScrollField_to_soh_xml(self, tex_index, dimensions):
@@ -95,7 +97,7 @@ def _FSetTileSizeScrollField_to_soh_xml(self, tex_index, dimensions):
 
 # Vtx.to_soh_xml
 def _Vtx_to_soh_xml(self):
-    baseStr = "<Vtx X=\"{pX}\" Y=\"{pY}\" Z=\"{pZ}\" S=\"{s}\" T=\"{t}\" R=\"{r}\" G=\"{g}\" B=\"{b}\" A=\"{a}\"/>"
+    baseStr = '<Vtx X="{pX}" Y="{pY}" Z="{pZ}" S="{s}" T="{t}" R="{r}" G="{g}" B="{b}" A="{a}"/>'
     return baseStr.format(
         pX=self.position[0],
         pY=self.position[1],
@@ -111,7 +113,7 @@ def _Vtx_to_soh_xml(self):
 
 # VtxList.to_soh_xml
 def _VtxList_to_soh_xml(self):
-    data = "<Vertex Version=\"0\">\n"
+    data = '<Vertex Version="0">\n'
     for vert in self.vertices:
         data += "\t" + vert.to_soh_xml() + "\n"
     data += "</Vertex>\n"
@@ -120,7 +122,7 @@ def _VtxList_to_soh_xml(self):
 
 # GfxList.to_soh_xml
 def _GfxList_to_soh_xml(self, modelDirPath, objectPath):
-    data = "<DisplayList Version=\"0\">\n"
+    data = '<DisplayList Version="0">\n'
     for command in self.commands:
         if isinstance(command, (SPDisplayList, SPBranchList, SPVertex, DPSetTextureImage)):
             data += "\t" + command.to_soh_xml(objectPath) + "\n"
@@ -148,7 +150,7 @@ def _FModel_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=Tru
 
         if combined_call_lines or combined_other_lines:
             data += (
-                "<DisplayList Version=\"0\">\n"
+                '<DisplayList Version="0">\n'
                 + "".join(combined_call_lines + combined_other_lines)
                 + "</DisplayList>\n\n"
             )
@@ -397,7 +399,7 @@ def _FMesh_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True
         return ""
 
     call_lines, other_lines = self.get_soh_root_draw_lines(objectPath)
-    drawData = "<DisplayList Version=\"0\">\n" + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
+    drawData = '<DisplayList Version="0">\n' + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
     writeXMLData(drawData, os.path.join(modelDirPath, self.draw.name))
     return drawData
 
@@ -461,7 +463,7 @@ def _SPMatrix_to_soh_xml(self, objectPath=""):
 
 # SPVertex.to_soh_xml
 def _SPVertex_to_soh_xml(self, objectPath=""):
-    baseStr = "<LoadVertices Path=\"{parent}/{vertexPath}\" VertexBufferIndex=\"{bufferIndex}\" VertexOffset=\"{vertexOffset}\" Count=\"{count}\"/>"
+    baseStr = '<LoadVertices Path="{parent}/{vertexPath}" VertexBufferIndex="{bufferIndex}" VertexOffset="{vertexOffset}" Count="{count}"/>'
     return baseStr.format(
         parent=objectPath,
         vertexPath=self.vertList.name,
@@ -547,11 +549,13 @@ def _DPSetTextureLUT_to_soh_xml(self, objectPath=""):
 
 # DPSetTextureImage.to_soh_xml
 def _DPSetTextureImage_to_soh_xml(self, objectPath=""):
-    prefix = self.image.internal_path if self.image.internal_path else (objectPath if self.image.filename is not None else "")
-    imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
-    return (
-        f'<SetTextureImage Path="{imagePath}" Format="{self.fmt}" Size="{self.siz}" Width="{self.width}"/>'
+    prefix = (
+        self.image.internal_path
+        if self.image.internal_path
+        else (objectPath if self.image.filename is not None else "")
     )
+    imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
+    return f'<SetTextureImage Path="{imagePath}" Format="{self.fmt}" Size="{self.siz}" Width="{self.width}"/>'
 
 
 # DPSetCombineMode.to_soh_xml
@@ -563,7 +567,7 @@ def _DPSetCombineMode_to_soh_xml(self, objectPath=""):
         return name if name.startswith("G_ACMUX_") else f"G_ACMUX_{name}"
 
     return (
-        '<SetCombineLERP '
+        "<SetCombineLERP "
         f'A0="{_cc(self.a0)}" B0="{_cc(self.b0)}" C0="{_cc(self.c0)}" D0="{_cc(self.d0)}" '
         f'Aa0="{_ac(self.Aa0)}" Ab0="{_ac(self.Ab0)}" Ac0="{_ac(self.Ac0)}" Ad0="{_ac(self.Ad0)}" '
         f'A1="{_cc(self.a1)}" B1="{_cc(self.b1)}" C1="{_cc(self.c1)}" D1="{_cc(self.d1)}" '
@@ -575,7 +579,7 @@ def _DPSetCombineMode_to_soh_xml(self, objectPath=""):
 def _DPSetEnvColor_to_soh_xml(self, objectPath=""):
     return (
         f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-        f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+        f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
     )
 
 
@@ -583,24 +587,18 @@ def _DPSetEnvColor_to_soh_xml(self, objectPath=""):
 def _DPSetPrimColor_to_soh_xml(self, objectPath=""):
     return (
         f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-        f'{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>'
+        f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
     )
 
 
 # DPSetTileSize.to_soh_xml
 def _DPSetTileSize_to_soh_xml(self, objectPath=""):
-    return (
-        f'<SetTileSize T="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
-        f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
-    )
+    return f'<SetTileSize T="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
 
 
 # DPLoadTile.to_soh_xml
 def _DPLoadTile_to_soh_xml(self, objectPath=""):
-    return (
-        f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
-        f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
-    )
+    return f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
 
 
 # DPSetTile.to_soh_xml
@@ -615,10 +613,7 @@ def _DPSetTile_to_soh_xml(self, objectPath=""):
 
 # DPLoadBlock.to_soh_xml
 def _DPLoadBlock_to_soh_xml(self, objectPath=""):
-    return (
-        f'<LoadBlock Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" '
-        f'Lrs="{self.lrs}" Dxt="{self.dxt}" />'
-    )
+    return f'<LoadBlock Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Dxt="{self.dxt}" />'
 
 
 # DPLoadTLUTCmd.to_soh_xml
@@ -648,6 +643,7 @@ def _DPLoadSync_to_soh_xml(self):
 
 # --- Patch registry ---
 
+
 # OOTSkeleton.toSohXML
 def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
     limbData = ""
@@ -659,21 +655,21 @@ def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
     limbList = self.createLimbList()
     isFlex = self.isFlexSkeleton()
 
-    limbData += "<Skeleton Version=\"0\" Type=\""
+    limbData += '<Skeleton Version="0" Type="'
 
     if isFlex:
-        limbData += "Flex\" LimbCount=\"{lc}\" DisplayListCount=\"{dlC}\">\n".format(
+        limbData += 'Flex" LimbCount="{lc}" DisplayListCount="{dlC}">\n'.format(
             lc=self.getNumLimbs(), dlC=self.getNumDLs()
         )
     else:
-        limbData += "Normal\" LimbCount=\"{lc}\">\n".format(lc=self.getNumLimbs())
+        limbData += 'Normal" LimbCount="{lc}">\n'.format(lc=self.getNumLimbs())
 
     for limb in limbList:
         indLimbData = limb.toSohXML(self.hasLOD, objectPath)
 
         writeXMLData(indLimbData, os.path.join(modelDirPath, limb.name()))
 
-        limbData += "\t<SkeletonLimb Path=\"{path}/{name}\"/>\n".format(
+        limbData += '\t<SkeletonLimb Path="{path}/{name}"/>\n'.format(
             path=objectPath if len(objectPath) > 0 else ">", name=limb.name()
         )
 
@@ -683,12 +679,12 @@ def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
 
 # OOTLimb.toSohXML
 def _OOTLimb_toSohXML(self, isLOD, objectPath):
-    data = "<SkeletonLimb Version=\"0\" Type=\""
+    data = '<SkeletonLimb Version="0" Type="'
 
     if not isLOD:
-        data += "Standard\" "
+        data += 'Standard" '
     else:
-        data += "Lod\" "
+        data += 'Lod" '
 
     DLName = self.DL.name if self.DL is not None else "gEmptyDL"
 
@@ -696,8 +692,8 @@ def _OOTLimb_toSohXML(self, isLOD, objectPath):
         DLName = (objectPath + "/" if len(objectPath) > 0 else ">") + DLName
 
     data += (
-        "LegTransX=\"{legTransX}\" LegTransY=\"{legTransY}\" LegTransZ=\"{legTransZ}\" "
-        "ChildIndex=\"{firstChildIndex}\" SiblingIndex=\"{siblingIndex}\" DisplayList1=\"{displayList1}\"/>\n"
+        'LegTransX="{legTransX}" LegTransY="{legTransY}" LegTransZ="{legTransZ}" '
+        'ChildIndex="{firstChildIndex}" SiblingIndex="{siblingIndex}" DisplayList1="{displayList1}"/>\n'
     ).format(
         legTransX=int(round(self.translation[0])),
         legTransY=int(round(self.translation[1])),
@@ -830,10 +826,12 @@ _PATCHES = {
     },
 }
 
+
 def register():
     for cls, methods in _PATCHES.items():
         for name, func in methods.items():
             setattr(cls, name, func)
+
 
 def unregister():
     for cls, methods in _PATCHES.items():

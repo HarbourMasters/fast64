@@ -106,6 +106,7 @@ default_draw_layers = {
     "OOT": oot_default_draw_layers,
 }
 
+
 def normalize_hex_pointer(name: str) -> str:
     stripped = name.strip()
     if stripped.lower().startswith("0x"):
@@ -128,6 +129,7 @@ def format_asset_path(objectPath: str | None, name: str | None) -> str:
             return f"{sanitized_path}/{sanitized_name}"
         return sanitized_name
     return sanitized_path
+
 
 CCMUXDict = {
     "COMBINED": 0,
@@ -1879,7 +1881,6 @@ class FSetTileSizeScrollField:
         self.interval = 1
 
 
-
 def tile_func(direction: str, speed: int, cmd_num: int):
     if speed == 0 or speed is None:
         return None
@@ -2144,7 +2145,6 @@ class Vtx:
             + bytearray(self.colorOrNormal)
         )
 
-
     def to_c(self):
         def spc(x):
             return "{" + ", ".join([str(a) for a in x]) + "}"
@@ -2231,7 +2231,6 @@ class VtxList:
         for vert in self.vertices:
             data.extend(vert.to_binary())
         return data
-
 
     def to_c(self):
         data = CData()
@@ -2325,7 +2324,6 @@ class GfxList:
 
         return data
 
-
     def toO2R(self, folderPath: str, segments: dict | None = None):
         data = bytearray(0)
 
@@ -2334,13 +2332,15 @@ class GfxList:
         data.extend(struct.pack("<I", 1))
         data.extend(struct.pack(">IIQIQIQQQI", 0x4F444C54, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
 
-        data.extend(struct.pack(
-            ">bBHI",
-            4,
-            0xFF,
-            0xFFFF,
-            0xFFFFFFFF,
-        ))
+        data.extend(
+            struct.pack(
+                ">bBHI",
+                4,
+                0xFF,
+                0xFFFF,
+                0xFFFFFFFF,
+            )
+        )
 
         data.extend(struct.pack(">II", 0x33 << 24, 0xBEEFBEEF))
 
@@ -2833,7 +2833,6 @@ class FModel:
             data.append(self.materialRevert.to_c(self.f3d))
         return data
 
-
     def to_c(self, textureExportSettings: TextureExportSettings, gfxFormatter: GfxFormatter):
         texCSeparate = textureExportSettings.texCSeparate
         savePNG = textureExportSettings.savePNG
@@ -2950,8 +2949,6 @@ class FModel:
                 raise Exception(str(e))
             image.filepath = oldpath
         return texturesSaved
-
-
 
     def freePalettes(self):
         pass
@@ -3141,8 +3138,6 @@ class FMesh:
         for cmd_list in self.draw_overrides:
             cmd_list.save_binary(romfile, f3d, segments)
 
-
-
     def to_c(self, f3d: F3D, gfxFormatter: GfxFormatter):
         staticData = CData()
 
@@ -3191,7 +3186,6 @@ class FTriGroup:
             self.triList.save_binary(romfile, f3d, segments)
         self.vertexList.save_binary(romfile)
 
-
     def to_c(self, f3d, gfxFormatter):
         data = CData()
         data.append(self.vertexList.to_c())
@@ -3228,10 +3222,11 @@ class FScrollData:
             True if either texture has non-zero scroll values
         """
         return (
-            self.tile_scroll_tex0.s != 0 or self.tile_scroll_tex0.t != 0 or
-            self.tile_scroll_tex1.s != 0 or self.tile_scroll_tex1.t != 0
+            self.tile_scroll_tex0.s != 0
+            or self.tile_scroll_tex0.t != 0
+            or self.tile_scroll_tex1.s != 0
+            or self.tile_scroll_tex1.t != 0
         )
-
 
 
 def get_f3d_mat_from_version(material: bpy.types.Material):
@@ -3324,7 +3319,6 @@ class FMaterial:
             self.material.save_binary(romfile, f3d, segments)
         if self.revert is not None and self.revert.tag.Export:
             self.revert.save_binary(romfile, f3d, segments)
-
 
     def to_c(self, f3d):
         data = CData()
@@ -3622,9 +3616,7 @@ class FImage:
     def toO2R(self, folderPath: str):
         data = bytearray(0)
 
-        print(
-            f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes"
-        )
+        print(f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes")
 
         data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F544558, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
         data.extend(struct.pack("<IIII", self.textureTypeO2R(), self.width, self.height, len(self.data)))
@@ -3749,7 +3741,6 @@ class SPMatrix(GbiMacro):
                 pass
         return address
 
-
     def toO2R(self, folderPath: str):
         data = bytearray(0)
 
@@ -3803,6 +3794,7 @@ class SPVertex(GbiMacro):
                 header += "segmented_to_virtual(" + self.vertList.name + " + " + str(self.offset) + ")"
             else:
                 header += self.vertList.name + " + " + str(self.offset)
+
         return header + ", " + str(self.count) + ", " + str(self.index) + ")"
 
     def toO2R(self, folderPath: str):
@@ -3823,7 +3815,6 @@ class SPVertex(GbiMacro):
         data.extend(struct.pack(">II", hash_val >> 32, hash_val & 0xFFFFFFFF))
 
         return data
-
 
 
 @dataclass(unsafe_hash=True)
@@ -3863,7 +3854,6 @@ class SPDisplayList(GbiMacro):
                 return header + self.displayList.name + ")"
         else:
             return "glistp = " + self.displayList.name + "(glistp)"
-
 
     def toO2R(self, folderPath: str):
         data = bytearray(0)
@@ -3909,7 +3899,6 @@ class SPEndDisplayList(GbiMacro):
     def to_binary(self, f3d, segments):
         words = _SHIFTL(f3d.G_ENDDL, 24, 8), 0
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
-
 
 
 # SPSprite2DBase
@@ -4032,7 +4021,6 @@ class SP1Triangle(GbiMacro):
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
 
-
 @dataclass(unsafe_hash=True)
 class SPLine3D(GbiMacro):
     v0: int
@@ -4091,7 +4079,6 @@ class SP2Triangles(GbiMacro):
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
 
-
 # F3DEX3 TODO: Encoding of _g*SP5Triangles commands (SPTriangleStrip, SPTriangleFan)
 # and support for these in export including tri reordering
 
@@ -4107,7 +4094,6 @@ class SPCullDisplayList(GbiMacro):
         else:
             words = _SHIFTL(f3d.G_CULLDL, 24, 8) | ((0x0F & (self.vstart)) * 40), ((0x0F & ((self.vend) + 1)) * 40)
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
-
 
 
 @dataclass(unsafe_hash=True)
@@ -4494,7 +4480,6 @@ class SPSetLights(GbiMacro):
             return GFX_SIZE * (2 + max(len(self.lights.l), 1))
 
 
-
 # F3DEX3 TODO: SPCameraWorld
 
 # Reflection/Hiliting Macros
@@ -4620,7 +4605,6 @@ class SPTexture(GbiMacro):
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
 
-
 # SPTextureL
 
 
@@ -4691,7 +4675,6 @@ class SPSetGeometryMode(GbiMacro):
             return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
 
-
 @dataclass(unsafe_hash=True)
 class SPClearGeometryMode(GbiMacro):
     flagList: set[str] = field(default_factory=set)
@@ -4703,7 +4686,6 @@ class SPClearGeometryMode(GbiMacro):
         else:
             words = _SHIFTL(f3d.G_CLEARGEOMETRYMODE, 24, 8), word
             return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
-
 
 
 @dataclass(unsafe_hash=True)
@@ -4782,7 +4764,6 @@ class SPSetOtherMode(GbiMacro):
         cmd = getattr(f3d, str(self.cmd), self.cmd)
         sft = getattr(f3d, str(self.sft), self.sft)
         return gsSPSetOtherMode(cmd, sft, self.length, data, f3d)
-
 
 
 @dataclass(unsafe_hash=True)
@@ -4873,7 +4854,6 @@ class DPSetTextureLUT(SPSetOtherModeHSub):
         else:
             print("Invalid LUT mode " + str(self.mode))
         return gsSPSetOtherMode(f3d.G_SETOTHERMODE_H, f3d.G_MDSFT_TEXTLUT, 2, modeVal, f3d)
-
 
 
 @dataclass(unsafe_hash=True)
@@ -5059,7 +5039,6 @@ class DPSetTextureImage(GbiMacro):
         return data
 
 
-
 def gsDPSetCombine(muxs0, muxs1, f3d):
     words = _SHIFTL(f3d.G_SETCOMBINE, 24, 8) | _SHIFTL(muxs0, 0, 24), muxs1
     return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
@@ -5125,7 +5104,6 @@ class DPSetCombineMode(GbiMacro):
         )
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
-
     def to_c(self, static=True):
         if static:
             return f"gsDPSetCombineLERP({', '.join( self.getargs(static) )})"
@@ -5142,8 +5120,6 @@ def sDPRGBColor(cmd, r, g, b, a):
     return gsDPSetColor(cmd, (_SHIFTL(r, 24, 8) | _SHIFTL(g, 16, 8) | _SHIFTL(b, 8, 8) | _SHIFTL(a, 0, 8)))
 
 
-
-
 @dataclass(unsafe_hash=True)
 class DPSetEnvColor(GbiMacro):
     r: int
@@ -5155,7 +5131,6 @@ class DPSetEnvColor(GbiMacro):
 
     def to_binary(self, f3d, segments):
         return sDPRGBColor(f3d.G_SETENVCOLOR, self.r, self.g, self.b, self.a)
-
 
 
 @dataclass(unsafe_hash=True)
@@ -5213,7 +5188,6 @@ class DPSetPrimColor(GbiMacro):
             _SHIFTL(self.r, 24, 8) | _SHIFTL(self.g, 16, 8) | _SHIFTL(self.b, 8, 8) | _SHIFTL(self.a, 0, 8)
         )
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
-
 
 
 @dataclass(unsafe_hash=True)
@@ -5292,7 +5266,6 @@ class DPSetTileSize(GbiMacro):
         return self.tile == f3d.G_TX_LOADTILE
 
 
-
 @dataclass(unsafe_hash=True)
 class DPLoadTile(GbiMacro):
     tile: int
@@ -5303,7 +5276,6 @@ class DPLoadTile(GbiMacro):
 
     def to_binary(self, f3d, segments):
         return gsDPLoadTileGeneric(f3d.G_LOADTILE, self.tile, self.uls, self.ult, self.lrs, self.lrt)
-
 
 
 @dataclass(unsafe_hash=True)
@@ -5347,7 +5319,6 @@ class DPSetTile(GbiMacro):
         return self.tile == f3d.G_TX_LOADTILE
 
 
-
 @dataclass(unsafe_hash=True)
 class DPLoadBlock(GbiMacro):
     tile: int
@@ -5365,7 +5336,6 @@ class DPLoadBlock(GbiMacro):
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
 
 
-
 @dataclass(unsafe_hash=True)
 class DPLoadTLUTCmd(GbiMacro):
     tile: int
@@ -5374,7 +5344,6 @@ class DPLoadTLUTCmd(GbiMacro):
     def to_binary(self, f3d, segments):
         words = _SHIFTL(f3d.G_LOADTLUT, 24, 8), _SHIFTL((self.tile), 24, 3) | _SHIFTL((self.count), 14, 10)
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
-
 
 
 @dataclass(unsafe_hash=True)
@@ -6017,12 +5986,10 @@ class DPFullSync(GbiMacro):
         return gsDPNoParam(f3d.G_RDPFULLSYNC)
 
 
-
 @dataclass(unsafe_hash=True)
 class DPTileSync(GbiMacro):
     def to_binary(self, f3d, segments):
         return gsDPNoParam(f3d.G_RDPTILESYNC)
-
 
 
 @dataclass(unsafe_hash=True)
@@ -6031,12 +5998,10 @@ class DPPipeSync(GbiMacro):
         return gsDPNoParam(f3d.G_RDPPIPESYNC)
 
 
-
 @dataclass(unsafe_hash=True)
 class DPLoadSync(GbiMacro):
     def to_binary(self, f3d, segments):
         return gsDPNoParam(f3d.G_RDPLOADSYNC)
-
 
 
 F3DClassesWithPointers = [
@@ -6058,4 +6023,3 @@ F3DClassesWithPointers = [
     DPLoadTLUT_pal256,
     DPLoadTLUT,
 ]
-

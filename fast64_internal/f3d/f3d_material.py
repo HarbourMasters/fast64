@@ -1951,7 +1951,9 @@ def get_preview_light_entries(
 
         color = [float(light.color[0]), float(light.color[1]), float(light.color[2]), 1.0]
         light_objects = [
-            obj for obj in bpy.context.scene.objects if obj.type == "LIGHT" and obj.data == getattr(light, "original", light)
+            obj
+            for obj in bpy.context.scene.objects
+            if obj.type == "LIGHT" and obj.data == getattr(light, "original", light)
         ]
         if not light_objects:
             light_objects = [None]
@@ -2014,6 +2016,7 @@ def compress_preview_lights(light_entries: list[dict[str, Any]]) -> list[dict[st
             }
         )
     return compressed
+
 
 def update_light_colors(material, context):
     f3dMat: "F3DMaterialProperty" = material.f3d_mat
@@ -5266,9 +5269,7 @@ class F3DMaterialProperty(PropertyGroup):
         if is_hm64_feature_set():
             self.prim_dynamic_entry = primitive.get("dynamicEntry", self.prim_dynamic_entry)
             self.prim_dynamic_entry_name = primitive.get("dynamicEntryName", self.prim_dynamic_entry_name)
-            self.prim_dynamic_entry_category = primitive.get(
-                "dynamicEntryCategory", self.prim_dynamic_entry_category
-            )
+            self.prim_dynamic_entry_category = primitive.get("dynamicEntryCategory", self.prim_dynamic_entry_category)
         key = data.get("chromaKey", {})
         self.set_key = key.get("set", self.set_key)
         if "center" in key:

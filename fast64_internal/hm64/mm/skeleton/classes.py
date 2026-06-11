@@ -91,7 +91,7 @@ class OOTSkeleton:
         limbData.append(data)
 
         return limbData
-    
+
     def toO2R(self, folderPath: str):
         data = bytearray(0)
 
@@ -105,15 +105,17 @@ class OOTSkeleton:
         # QQQI - Fill until 64 bytes
         data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F534B4C, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
 
-        data.extend(struct.pack(
-            "<BBIIBI", 
-            1 if self.isFlexSkeleton() else 0, 
-            1 if self.hasLOD else 2, 
-            self.getNumLimbs(), 
-            self.getNumDLs(),
-            1 if self.hasLOD else 2,
-            self.getNumLimbs()
-        ))
+        data.extend(
+            struct.pack(
+                "<BBIIBI",
+                1 if self.isFlexSkeleton() else 0,
+                1 if self.hasLOD else 2,
+                self.getNumLimbs(),
+                self.getNumDLs(),
+                1 if self.hasLOD else 2,
+                self.getNumLimbs(),
+            )
+        )
 
         limbList = self.createLimbList()
         for limb in limbList:
@@ -248,7 +250,7 @@ class OOTLimb:
                 self.children[i].nextSiblingIndex = self.children[i + 1].index
             self.children[i].setLinks()
         # self -> child -> sibling
-    
+
     def toO2R(self, folderPath: str):
         data = bytearray(0)
 
@@ -262,11 +264,13 @@ class OOTLimb:
         # QQQI - Fill until 64 bytes
         data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F534C42, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
 
-        data.extend(struct.pack(
-            "<BB", 
-            2, # LOD?
-            0,
-        ))
+        data.extend(
+            struct.pack(
+                "<BB",
+                2,  # LOD?
+                0,
+            )
+        )
 
         data.extend(struct.pack("<I", len("")))
         data.extend(struct.pack("<HI", 0, 0))
@@ -289,13 +293,15 @@ class OOTLimb:
             data.extend(struct.pack("<I", len("")))
             data.extend(struct.pack("<I", len("")))
 
-        data.extend(struct.pack(
-            "<hhhBB", 
-            int(round(self.translation[0])), 
-            int(round(self.translation[1])), 
-            int(round(self.translation[2])),
-            self.firstChildIndex, 
-            self.nextSiblingIndex
-        ))
+        data.extend(
+            struct.pack(
+                "<hhhBB",
+                int(round(self.translation[0])),
+                int(round(self.translation[1])),
+                int(round(self.translation[2])),
+                self.firstChildIndex,
+                self.nextSiblingIndex,
+            )
+        )
 
         return data

@@ -522,6 +522,7 @@ def register():
 
     # Register HM64 extensions (XML export, MM support, etc.)
     from .fast64_internal.hm64 import hm64_register
+
     hm64_register()
 
 
@@ -529,6 +530,7 @@ def register():
 def unregister():
     # Unregister HM64 extensions first
     from .fast64_internal.hm64 import hm64_unregister
+
     hm64_unregister()
 
     utility_anim_unregister()

@@ -67,12 +67,15 @@ class MM_DisplayListPanel(MM_Panel):
 
     @classmethod
     def poll(cls, context):
-        return is_hm64() and context.scene.gameEditorMode == "MM" and (
-            context.object is not None and isinstance(context.object.data, Mesh)
+        return (
+            is_hm64()
+            and context.scene.gameEditorMode == "MM"
+            and (context.object is not None and isinstance(context.object.data, Mesh))
         )
 
     def draw(self, context):
         from ...z64.f3d.panels import OOT_DisplayListPanel
+
         OOT_DisplayListPanel.draw(self, context)
 
 
@@ -90,6 +93,7 @@ class MM_MaterialPanel(MM_Panel):
 
     def draw(self, context):
         from ...z64.f3d.panels import OOT_MaterialPanel
+
         OOT_MaterialPanel.draw(self, context)
 
 
@@ -107,6 +111,7 @@ class MM_DrawLayersPanel(MM_Panel):
 
     def draw(self, context):
         from ...z64.f3d.panels import OOT_DrawLayersPanel
+
         OOT_DrawLayersPanel.draw(self, context)
 
 
@@ -120,6 +125,7 @@ class MM_ExportDLPanel(MM_Panel):
 
     def draw(self, context):
         from ...z64.f3d.panels import OOT_ExportDLPanel
+
         OOT_ExportDLPanel.draw(self, context)
 
 
@@ -140,6 +146,7 @@ hm64_support_classes = (
 
 def register():
     from bpy.utils import register_class
+
     for cls in (*hm64_panel_classes, *hm64_support_classes):
         register_class(cls)
     Object.oot_matrix_calls = CollectionProperty(type=OOTDLMatrixCallPair)
@@ -148,6 +155,7 @@ def register():
 
 def unregister():
     from bpy.utils import unregister_class
+
     del Object.oot_matrix_calls
     del Object.oot_matrix_calls_index
     for cls in reversed((*hm64_panel_classes, *hm64_support_classes)):
