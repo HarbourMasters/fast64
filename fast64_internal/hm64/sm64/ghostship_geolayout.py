@@ -289,7 +289,9 @@ def _geolayout_to_ghostship_otr(geolayout: geo.Geolayout, folder_path: str):
 
 def _geolayout_graph_to_ghostship_otr(geolayout_graph: geo.GeolayoutGraph, folder_path: str):
     geolayout_graph.checkListSorted()
-    return {geolayout.name: _geolayout_to_ghostship_otr(geolayout, folder_path) for geolayout in geolayout_graph.sortedList}
+    return {
+        geolayout.name: _geolayout_to_ghostship_otr(geolayout, folder_path) for geolayout in geolayout_graph.sortedList
+    }
 
 
 def _write_ghostship_resource(export_folder_path: str, name: str, data: bytes):
@@ -433,12 +435,16 @@ def save_geolayout_ghostship(geo_name, dir_name, geolayout_graph: geo.GeolayoutG
     for name, resource_data in _geolayout_graph_to_ghostship_otr(geolayout_graph, folder_path).items():
         _write_ghostship_resource(export_folder_path, name, resource_data)
     if is_mario_root:
-        _write_ghostship_resource(export_folder_path, "mario_geo", _ghostship_mario_root_geo(folder_path, "mario_geo_render_body"))
+        _write_ghostship_resource(
+            export_folder_path, "mario_geo", _ghostship_mario_root_geo(folder_path, "mario_geo_render_body")
+        )
 
     return export_folder_path
 
 
-def export_geolayout_armature_ghostship(armature_obj, obj, convert_transform_matrix, export_path, dir_name, geo_name, dl_format):
+def export_geolayout_armature_ghostship(
+    armature_obj, obj, convert_transform_matrix, export_path, dir_name, geo_name, dl_format
+):
     from ...sm64.sm64_geolayout_writer import convertArmatureToGeolayout
 
     geolayout_graph, f_model = convertArmatureToGeolayout(
