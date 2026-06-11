@@ -10,6 +10,7 @@ enum_export_type = [
     ("C", "C", "C"),
     ("Binary", "Binary", "Binary"),
     ("Insertable Binary", "Insertable Binary", "Insertable Binary"),
+    ("Ghostship", "Ghostship", "Ghostship / Torch resource files"),
 ]
 
 enum_compression_formats = [
