@@ -247,7 +247,7 @@ class MK64_fModel(FModel):
         return export_data
 
     def to_xml(self, *args):
-        export_data = super().to_xml(*args)
+        export_data = super().to_soh_xml(*args)
         self.to_xml_actors()
         self.to_xml_path(*args)
         self.to_xml_track_sections(*args)

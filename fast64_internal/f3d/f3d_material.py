@@ -4427,6 +4427,8 @@ class MATERIAL_MT_f3d_presets(Menu):
                     paths += bpy.utils.preset_paths("f3d/oot_f3dex3")
             elif game == "mm":
                 paths += bpy.utils.preset_paths("f3d/mm")
+            elif game == "mk64":
+                paths += bpy.utils.preset_paths("f3d/mk64")
         self.path_menu(
             paths,
             self.preset_operator,
