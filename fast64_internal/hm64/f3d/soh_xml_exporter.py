@@ -766,8 +766,6 @@ def _OOTLimb_toSohXML(self, isLOD, objectPath):
     return data
 
 
-
-
 # FTexRectdef.to_soh_xml
 def _FTexRect_to_soh_xml(self, savePNG, texDir):
     data = ""
@@ -910,16 +908,12 @@ def _SPLookAt_to_soh_xml(self):
 
 # DPSetHilite1Tile.to_soh_xml
 def _DPSetHilite1Tile_to_soh_xml(self):
-    return (
-        f'<Hilite1Tile Tile="{self.tile}" Hilite="{self.hilite.name}" Width="{self.width}" Height="{self.height}"/>'
-    )
+    return f'<Hilite1Tile Tile="{self.tile}" Hilite="{self.hilite.name}" Width="{self.width}" Height="{self.height}"/>'
 
 
 # DPSetHilite2Tile.to_soh_xml
 def _DPSetHilite2Tile_to_soh_xml(self):
-    return (
-        f'<Hilite2Tile Tile="{self.tile}" Hilite="{self.hilite.name}" Width="{self.width}" Height="{self.height}"/>'
-    )
+    return f'<Hilite2Tile Tile="{self.tile}" Hilite="{self.hilite.name}" Width="{self.width}" Height="{self.height}"/>'
 
 
 # SPFogFactor.to_soh_xml
@@ -1253,9 +1247,7 @@ def _DPLoadTLUT_to_soh_xml(self):
 
 # DPSetConvert.to_soh_xml
 def _DPSetConvert_to_soh_xml(self):
-    return (
-        f'<SetConvert K0="{self.k0}" K1="{self.k1}" K2="{self.k2}" K3="{self.k3}" K4="{self.k4}" K5="{self.k5}"/>'
-    )
+    return f'<SetConvert K0="{self.k0}" K1="{self.k1}" K2="{self.k2}" K3="{self.k3}" K4="{self.k4}" K5="{self.k5}"/>'
 
 
 # DPSetKeyR.to_soh_xml
