@@ -292,7 +292,7 @@ class Fast64_ObjectProperties(bpy.types.PropertyGroup):
 
     sm64: bpy.props.PointerProperty(type=SM64_ObjectProperties, name="SM64 Object Properties")
     oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="Z64 Object Properties")
-    mk64: bpy.props.PointerProperty(type=MK64_Properties, name="MK64 Object Properties")
+    mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Object Properties")
 
 
 class Fast64_CurveProperties(bpy.types.PropertyGroup):

@@ -49,6 +49,69 @@ from ...f3d.f3d_gbi import (
     SPVertex,
     Vtx,
     VtxList,
+    FTexRect,
+    FLODGroup,
+    Light,
+    Ambient,
+    Hilite,
+    Lights,
+    LookAt,
+    SPMatrix,
+    SPViewport,
+    SPDisplayList,
+    SPLine3D,
+    SPLineW3D,
+    SPSegment,
+    SPClipRatio,
+    SPAlphaCompareCull,
+    SPModifyVertex,
+    SPBranchLessZraw,
+    SPNumLights,
+    SPLight,
+    SPLightColor,
+    SPSetLights,
+    SPLookAt,
+    DPSetHilite1Tile,
+    DPSetHilite2Tile,
+    SPFogFactor,
+    SPFogPosition,
+    SPPerspNormalize,
+    SPGeometryMode,
+    DPPipelineMode,
+    DPSetCycleType,
+    DPSetTexturePersp,
+    DPSetTextureDetail,
+    DPSetTextureLOD,
+    DPSetTextureFilter,
+    DPSetTextureConvert,
+    DPSetCombineKey,
+    DPSetColorDither,
+    DPSetAlphaDither,
+    DPSetAlphaCompare,
+    DPSetDepthSource,
+    DPSetRenderMode,
+    DPSetCombineMode,
+    DPSetBlendColor,
+    DPSetFogColor,
+    DPSetFillColor,
+    DPSetPrimDepth,
+    DPSetOtherMode,
+    DPSetTileSize,
+    DPSetTile,
+    DPLoadTextureBlock,
+    DPLoadTextureBlockYuv,
+    _DPLoadTextureBlock,
+    DPLoadTextureBlock_4b,
+    DPLoadTextureTile,
+    DPLoadTextureTile_4b,
+    DPLoadTLUT_pal16,
+    DPLoadTLUT_pal256,
+    DPLoadTLUT,
+    DPSetConvert,
+    DPSetKeyR,
+    DPSetKeyGB,
+    SPTextureRectangle,
+    SPScisTextureRectangle,
     format_asset_path,
     get_image_from_image_key,
 )
@@ -641,9 +704,6 @@ def _DPLoadSync_to_soh_xml(self):
     return "<LoadSync/>"
 
 
-# --- Patch registry ---
-
-
 # OOTSkeleton.toSohXML
 def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
     limbData = ""
@@ -704,6 +764,521 @@ def _OOTLimb_toSohXML(self, isLOD, objectPath):
     )
 
     return data
+
+
+
+
+# FTexRectdef.to_soh_xml
+def _FTexRect_to_soh_xml(self, savePNG, texDir):
+    data = ""
+    for info, texture in self.textures.items():
+        if savePNG:
+            data += texture.to_xml(texDir)
+        else:
+            data += texture.to_xml(texDir)
+
+    dynamicData = self.draw.to_xml(texDir)
+
+    writeXMLData(dynamicData, os.path.join(texDir, self.draw.name))
+    return data
+
+
+# FLODGroup.to_soh_xml
+def _FLODGroup_to_soh_xml(self, f3d):
+    self.create_data()
+
+    dynamicData = ""
+    staticData = self.vertexList.to_xml()
+    for displayList in self.subdraws:
+        if displayList is not None:
+            dynamicData += displayList.to_xml(f3d)
+    dynamicData += self.draw.to_xml(f3d)
+    return staticData, dynamicData
+
+
+# Light.to_soh_xml
+def _Light_to_soh_xml(self):
+    return f'<Light Color0="{self.color[0]}" Color1="{self.color[1]}" Color2="{self.color[2]}" Normal0="{self.normal[0]}" Normal1="{self.normal[1]}" Normal2="{self.normal[2]}"/>'
+
+
+# Ambient.to_soh_xml
+def _Ambient_to_soh_xml(self):
+    return f'<Ambient Color0="{self.color[0]}" Color1="{self.color[1]}" Color2="{self.color[2]}"/>'
+
+
+# Hilite.to_soh_xml
+def _Hilite_to_soh_xml(self):
+    return f'<Hilite X1="{self.x1}" Y1="{self.y1}" X2="{self.x2}" Y2="{self.y2}"/>'
+
+
+# Lights.to_soh_xml
+def _Lights_to_soh_xml(self):
+    data = "<Lights Size={l}>".format(len(self.l))
+    for light in self.l:
+        data += "\t" + light.to_xml() + "\n"
+    data += "</Lights>"
+    return data
+
+
+# LookAt.to_soh_xml
+def _LookAt_to_soh_xml(self):
+    data = "<LookAt>"
+    for light in self.l:
+        data += "\t" + light.to_xml() + "\n"
+    data += "</LookAt>"
+    return data
+
+
+# SPMatrix.to_soh_xml
+def _SPMatrix_to_soh_xml(self):
+    return f'<Matrix Path=">{str(self.matrix)}" Param="{self.param}"/>'
+
+
+# SPViewport.to_soh_xml
+def _SPViewport_to_soh_xml(self):
+    return f'<Viewport Path="{self.viewport.name}"/>'
+
+
+# SPDisplayList.to_soh_xml
+def _SPDisplayList_to_soh_xml(self, objectPath):
+    name = self.displayList.name
+    baseStr = '<CallDisplayList Path="{path}"/>'
+    data = baseStr.format(path=">" + name if "0x" in name else (objectPath + "/" + name))
+    return data
+
+
+# SPLine3D.to_soh_xml
+def _SPLine3D_to_soh_xml(self):
+    return f'<Line3D V0="{self.v0}" V1="{self.v1}" Flag="{self.flag}"/>'
+
+
+# SPLineW3D.to_soh_xml
+def _SPLineW3D_to_soh_xml(self):
+    return f'<Line3D V0="{self.v0}" V1="{self.v1}" WD="{self.wd}" Flag="{self.flag}"/>'
+
+
+# SPSegment.to_soh_xml
+def _SPSegment_to_soh_xml(self):
+    return f'<Segment Seg="{self.segment}" Base="{self.base}"/>'
+
+
+# SPClipRatio.to_soh_xml
+def _SPClipRatio_to_soh_xml(self):
+    return f'<ClipRatio Ratio="{self.ratio}"/>'
+
+
+# SPAlphaCompareCull.to_soh_xml
+def _SPAlphaCompareCull_to_soh_xml(self):
+    return "<!-- SPAlphaCompareCull is not implemented -->"
+
+
+# SPModifyVertex.to_soh_xml
+def _SPModifyVertex_to_soh_xml(self):
+    return f'<ModifyVertex Vtx="{self.vtx}" Where="{self.where}" Val="{self.val}"/>'
+
+
+# SPBranchLessZraw.to_soh_xml
+def _SPBranchLessZraw_to_soh_xml(self):
+    return f'<ModifyVertex BranchDL="{self.dl.name}" Vtx="{self.vtx}" ZVal="{self.zval}"/>'
+
+
+# SPNumLights.to_soh_xml
+def _SPNumLights_to_soh_xml(self):
+    return f'<NumLights Lites="{self.n}"/>'
+
+
+# SPLight.to_soh_xml
+def _SPLight_to_soh_xml(self):
+    return f'<Light L="{self.light.name}" N="{self.n}"/>'
+
+
+# SPLightColor.to_soh_xml
+def _SPLightColor_to_soh_xml(self):
+    return f'<LightColor N="{self.n}" Col="{self.col}"/>'
+
+
+# SPSetLights.to_soh_xml
+def _SPSetLights_to_soh_xml(self):
+    data = "<!-- SetLights Not Implemented -->"
+    return data
+
+
+# SPLookAt.to_soh_xml
+def _SPLookAt_to_soh_xml(self):
+    return f'<LookAt L="{self.la.name}"/>'
+
+
+# DPSetHilite1Tile.to_soh_xml
+def _DPSetHilite1Tile_to_soh_xml(self):
+    return (
+        f'<Hilite1Tile Tile="{self.tile}" Hilite="{self.hilite.name}" Width="{self.width}" Height="{self.height}"/>'
+    )
+
+
+# DPSetHilite2Tile.to_soh_xml
+def _DPSetHilite2Tile_to_soh_xml(self):
+    return (
+        f'<Hilite2Tile Tile="{self.tile}" Hilite="{self.hilite.name}" Width="{self.width}" Height="{self.height}"/>'
+    )
+
+
+# SPFogFactor.to_soh_xml
+def _SPFogFactor_to_soh_xml(self):
+    return f'<FogFactor FM="{self.fm}" FO="{self.fo}"/>'
+
+
+# SPFogPosition.to_soh_xml
+def _SPFogPosition_to_soh_xml(self):
+    return f'<FogPosition Min="{self.minVal}" Max="{self.maxVal}"/>'
+
+
+# SPPerspNormalize.to_soh_xml
+def _SPPerspNormalize_to_soh_xml(self):
+    return f'<PerpsNormalize S="{self.s}"/>'
+
+
+# SPGeometryMode.to_soh_xml
+def _SPGeometryMode_to_soh_xml(self):
+    data = "<SetGeometryMode "
+
+    for flag in self.setFlagList:
+        if flag != "0":
+            data += f'{flag}="1" '
+
+    data += " />\n"
+
+    data += "\t<ClearGeometryMode "
+
+    for flag in self.clearFlagList:
+        if flag != "0":
+            data += f'{flag}="1" '
+
+    data += " />"
+
+    return data
+
+
+# DPPipelineMode.to_soh_xml
+def _DPPipelineMode_to_soh_xml(self):
+    return f'<PipelineMode {self.mode}="1"/>'
+
+
+# DPSetCycleType.to_soh_xml
+def _DPSetCycleType_to_soh_xml(self):
+    return f'<SetCycleType {self.mode}="1"/>'
+
+
+# DPSetTexturePersp.to_soh_xml
+def _DPSetTexturePersp_to_soh_xml(self):
+    return f'<SetTexturePersp Enable="{self.mode}"/>'
+
+
+# DPSetTextureDetail.to_soh_xml
+def _DPSetTextureDetail_to_soh_xml(self):
+    return f'<SetTextureDetail Type="{self.mode}"/>'
+
+
+# DPSetTextureLOD.to_soh_xml
+def _DPSetTextureLOD_to_soh_xml(self):
+    return f'<SetTextureLOD Mode="{self.mode}"/>'
+
+
+# DPSetTextureFilter.to_soh_xml
+def _DPSetTextureFilter_to_soh_xml(self):
+    return f'<SetTextureFilter Mode="{self.mode}"/>'
+
+
+# DPSetTextureConvert.to_soh_xml
+def _DPSetTextureConvert_to_soh_xml(self):
+    return f'<SetTextureFilter Type="{self.mode}"/>'
+
+
+# DPSetCombineKey.to_soh_xml
+def _DPSetCombineKey_to_soh_xml(self):
+    return f'<SetCombineKey Type="{self.mode}"/>'
+
+
+# DPSetColorDither.to_soh_xml
+def _DPSetColorDither_to_soh_xml(self):
+    return f'<SetColorDither Type="{self.mode}"/>'
+
+
+# DPSetAlphaDither.to_soh_xml
+def _DPSetAlphaDither_to_soh_xml(self):
+    return f'<SetAlphaDither Type="{self.mode}"/>'
+
+
+# DPSetAlphaCompare.to_soh_xml
+def _DPSetAlphaCompare_to_soh_xml(self):
+    return f'<SetAlphaCompare Mode="{self.mask}"/>'
+
+
+# DPSetDepthSource.to_soh_xml
+def _DPSetDepthSource_to_soh_xml(self):
+    return f'<SetDepthSource Source="{self.src}"/>'
+
+
+# DPSetRenderMode.to_soh_xml
+def _DPSetRenderMode_to_soh_xml(self):
+    data = "<SetRenderMode "
+
+    if len(self.flagList) != 2:
+        raise PluginError("For a rendermode preset, only two fields should be used.")
+
+    for idx, name in enumerate(self.flagList):
+        data += f'Mode{(idx + 1)}="{name}" '
+
+    data += "/>"
+
+    return data
+
+
+# DPSetCombineMode.to_soh_xml
+def _DPSetCombineMode_to_soh_xml(self):
+    baseStr = '<SetCombineLERP A0="G_CCMUX_{a0}" B0="G_CCMUX_{b0}" C0="G_CCMUX_{c0}" D0="G_CCMUX_{d0}" Aa0="G_ACMUX_{aa0}" Ab0="G_ACMUX_{ab0}" Ac0="G_ACMUX_{ac0}" Ad0="G_ACMUX_{ad0}" A1="G_CCMUX_{a1}" B1="G_CCMUX_{b1}" C1="G_CCMUX_{c1}" D1="G_CCMUX_{d1}" Aa1="G_ACMUX_{aa1}" Ab1="G_ACMUX_{ab1}" Ac1="G_ACMUX_{ac1}" Ad1="G_ACMUX_{ad1}"/>'
+    data = baseStr.format(
+        a0=self.a0,
+        b0=self.b0,
+        c0=self.c0,
+        d0=self.d0,
+        aa0=self.Aa0,
+        ab0=self.Ab0,
+        ac0=self.Ac0,
+        ad0=self.Ad0,
+        a1=self.a1,
+        b1=self.b1,
+        c1=self.c1,
+        d1=self.d1,
+        aa1=self.Aa1,
+        ab1=self.Ab1,
+        ac1=self.Ac1,
+        ad1=self.Ad1,
+    )
+
+    return data
+
+
+# DPSetBlendColor.to_soh_xml
+def _DPSetBlendColor_to_soh_xml(self):
+    return f'<SetBlendColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"/>'
+
+
+# DPSetFogColor.to_soh_xml
+def _DPSetFogColor_to_soh_xml(self):
+    return '<SetFogColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"/>'
+
+
+# DPSetFillColor.to_soh_xml
+def _DPSetFillColor_to_soh_xml(self):
+    return f'<SetFillColor C="{self.d}"/>'
+
+
+# DPSetPrimDepth.to_soh_xml
+def _DPSetPrimDepth_to_soh_xml(self):
+    return f'<SetPrimDepth Z="{self.z}" DZ="{self.dz}"/>'
+
+
+# DPSetOtherMode.to_soh_xml
+def _DPSetOtherMode_to_soh_xml(self):
+    data = "<!-- SetOtherMode Not Implemented -->"
+    return data
+
+
+# DPSetTileSize.to_soh_xml
+def _DPSetTileSize_to_soh_xml(self):
+    return f'<SetTileSize T="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
+
+
+# DPSetTile.to_soh_xml
+def _DPSetTile_to_soh_xml(self):
+    baseStr = '<SetTile Format="{fmt}" Size="{siz}" Line="{line}" TMem="{tmem}" Tile="{tile}" Palette="{pal}" Cms0="{cms0}" Cms1="{cms1}" Cmt0="{cmt0}" Cmt1="{cmt1}" MaskS="{maskS}" ShiftS="{shiftS}" MaskT="{maskT}" ShiftT="{shiftT}"/>'
+    data = baseStr.format(
+        fmt=self.fmt,
+        siz=self.siz,
+        line=self.line,
+        tmem=self.tmem,
+        tile=self.tile,
+        pal=self.palette,
+        cms0=self.cms[0],
+        cms1=self.cms[1],
+        cmt0=self.cmt[0],
+        cmt1=self.cmt[1],
+        maskS=self.masks,
+        shiftS=self.shifts,
+        maskT=self.maskt,
+        shiftT=self.shiftt,
+    )
+
+    return data
+
+
+# DPLoadTextureBlock.to_soh_xml
+def _DPLoadTextureBlock_to_soh_xml(self):
+    data = '<LoadTextureBlock TImg="{timg}" Fmt="{fmt}" Siz="{siz}" Width="{width}" Height="{height}" Pal="{pal}" Cms0="{cms0}" Cms1="{cms1}" Cmt0="{cmt0}" Cmt1="{cmt0}" Masks="{masks}" Maskt="{maskt}" Shifts="{shifts}" Shiftt="{shift}" />'.format(
+        self.timg.name,
+        self.fmt,
+        self.width,
+        self.height,
+        self.pal,
+        self.cms[0],
+        self.cms[1],
+        self.cmt[0],
+        self.cmt[1],
+        self.masks,
+        self.maskt,
+        self.shifts,
+        self.shiftt,
+    )
+    return data
+
+
+# DPLoadTextureBlockYuv.to_soh_xml
+def _DPLoadTextureBlockYuv_to_soh_xml(self):
+    data = '<LoadTextureBlockYuv TImg="{timg}" Fmt="{fmt}" Siz="{siz}" Width="{width}" Height="{height}" Pal="{pal}" Cms0="{cms0}" Cms1="{cms1}" Cmt0="{cmt0}" Cmt1="{cmt0}" Masks="{masks}" Maskt="{maskt}" Shifts="{shifts}" Shiftt="{shift}" />'.format(
+        self.timg.name,
+        self.fmt,
+        self.width,
+        self.height,
+        self.pal,
+        self.cms[0],
+        self.cms[1],
+        self.cmt[0],
+        self.cmt[1],
+        self.masks,
+        self.maskt,
+        self.shifts,
+        self.shiftt,
+    )
+    return data
+
+
+# _DPLoadTextureBlock.to_soh_xml
+def __DPLoadTextureBlock_to_soh_xml(self):
+    data = '<TLoadTextureBlock TImg="{timg}" Fmt="{fmt}" Siz="{siz}" Width="{width}" Height="{height}" Pal="{pal}" Cms0="{cms0}" Cms1="{cms1}" Cmt0="{cmt0}" Cmt1="{cmt0}" Masks="{masks}" Maskt="{maskt}" Shifts="{shifts}" Shiftt="{shift}" />'.format(
+        self.timg.name,
+        self.fmt,
+        self.width,
+        self.height,
+        self.pal,
+        self.cms[0],
+        self.cms[1],
+        self.cmt[0],
+        self.cmt[1],
+        self.masks,
+        self.maskt,
+        self.shifts,
+        self.shiftt,
+    )
+    return data
+
+
+# DPLoadTextureBlock_4b.to_soh_xml
+def _DPLoadTextureBlock_4b_to_soh_xml(self):
+    data = '<LoadTextureBlock4b TImg="{timg}" Fmt="{fmt}" Siz="{siz}" Width="{width}" Height="{height}" Pal="{pal}" Cms0="{cms0}" Cms1="{cms1}" Cmt0="{cmt0}" Cmt1="{cmt0}" Masks="{masks}" Maskt="{maskt}" Shifts="{shifts}" Shiftt="{shift}" />'.format(
+        self.timg.name,
+        self.fmt,
+        self.width,
+        self.height,
+        self.pal,
+        self.cms[0],
+        self.cms[1],
+        self.cmt[0],
+        self.cmt[1],
+        self.masks,
+        self.maskt,
+        self.shifts,
+        self.shiftt,
+    )
+    return data
+
+
+# DPLoadTextureTile.to_soh_xml
+def _DPLoadTextureTile_to_soh_xml(self):
+    data = '<LoadTextureTile TImg="{timg}" Fmt="{fmt}" Siz="{siz}" Width="{width}" Height="{height}" Uls="{uls}" Ult="{ult}" Lrs="{lrs}" Lrt="{lrt}" Pal="{pal}" Cms0="{cms0}" Cms1="{cms1}" Cmt0="{cmt0}" Cmt1="{cmt0}" Masks="{masks}" Maskt="{maskt}" Shifts="{shifts}" Shiftt="{shift}" />'.format(
+        self.timg.name,
+        self.fmt,
+        self.width,
+        self.height,
+        self.uls,
+        self.ult,
+        self.lrs,
+        self.lrt,
+        self.pal,
+        self.cms[0],
+        self.cms[1],
+        self.cmt[0],
+        self.cmt[1],
+        self.masks,
+        self.maskt,
+        self.shifts,
+        self.shiftt,
+    )
+    return data
+
+
+# DPLoadTextureTile_4b.to_soh_xml
+def _DPLoadTextureTile_4b_to_soh_xml(self):
+    data = '<LoadTextureTile4b TImg="{timg}" Fmt="{fmt}" Siz="{siz}" Width="{width}" Height="{height}" Pal="{pal}" Cms0="{cms0}" Cms1="{cms1}" Cmt0="{cmt0}" Cmt1="{cmt0}" Masks="{masks}" Maskt="{maskt}" Shifts="{shifts}" Shiftt="{shift}" />'.format(
+        self.timg.name,
+        self.fmt,
+        self.width,
+        self.height,
+        self.pal,
+        self.cms[0],
+        self.cms[1],
+        self.cmt[0],
+        self.cmt[1],
+        self.masks,
+        self.maskt,
+        self.shifts,
+        self.shiftt,
+    )
+    return data
+
+
+# DPLoadTLUT_pal16.to_soh_xml
+def _DPLoadTLUT_pal16_to_soh_xml(self):
+    return f'<LoadTLUTPal16 Pal="{self.pal}" Dram="{self.dram.name}"/>'
+
+
+# DPLoadTLUT_pal256.to_soh_xml
+def _DPLoadTLUT_pal256_to_soh_xml(self):
+    return f'<LoadTLUTPal256 Dram="{self.dram.name}"/>'
+
+
+# DPLoadTLUT.to_soh_xml
+def _DPLoadTLUT_to_soh_xml(self):
+    return f'<LoadTlut Count="{self.count}" TMemAddr="{self.tmemaddr}" Dram="{self.dram.name}"/>'
+
+
+# DPSetConvert.to_soh_xml
+def _DPSetConvert_to_soh_xml(self):
+    return (
+        f'<SetConvert K0="{self.k0}" K1="{self.k1}" K2="{self.k2}" K3="{self.k3}" K4="{self.k4}" K5="{self.k5}"/>'
+    )
+
+
+# DPSetKeyR.to_soh_xml
+def _DPSetKeyR_to_soh_xml(self):
+    return f'<SetKeyA WR="{self.wr}" CR="{self.cr}" SR="{self.sr}"/>'
+
+
+# DPSetKeyGB.to_soh_xml
+def _DPSetKeyGB_to_soh_xml(self):
+    return f'<SetKeyGB CG="{self.cg}" SG="{self.sg}" WG="{self.wg}" CB="{self.cb}" SB="{self.sb}" WB="{self.wb}"/>'
+
+
+# SPTextureRectangle.to_soh_xml
+def _SPTextureRectangle_to_soh_xml(self):
+    return f'<TextureRectangle Ulx="{self.xl}" Uly="{self.yl}" Lrx="{self.xh}" Lry="{self.yh}" Tile="{self.tile}" S="{self.s}" T="{self.t}" Dsdx="{self.dsdx}" Dsdy="{self.dtdy}"/>'
+
+
+# SPScisTextureRectangle.to_soh_xml
+def _SPScisTextureRectangle_to_soh_xml(self):
+    return f'<ScisTextureRectangle Ulx="{self.xl}" Uly="{self.yl}" Lrx="{self.xh}" Lry="{self.yh}" Tile="{self.tile}" S="{self.s}" T="{self.t}" Dsdx="{self.dsdx}" Dsdy="{self.dtdy}"/>'
+
+
+# --- Patch registry ---
 
 
 _PATCHES = {
@@ -823,6 +1398,195 @@ _PATCHES = {
     },
     OOTLimb: {
         "toSohXML": _OOTLimb_toSohXML,
+    },
+    FTexRect: {
+        "to_soh_xml": _FTexRect_to_soh_xml,
+    },
+    FLODGroup: {
+        "to_soh_xml": _FLODGroup_to_soh_xml,
+    },
+    Light: {
+        "to_soh_xml": _Light_to_soh_xml,
+    },
+    Ambient: {
+        "to_soh_xml": _Ambient_to_soh_xml,
+    },
+    Hilite: {
+        "to_soh_xml": _Hilite_to_soh_xml,
+    },
+    Lights: {
+        "to_soh_xml": _Lights_to_soh_xml,
+    },
+    LookAt: {
+        "to_soh_xml": _LookAt_to_soh_xml,
+    },
+    SPMatrix: {
+        "to_soh_xml": _SPMatrix_to_soh_xml,
+    },
+    SPViewport: {
+        "to_soh_xml": _SPViewport_to_soh_xml,
+    },
+    SPDisplayList: {
+        "to_soh_xml": _SPDisplayList_to_soh_xml,
+    },
+    SPLine3D: {
+        "to_soh_xml": _SPLine3D_to_soh_xml,
+    },
+    SPLineW3D: {
+        "to_soh_xml": _SPLineW3D_to_soh_xml,
+    },
+    SPSegment: {
+        "to_soh_xml": _SPSegment_to_soh_xml,
+    },
+    SPClipRatio: {
+        "to_soh_xml": _SPClipRatio_to_soh_xml,
+    },
+    SPAlphaCompareCull: {
+        "to_soh_xml": _SPAlphaCompareCull_to_soh_xml,
+    },
+    SPModifyVertex: {
+        "to_soh_xml": _SPModifyVertex_to_soh_xml,
+    },
+    SPBranchLessZraw: {
+        "to_soh_xml": _SPBranchLessZraw_to_soh_xml,
+    },
+    SPNumLights: {
+        "to_soh_xml": _SPNumLights_to_soh_xml,
+    },
+    SPLight: {
+        "to_soh_xml": _SPLight_to_soh_xml,
+    },
+    SPLightColor: {
+        "to_soh_xml": _SPLightColor_to_soh_xml,
+    },
+    SPSetLights: {
+        "to_soh_xml": _SPSetLights_to_soh_xml,
+    },
+    SPLookAt: {
+        "to_soh_xml": _SPLookAt_to_soh_xml,
+    },
+    DPSetHilite1Tile: {
+        "to_soh_xml": _DPSetHilite1Tile_to_soh_xml,
+    },
+    DPSetHilite2Tile: {
+        "to_soh_xml": _DPSetHilite2Tile_to_soh_xml,
+    },
+    SPFogFactor: {
+        "to_soh_xml": _SPFogFactor_to_soh_xml,
+    },
+    SPFogPosition: {
+        "to_soh_xml": _SPFogPosition_to_soh_xml,
+    },
+    SPPerspNormalize: {
+        "to_soh_xml": _SPPerspNormalize_to_soh_xml,
+    },
+    SPGeometryMode: {
+        "to_soh_xml": _SPGeometryMode_to_soh_xml,
+    },
+    DPPipelineMode: {
+        "to_soh_xml": _DPPipelineMode_to_soh_xml,
+    },
+    DPSetCycleType: {
+        "to_soh_xml": _DPSetCycleType_to_soh_xml,
+    },
+    DPSetTexturePersp: {
+        "to_soh_xml": _DPSetTexturePersp_to_soh_xml,
+    },
+    DPSetTextureDetail: {
+        "to_soh_xml": _DPSetTextureDetail_to_soh_xml,
+    },
+    DPSetTextureLOD: {
+        "to_soh_xml": _DPSetTextureLOD_to_soh_xml,
+    },
+    DPSetTextureFilter: {
+        "to_soh_xml": _DPSetTextureFilter_to_soh_xml,
+    },
+    DPSetTextureConvert: {
+        "to_soh_xml": _DPSetTextureConvert_to_soh_xml,
+    },
+    DPSetCombineKey: {
+        "to_soh_xml": _DPSetCombineKey_to_soh_xml,
+    },
+    DPSetColorDither: {
+        "to_soh_xml": _DPSetColorDither_to_soh_xml,
+    },
+    DPSetAlphaDither: {
+        "to_soh_xml": _DPSetAlphaDither_to_soh_xml,
+    },
+    DPSetAlphaCompare: {
+        "to_soh_xml": _DPSetAlphaCompare_to_soh_xml,
+    },
+    DPSetDepthSource: {
+        "to_soh_xml": _DPSetDepthSource_to_soh_xml,
+    },
+    DPSetRenderMode: {
+        "to_soh_xml": _DPSetRenderMode_to_soh_xml,
+    },
+    DPSetCombineMode: {
+        "to_soh_xml": _DPSetCombineMode_to_soh_xml,
+    },
+    DPSetBlendColor: {
+        "to_soh_xml": _DPSetBlendColor_to_soh_xml,
+    },
+    DPSetFogColor: {
+        "to_soh_xml": _DPSetFogColor_to_soh_xml,
+    },
+    DPSetFillColor: {
+        "to_soh_xml": _DPSetFillColor_to_soh_xml,
+    },
+    DPSetPrimDepth: {
+        "to_soh_xml": _DPSetPrimDepth_to_soh_xml,
+    },
+    DPSetOtherMode: {
+        "to_soh_xml": _DPSetOtherMode_to_soh_xml,
+    },
+    DPSetTileSize: {
+        "to_soh_xml": _DPSetTileSize_to_soh_xml,
+    },
+    DPSetTile: {
+        "to_soh_xml": _DPSetTile_to_soh_xml,
+    },
+    DPLoadTextureBlock: {
+        "to_soh_xml": _DPLoadTextureBlock_to_soh_xml,
+    },
+    DPLoadTextureBlockYuv: {
+        "to_soh_xml": _DPLoadTextureBlockYuv_to_soh_xml,
+    },
+    _DPLoadTextureBlock: {
+        "to_soh_xml": __DPLoadTextureBlock_to_soh_xml,
+    },
+    DPLoadTextureBlock_4b: {
+        "to_soh_xml": _DPLoadTextureBlock_4b_to_soh_xml,
+    },
+    DPLoadTextureTile: {
+        "to_soh_xml": _DPLoadTextureTile_to_soh_xml,
+    },
+    DPLoadTextureTile_4b: {
+        "to_soh_xml": _DPLoadTextureTile_4b_to_soh_xml,
+    },
+    DPLoadTLUT_pal16: {
+        "to_soh_xml": _DPLoadTLUT_pal16_to_soh_xml,
+    },
+    DPLoadTLUT_pal256: {
+        "to_soh_xml": _DPLoadTLUT_pal256_to_soh_xml,
+    },
+    DPLoadTLUT: {
+        "to_soh_xml": _DPLoadTLUT_to_soh_xml,
+    },
+    DPSetConvert: {
+        "to_soh_xml": _DPSetConvert_to_soh_xml,
+    },
+    DPSetKeyR: {
+        "to_soh_xml": _DPSetKeyR_to_soh_xml,
+    },
+    DPSetKeyGB: {
+        "to_soh_xml": _DPSetKeyGB_to_soh_xml,
+    },
+    SPTextureRectangle: {
+        "to_soh_xml": _SPTextureRectangle_to_soh_xml,
+    },
+    SPScisTextureRectangle: {
+        "to_soh_xml": _SPScisTextureRectangle_to_soh_xml,
     },
 }
 
