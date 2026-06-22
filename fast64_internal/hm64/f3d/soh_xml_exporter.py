@@ -157,6 +157,8 @@ def _get_cosmetic_manifest_path(modelDirPath: str, objectPath: str) -> str:
 
     manifest_root = model_path.parent if model_path.name.lower() == "alt" else model_path
     return str(manifest_root / "CosmeticEntries")
+
+
 def _read_existing_cosmetic_manifest_entries(manifestPath: str) -> list[dict[str, str]]:
     if not os.path.exists(manifestPath):
         return []
