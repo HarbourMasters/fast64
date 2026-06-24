@@ -6,7 +6,7 @@ from bpy.utils import register_class, unregister_class
 from ...f3d.f3d_material import ootEnumDrawLayers
 from ...utility import prop_split
 from ..utility import is_hm64
-from .constants import ootEnumSkeletonImportMode
+from .constants import get_skeleton_mode_items
 
 
 ootEnumBoneType = [
@@ -57,7 +57,7 @@ class OOTSkeletonExportSettings(PropertyGroup):
         name="Use Custom Filename", description="Override filename instead of basing it off of the Blender name"
     )
     filename: StringProperty(name="Filename")
-    mode: EnumProperty(name="Mode", items=ootEnumSkeletonImportMode)
+    mode: EnumProperty(name="Mode", items=get_skeleton_mode_items)
     folder: StringProperty(name="Skeleton Folder", default="object_geldb")
     customPath: StringProperty(name="Custom Skeleton Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
@@ -115,7 +115,7 @@ class OOTSkeletonExportSettings(PropertyGroup):
 
 
 class OOTSkeletonImportSettings(PropertyGroup):
-    mode: EnumProperty(name="Mode", items=ootEnumSkeletonImportMode)
+    mode: EnumProperty(name="Mode", items=get_skeleton_mode_items)
     applyRestPose: BoolProperty(name="Apply Friendly Rest Pose (If Available)", default=True)
     name: StringProperty(name="Skeleton Name", default="gGerudoRedSkel")
     folder: StringProperty(name="Skeleton Folder", default="object_geldb")
