@@ -851,6 +851,34 @@ class F3DContext:
         self.materials.append(materialCopy)
         self.materialDict[self.getMaterialKey(materialCopy)] = materialCopy
 
+    def deduplicateMaterials(self):
+        if len(self.materials) == 0:
+            return
+
+        dedupedMaterials: list[bpy.types.Material] = []
+        materialIndexRemap: dict[int, int] = {}
+        materialByKey: dict[F3DMaterialHash, tuple[int, bpy.types.Material]] = {}
+        duplicateMaterials: list[bpy.types.Material] = []
+
+        for index, material in enumerate(self.materials):
+            key = self.getMaterialKey(material)
+            existing = materialByKey.get(key)
+            if existing is None:
+                materialByKey[key] = (len(dedupedMaterials), material)
+                materialIndexRemap[index] = len(dedupedMaterials)
+                dedupedMaterials.append(material)
+            else:
+                materialIndexRemap[index] = existing[0]
+                if material != existing[1]:
+                    duplicateMaterials.append(material)
+
+        self.materials = dedupedMaterials
+        self.triMatIndices = [materialIndexRemap.get(index, 0) for index in self.triMatIndices]
+
+        for material in duplicateMaterials:
+            if material.users == 0:
+                bpy.data.materials.remove(material)
+
     def getSizeMacro(self, size: str, suffix: str):
         if hasattr(self.f3d, size):
             return getattr(self.f3d, size + suffix)
@@ -1889,6 +1917,8 @@ class F3DContext:
         for groupName, indices in self.limbGroups.items():
             group = obj.vertex_groups.new(name=self.limbToBoneName[groupName])
             group.add(indices, 1, "REPLACE")
+
+        self.deduplicateMaterials()
 
         for i in range(len(mesh.polygons)):
             mesh.polygons[i].material_index = self.triMatIndices[i]
