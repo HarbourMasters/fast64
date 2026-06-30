@@ -6,7 +6,9 @@ All methods are removed at unregistration time.
 import os
 import bpy
 from html import escape
+from pathlib import Path
 from struct import pack
+import xml.etree.ElementTree as ET
 
 from ...f3d.f3d_gbi import (
     DPFullSync,
@@ -135,6 +137,129 @@ def getDynamicCosmeticXmlAttrs(cosmeticEntry: str, cosmeticCategory: str):
     if category:
         attrs += f' CosmeticCategory="{category}"'
     return attrs
+
+
+def _get_cosmetic_manifest_path(modelDirPath: str, objectPath: str) -> str:
+    model_path = Path(modelDirPath)
+    object_parts = [part for part in (objectPath or "").replace("\\", "/").split("/") if part]
+    if not object_parts:
+        manifest_root = model_path.parent if model_path.name.lower() == "alt" else model_path
+        return str(manifest_root / "CosmeticEntries")
+
+    model_parts = list(model_path.parts)
+    if len(model_parts) >= len(object_parts):
+        tail = model_parts[-len(object_parts) :]
+        if [part.lower() for part in tail] == [part.lower() for part in object_parts]:
+            manifest_root = Path(*model_parts[: len(model_parts) - len(object_parts)])
+            if manifest_root.name.lower() == "alt":
+                manifest_root = manifest_root.parent
+            return str(manifest_root / "CosmeticEntries")
+
+    manifest_root = model_path.parent if model_path.name.lower() == "alt" else model_path
+    return str(manifest_root / "CosmeticEntries")
+
+
+def _read_existing_cosmetic_manifest_entries(manifestPath: str) -> list[dict[str, str]]:
+    if not os.path.exists(manifestPath):
+        return []
+
+    try:
+        root = ET.parse(manifestPath).getroot()
+    except ET.ParseError as exc:
+        raise PluginError(f"Unable to parse existing cosmetic manifest at {manifestPath}: {exc}") from exc
+
+    if root.tag != "CustomCosmetics":
+        raise PluginError(f'Unexpected cosmetic manifest root "{root.tag}" in {manifestPath}.')
+
+    entries: list[dict[str, str]] = []
+    for entry in root.findall("Entry"):
+        entries.append(
+            {
+                "CosmeticCategory": entry.get("CosmeticCategory", ""),
+                "CosmeticEntry": entry.get("CosmeticEntry", ""),
+                "MaterialPath": entry.get("MaterialPath", ""),
+                "CosmeticType": entry.get("CosmeticType", ""),
+            }
+        )
+    return entries
+
+
+def _serialize_cosmetic_manifest(entries: list[dict[str, str]]) -> str:
+    lines = ["<CustomCosmetics>"]
+    for entry in entries:
+        attrs = " ".join(
+            [
+                f'CosmeticCategory="{escape(entry["CosmeticCategory"], quote=True)}"',
+                f'CosmeticEntry="{escape(entry["CosmeticEntry"], quote=True)}"',
+                f'MaterialPath="{escape(entry["MaterialPath"], quote=True)}"',
+                f'CosmeticType="{escape(entry["CosmeticType"], quote=True)}"',
+            ]
+        )
+        lines.append(f"	<Entry {attrs} />")
+    lines.append("</CustomCosmetics>")
+    return "\n".join(lines)
+
+
+def _collect_material_cosmetic_manifest_entries(fMaterial, objectPath: str) -> list[dict[str, str]]:
+    materialPath = format_asset_path(objectPath, fMaterial.material.name)
+    entries: list[dict[str, str]] = []
+
+    for command in fMaterial.material.commands:
+        cosmeticType = None
+        if isinstance(command, DPSetPrimColor):
+            cosmeticType = "Prim"
+        elif isinstance(command, DPSetEnvColor):
+            cosmeticType = "Env"
+
+        if cosmeticType is None:
+            continue
+
+        cosmeticEntry = (getattr(command, "cosmeticEntry", "") or "").strip()
+        if not cosmeticEntry:
+            continue
+
+        entries.append(
+            {
+                "CosmeticCategory": (getattr(command, "cosmeticCategory", "") or "").strip(),
+                "CosmeticEntry": cosmeticEntry,
+                "MaterialPath": materialPath,
+                "CosmeticType": cosmeticType,
+            }
+        )
+
+    return entries
+
+
+def _write_custom_cosmetics_manifest(modelDirPath: str, objectPath: str, manifestEntries: list[dict[str, str]]):
+    if not manifestEntries:
+        return
+
+    manifestPath = _get_cosmetic_manifest_path(modelDirPath, objectPath)
+    existingEntries = _read_existing_cosmetic_manifest_entries(manifestPath)
+    mergedEntries = list(existingEntries)
+    existingKeys = {
+        (
+            entry["CosmeticCategory"],
+            entry["CosmeticEntry"],
+            entry["MaterialPath"],
+            entry["CosmeticType"],
+        )
+        for entry in existingEntries
+    }
+
+    for entry in manifestEntries:
+        key = (
+            entry["CosmeticCategory"],
+            entry["CosmeticEntry"],
+            entry["MaterialPath"],
+            entry["CosmeticType"],
+        )
+        if key in existingKeys:
+            continue
+        existingKeys.add(key)
+        mergedEntries.append(entry)
+
+    writeXMLData(_serialize_cosmetic_manifest(mergedEntries), manifestPath)
 
 
 # --- Extracted methods ---
@@ -509,6 +634,11 @@ def _FMaterial_to_soh_xml(self, modelDirPath, objectPath):
             scrollData = self.scrollData.to_soh_xml()
             matData = matData.replace("</DisplayList>", scrollData + "</DisplayList>")
         writeXMLData(matData, os.path.join(modelDirPath, self.material.name))
+        _write_custom_cosmetics_manifest(
+            modelDirPath,
+            objectPath,
+            _collect_material_cosmetic_manifest_entries(self, objectPath),
+        )
 
     if self.revert is not None and self.revert.tag.Export:
         revData = self.revert.to_soh_xml(modelDirPath, objectPath)
