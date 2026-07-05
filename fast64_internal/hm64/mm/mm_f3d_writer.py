@@ -17,6 +17,11 @@ from ...f3d.f3d_material import (
 from ...f3d.f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingleLargeTextureSetup
 from ...f3d.f3d_gbi import *
 from ...f3d.f3d_bleed import BleedGraphics, get_geo_cmds
+from ...f3d.f3d_writer import (
+    exportF3DtoC as shared_exportF3DtoC,
+    getWriteMethodFromEnum as shared_getWriteMethodFromEnum,
+    removeDL as shared_removeDL,
+)
 
 from ...utility import *
 
@@ -1820,76 +1825,17 @@ matWriteMethodEnumDict = {"Differing": GfxMatWriteMethod.WriteDifferingAndRevert
 
 
 def getWriteMethodFromEnum(enumVal):
-    if enumVal not in matWriteMethodEnumDict:
-        raise PluginError("Enum value " + str(enumVal) + " not found in material write method dict.")
-    else:
-        return matWriteMethodEnumDict[enumVal]
+    return shared_getWriteMethodFromEnum(enumVal)
 
 
 def exportF3DtoC(dirPath, obj, DLFormat, transformMatrix, texDir, savePNG, texSeparate, name, matWriteMethod):
-    inline = bpy.context.scene.exportInlineF3D
-    fModel = FModel(name, DLFormat, matWriteMethod)
-    fMeshes = exportF3DCommon(obj, fModel, transformMatrix, True, name, DLFormat, not savePNG)
-
-    if inline:
-        bleed_gfx = BleedGraphics()
-        bleed_gfx.bleed_fModel(fModel, fMeshes)
-
-    modelDirPath = os.path.join(dirPath, toAlnum(name))
-
-    if not os.path.exists(modelDirPath):
-        os.makedirs(modelDirPath)
-
-    gfxFormatter = GfxFormatter(ScrollMethod.Vertex, 64, None)
-    exportData = fModel.to_c(TextureExportSettings(texSeparate, savePNG, texDir, modelDirPath), gfxFormatter)
-    staticData = exportData.staticData
-    dynamicData = exportData.dynamicData
-    texC = exportData.textureData
-
-    if DLFormat == DLFormat.Static:
-        staticData.append(dynamicData)
-    else:
-        geoString = writeMaterialFiles(
-            dirPath,
-            modelDirPath,
-            '#include "actors/' + toAlnum(name) + '/header.h"',
-            '#include "actors/' + toAlnum(name) + '/material.inc.h"',
-            dynamicData.header,
-            dynamicData.source,
-            "",
-            True,
-        )
-
-    if texSeparate:
-        texCFile = open(os.path.join(modelDirPath, "texture.inc.c"), "w", newline="\n")
-        texCFile.write(texC.source)
-        texCFile.close()
-
-    writeCData(staticData, os.path.join(modelDirPath, "header.h"), os.path.join(modelDirPath, "model.inc.c"))
+    return shared_exportF3DtoC(
+        dirPath, obj, DLFormat, transformMatrix, texDir, savePNG, texSeparate, name, matWriteMethod
+    )
 
 
 def removeDL(sourcePath, headerPath, DLName):
-    DLDataC = readFile(sourcePath)
-    originalDataC = DLDataC
-
-    DLDataH = readFile(headerPath)
-    originalDataH = DLDataH
-
-    matchResult = re.search(
-        "Gfx\s*" + re.escape(DLName) + "\s*\[\s*[0-9x]*\s*\]\s*=\s*\{([^}]*)}\s*;\s*", DLDataC, re.DOTALL
-    )
-    if matchResult is not None:
-        DLDataC = DLDataC[: matchResult.start(0)] + DLDataC[matchResult.end(0) :]
-
-    headerMatch = getDeclaration(DLDataH, DLName)
-    if headerMatch is not None:
-        DLDataH = DLDataH[: headerMatch.start(0)] + DLDataH[headerMatch.end(0) :]
-
-    if DLDataC != originalDataC:
-        writeFile(sourcePath, DLDataC)
-
-    if DLDataH != originalDataH:
-        writeFile(headerPath, DLDataH)
+    return shared_removeDL(sourcePath, headerPath, DLName)
 
 
 class F3D_ExportDL(bpy.types.Operator):
