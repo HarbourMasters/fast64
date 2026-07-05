@@ -473,13 +473,9 @@ def _FModel_save_soh_palettes(self, exportPath):
         if getattr(texture, "skip_export", False):
             continue
 
-        palette_name = texture.filename or texture.name
-        if not palette_name:
+        palette_filename = texture.name or texture.filename
+        if not palette_filename:
             continue
-        if palette_name.endswith(".inc.c"):
-            palette_filename = palette_name[:-6]
-        else:
-            palette_filename = os.path.splitext(palette_name)[0]
 
         fmt_code = -1
         if texture.fmt == "G_IM_FMT_RGBA":
