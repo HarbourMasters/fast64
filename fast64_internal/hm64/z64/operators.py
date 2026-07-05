@@ -4,7 +4,7 @@ import bpy
 import os
 
 from ...utility import PluginError, writeXMLData, toAlnum
-from ...f3d.f3d_gbi import DLFormat
+from ...f3d.f3d_gbi import DLFormat, SPClearGeometryMode, SPSetGeometryMode
 from ...f3d.f3d_writer import TriangleConverterInfo, saveStaticModel, getInfoDict
 from ...z64.utility import getOOTScale, checkEmptyName
 from ...z64.model_classes import OOTModel
@@ -74,6 +74,20 @@ def resolve_dl_export_name(originalObj: bpy.types.Object, settings: "OOTDLExport
     return toAlnum(originalObj.name)
 
 
+def strip_hm64_xml_cull_preamble(fMesh):
+    commands = fMesh.draw.commands
+    if len(commands) < 4:
+        return
+
+    if (
+        isinstance(commands[0], SPClearGeometryMode)
+        and set(commands[0].flagList) == {"G_LIGHTING"}
+        and isinstance(commands[2], SPSetGeometryMode)
+        and set(commands[2].flagList) == {"G_LIGHTING"}
+    ):
+        del commands[:4]
+
+
 def ootConvertMeshToXML(
     originalObj: bpy.types.Object,
     finalTransform,
@@ -98,6 +112,7 @@ def ootConvertMeshToXML(
         fMeshes = saveStaticModel(triConverterInfo, fModel, obj, finalTransform, fModel.name, not savePNG, False, None)
 
         for fMesh in fMeshes.values():
+            strip_hm64_xml_cull_preamble(fMesh)
             fMesh.draw.name = name
 
         ootCleanupScene(originalObj, allObjs)
