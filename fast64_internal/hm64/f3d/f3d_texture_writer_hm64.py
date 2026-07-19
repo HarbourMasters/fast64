@@ -227,7 +227,9 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
     loadGfx = fMaterial.texture_DL
     f3d = fModel.f3d
     if self.loadPal:
-        load_tlut_cmd = base.savePaletteLoad(loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d)
+        load_tlut_cmd = base.savePaletteLoad(
+            loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d
+        )
         override = getattr(self.texProp, "palette_color_count", None) if self.texProp is not None else None
         if load_tlut_cmd is not None:
             load_tlut_cmd.count = max(0, min((override if override is not None else self.palLen - 1), 255))
