@@ -16,7 +16,9 @@ from ...f3d.f3d_material import (
 )
 from ...f3d.f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingleLargeTextureSetup
 from ...f3d.f3d_gbi import *
-from ...f3d.f3d_bleed import BleedGraphics, get_geo_cmds
+from ..f3d.f3d_gbi_hm64 import make_env_color, make_prim_color
+from ..f3d.f3d_material_hm64 import is_hm64_feature_set
+from ..f3d.hm64_bleed import get_geo_cmds
 from ...f3d.f3d_writer import (
     exportF3DtoC as shared_exportF3DtoC,
     getWriteMethodFromEnum as shared_getWriteMethodFromEnum,
@@ -1342,7 +1344,8 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
             fLights = saveLightsDefinition(fModel, fMaterial, f3dMat, materialName + "_lights")
             fMaterial.mat_only_DL.commands.extend([SPSetLights(fLights)])
 
-    fMaterial.revert.commands.append(DPPipeSync())
+    if fMaterial.revert is not None:
+        fMaterial.revert.commands.append(DPPipeSync())
 
     fMaterial.getScrollData(material, getMaterialScrollDimensions(f3dMat))
 
@@ -1471,16 +1474,20 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     nodes = material.node_tree.nodes
     if useDict["Primitive"] and f3dMat.set_prim:
         color = exportColor(f3dMat.prim_color[0:3]) + [scaleToU8(f3dMat.prim_color[3])]
-        fMaterial.mat_only_DL.commands.append(
-            DPSetPrimColor(
+        fMaterial.texture_DL.commands.append(
+            make_prim_color(
                 scaleToU8(f3dMat.prim_lod_min),
                 scaleToU8(f3dMat.prim_lod_frac),
                 *color,
                 cosmeticEntry=(
-                    f3dMat.prim_dynamic_entry_name if is_hm64_feature_set() and f3dMat.prim_dynamic_entry else ""
+                    getattr(f3dMat, "prim_dynamic_entry_name", "")
+                    if is_hm64_feature_set() and getattr(f3dMat, "prim_dynamic_entry", False)
+                    else ""
                 ),
                 cosmeticCategory=(
-                    f3dMat.prim_dynamic_entry_category if is_hm64_feature_set() and f3dMat.prim_dynamic_entry else ""
+                    getattr(f3dMat, "prim_dynamic_entry_category", "")
+                    if is_hm64_feature_set() and getattr(f3dMat, "prim_dynamic_entry", False)
+                    else ""
                 ),
             )
         )
@@ -1488,13 +1495,17 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     if useDict["Environment"] and f3dMat.set_env:
         color = exportColor(f3dMat.env_color[0:3]) + [scaleToU8(f3dMat.env_color[3])]
         fMaterial.mat_only_DL.commands.append(
-            DPSetEnvColor(
+            make_env_color(
                 *color,
                 cosmeticEntry=(
-                    f3dMat.env_dynamic_entry_name if is_hm64_feature_set() and f3dMat.env_dynamic_entry else ""
+                    getattr(f3dMat, "env_dynamic_entry_name", "")
+                    if is_hm64_feature_set() and getattr(f3dMat, "env_dynamic_entry", False)
+                    else ""
                 ),
                 cosmeticCategory=(
-                    f3dMat.env_dynamic_entry_category if is_hm64_feature_set() and f3dMat.env_dynamic_entry else ""
+                    getattr(f3dMat, "env_dynamic_entry_category", "")
+                    if is_hm64_feature_set() and getattr(f3dMat, "env_dynamic_entry", False)
+                    else ""
                 ),
             )
         )
@@ -1548,7 +1559,7 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         fMaterial.material.commands.append(SPEndDisplayList())
 
     # revertMatAndEndDraw(fMaterial.revert)
-    if len(fMaterial.revert.commands) > 1:  # 1 being the pipe sync
+    if fMaterial.revert is not None and len(fMaterial.revert.commands) > 1:  # 1 being the pipe sync
         if fMaterial.DLFormat == DLFormat.Static:
             fMaterial.revert.commands.append(SPEndDisplayList())
     else:
@@ -1648,13 +1659,15 @@ def saveGeoModeDefinition(fMaterial, settings, defaults, matWriteMethod, is_ex2:
 
     material, revert = get_geo_cmds(clear_modes, set_modes, is_ex2, matWriteMethod)
     fMaterial.mat_only_DL.commands.extend(material)
-    fMaterial.revert.commands.extend(revert)
+    if fMaterial.revert is not None:
+        fMaterial.revert.commands.extend(revert)
 
 
 def saveModeSetting(fMaterial, value, defaultValue, cmdClass):
     if value != defaultValue:
         fMaterial.mat_only_DL.commands.append(cmdClass(value))
-        fMaterial.revert.commands.append(cmdClass(defaultValue))
+        if fMaterial.revert is not None:
+            fMaterial.revert.commands.append(cmdClass(defaultValue))
 
 
 def saveOtherModeHDefinition(fMaterial, settings, tlut, defaults, matWriteMethod, f3d):
@@ -1722,7 +1735,8 @@ def saveOtherModeLDefinitionAll(fMaterial: FMaterial, settings, defaults, defaul
                 32 - f3d.F3D_OLD_GBI,
                 {*defaultRenderMode, defaults.g_mdsft_alpha_compare, defaults.g_mdsft_zsrcsel},
             )
-            fMaterial.revert.commands.append(revert_cmd)
+            if fMaterial.revert is not None:
+                fMaterial.revert.commands.append(revert_cmd)
         flagList, blender = getRenderModeFlagList(settings, fMaterial)
         cmd.flagList.update(flagList)
         if blender is not None:
@@ -1737,7 +1751,8 @@ def saveOtherModeLDefinitionIndividual(fMaterial, settings, defaults, defaultRen
 
     if settings.g_mdsft_zsrcsel == "G_ZS_PRIM":
         fMaterial.mat_only_DL.commands.append(DPSetPrimDepth(z=settings.prim_depth.z, dz=settings.prim_depth.dz))
-        fMaterial.revert.commands.append(DPSetPrimDepth())
+        if fMaterial.revert is not None:
+            fMaterial.revert.commands.append(DPSetPrimDepth())
 
     if settings.set_rendermode:
         flagList, blender = getRenderModeFlagList(settings, fMaterial)
@@ -1745,7 +1760,8 @@ def saveOtherModeLDefinitionIndividual(fMaterial, settings, defaults, defaultRen
 
         fMaterial.mat_only_DL.commands.append(renderModeSet)
         if defaultRenderMode is not None:
-            fMaterial.revert.commands.append(DPSetRenderMode(defaultRenderMode, None))
+            if fMaterial.revert is not None:
+                fMaterial.revert.commands.append(DPSetRenderMode(defaultRenderMode, None))
 
 
 def getRenderModeFlagList(settings, fMaterial):
@@ -1803,7 +1819,8 @@ def saveOtherDefinition(fMaterial, material, defaults):
     settings = material.rdp_settings
     if settings.clip_ratio != defaults.clip_ratio:
         fMaterial.mat_only_DL.commands.append(SPClipRatio(settings.clip_ratio))
-        fMaterial.revert.commands.append(SPClipRatio(defaults.clip_ratio))
+        if fMaterial.revert is not None:
+            fMaterial.revert.commands.append(SPClipRatio(defaults.clip_ratio))
 
     if material.set_blend:
         fMaterial.mat_only_DL.commands.append(
@@ -1940,10 +1957,14 @@ def f3d_writer_register():
         register_class(cls)
 
     bpy.types.Scene.matWriteMethod = bpy.props.EnumProperty(items=enumMatWriteMethod)
+    bpy.types.Scene.DLExportPath = bpy.props.StringProperty(name="Directory", subtype="FILE_PATH")
+    bpy.types.Scene.DLTexDir = bpy.props.StringProperty(name="Include Path", default="levels/bob")
 
 
 def f3d_writer_unregister():
     for cls in reversed(f3d_writer_classes):
         unregister_class(cls)
 
+    del bpy.types.Scene.DLTexDir
+    del bpy.types.Scene.DLExportPath
     del bpy.types.Scene.matWriteMethod

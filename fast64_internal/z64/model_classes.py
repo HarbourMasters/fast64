@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from ..f3d.f3d_parser import F3DContext, F3DTextureReference, getImportData
 from ..f3d.f3d_material import TextureProperty, createF3DMat, texFormatOf, texBitSizeF3D
-from ..utility import PluginError, hexOrDecInt, create_or_get_world, indent
+from ..utility import PluginError, hexOrDecInt, create_or_get_world, indent, oot_get_assets_path
 from ..f3d.flipbook import TextureFlipbook, usesFlipbook, ootFlipbookReferenceIsValid
 
 from ..f3d.f3d_writer import VertexGroupInfo, TriangleConverterInfo
@@ -42,39 +42,42 @@ from .utility import is_hackeroot
 
 
 # read included asset data
-def ootGetIncludedAssetData(
-    basePath: Union[str, os.PathLike, list[Union[str, os.PathLike]]], currentPaths: list[str], data: str
-) -> str:
+def ootGetIncludedAssetData(basePaths: list[str], currentPaths: list[str], data: str) -> str:
     includeData = ""
-    basePaths = basePath if isinstance(basePath, list) else [basePath]
     searchedPaths = currentPaths[:]
 
     print("Included paths:")
-    extracted_path = f"{bpy.context.scene.fast64.oot.get_extracted_path()}/"
 
     # search assets
     for includeMatch in re.finditer(r"\#include\s*\"(assets/objects/(.*?)\.h)\"", data):
-        for basePathItem in basePaths:
-            h_p = Path(basePathItem) / includeMatch.group(1)
-            print("", str(h_p))
-            includeData += getImportData([str(h_p)]) + "\n"
-            for path_p in h_p.parent.glob("*.c"):
-                path = str(path_p)
-                if path in searchedPaths:
-                    continue
-                searchedPaths.append(path)
-                subIncludeData = getImportData([path]) + "\n"
-                includeData += subIncludeData
-                print(" ", path)
+        h_p = None
+        for basePath in basePaths:
+            candidate_h_p = Path(basePath) / includeMatch.group(1)
+            if candidate_h_p.exists():
+                h_p = candidate_h_p
+                break
+        if h_p is None:
+            print("Could not find included file:", includeMatch.group(1))
+            continue
+        print("", str(h_p))
+        includeData += getImportData([str(h_p)]) + "\n"
+        for path_p in h_p.parent.glob("*.c"):
+            path = str(path_p)
+            if path in searchedPaths:
+                continue
+            searchedPaths.append(path)
+            subIncludeData = getImportData([path]) + "\n"
+            includeData += subIncludeData
+            print(" ", path)
 
-                for subIncludeMatch in re.finditer(r"\#include\s*\"(((?![/\"]).)*\.[ch])\"", subIncludeData):
-                    sub_inc_p = Path(path).parent / subIncludeMatch.group(1)
-                    subPath = str(sub_inc_p)
-                    if subPath in searchedPaths:
-                        continue
-                    searchedPaths.append(subPath)
-                    print("   ", subPath)
-                    includeData += getImportData([subPath]) + "\n"
+            for subIncludeMatch in re.finditer(r"\#include\s*\"(((?![/\"]).)*\.[ch])\"", subIncludeData):
+                sub_inc_p = Path(path).parent / subIncludeMatch.group(1)
+                subPath = str(sub_inc_p)
+                if subPath in searchedPaths:
+                    continue
+                searchedPaths.append(subPath)
+                print("   ", subPath)
+                includeData += getImportData([subPath]) + "\n"
 
     print("More included paths:")
 
@@ -385,11 +388,6 @@ class OOTF3DContext(F3DContext):
         self.dlList = []  # in the order they are rendered
         self.isBillboard = False
         self.flipbooks = {}  # {(segment, draw layer) : TextureFlipbook}
-        self.ignored_dl_names: set[str] = set()
-
-        # the new assets system extracts CI textures as PNGs with the TLUT already applied
-        # so we need to avoid reading TLUTs as the files don't exist outside the build folder
-        self.ignore_tlut = False
 
         # the new assets system extracts CI textures as PNGs with the TLUT already applied
         # so we need to avoid reading TLUTs as the files don't exist outside the build folder
@@ -413,6 +411,12 @@ class OOTF3DContext(F3DContext):
         else:
             return F3DContext.vertexFormatPatterns(self, data)
 
+    def resolveVTXIncludePath(self, path: str) -> str:
+        return str(oot_get_assets_path(path, check_exists=False))
+
+    def resolveTextureIncludePath(self, path: str) -> tuple[str, bool]:
+        return str(oot_get_assets_path(path, check_exists=False)), True
+
     # For game specific instance, override this to be able to identify which verts belong to which bone.
     def setCurrentTransform(self, name, flagList="G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW"):
         if name[:4].lower() == "0x0d":
@@ -433,9 +437,6 @@ class OOTF3DContext(F3DContext):
             try:
                 pointer = hexOrDecInt(name)
             except:
-                if name == "&gLinkHumanSheathedKokiriSwordMtx":
-                    self.matrixData[name] = mathutils.Matrix.Identity(4)
-                    self.limbToBoneName[name] = name
                 F3DContext.setCurrentTransform(self, name, flagList)
             else:
                 if pointer >> 24 == 0x01:
@@ -448,7 +449,7 @@ class OOTF3DContext(F3DContext):
         try:
             pointer = hexOrDecInt(name)
         except:
-            if name == "gEmptyDL" or name in self.ignored_dl_names:
+            if name == "gEmptyDL":
                 return None
             return name
         else:

@@ -44,6 +44,9 @@ class OOT_DisplayListPanel(Panel):
             prop_split(actorScaleBox, obj, "ootActorScale", "Actor Scale")
             actorScaleBox.label(text="This applies to actor exports only.", icon="INFO")
 
+        # Doesn't work since all static meshes are pre-transformed
+        # box.prop(obj.ootDynamicTransform, "billboard")
+
 
 class OOT_MaterialPanel(Panel):
     bl_label = "OOT Material"
@@ -108,7 +111,7 @@ class OOT_ExportDLPanel(OOT_Panel):
 
         col.operator(OOT_ExportDL.bl_idname)
         exportSettings: OOTDLExportSettings = context.scene.fast64.oot.DLExportSettings
-        exportSettings.draw_props(col, context)
+        exportSettings.draw_props(col)
 
         col.operator(OOT_ImportDL.bl_idname)
         importSettings: OOTDLImportSettings = context.scene.fast64.oot.DLImportSettings
@@ -129,5 +132,5 @@ def f3d_panels_register():
 
 
 def f3d_panels_unregister():
-    for cls in reversed(oot_dl_writer_panel_classes):
+    for cls in oot_dl_writer_panel_classes:
         unregister_class(cls)

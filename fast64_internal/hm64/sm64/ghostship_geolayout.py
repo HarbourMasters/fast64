@@ -48,11 +48,11 @@ from ...utility import (
     PluginError,
     convertEulerFloatToShort,
     convertFloatToShort,
-    crc64,
     geoNodeRotateOrder,
     prop_split,
     toAlnum,
 )
+from ..utility import crc64
 
 GHOSTSHIP_RESOURCE_TYPE_BLOB = 0x4F424C42
 

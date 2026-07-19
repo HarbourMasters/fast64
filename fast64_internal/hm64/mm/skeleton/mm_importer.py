@@ -1,5 +1,6 @@
 import re
 from typing import List
+import bmesh
 import mathutils, bpy, math
 from ....f3d.f3d_gbi import F3D, get_F3D_GBI
 from ....f3d.f3d_parser import getImportData, parseF3D, parseMatrices
@@ -20,10 +21,47 @@ from ....z64.skeleton.properties import OOTSkeletonImportSettings
 from ....z64.skeleton.utility import ootGetLimb, ootGetLimbs, ootGetSkeleton, applySkeletonRestPose
 
 
+SKEL_VERTEX_GROUP_BLACKLIST = {
+    "&gLinkHumanSheathedKokiriSwordMtx_x_gLinkHumanSheathLimb",
+}
+
+
 class OOTDLEntry:
     def __init__(self, dlName, limbIndex):
         self.dlName = dlName
         self.limbIndex = limbIndex
+
+
+def remove_blacklisted_vertex_groups(mesh_obj):
+    mesh = mesh_obj.data
+    vertex_indices_to_remove: set[int] = set()
+
+    group_indices: set[int] = set()
+    for group_name in SKEL_VERTEX_GROUP_BLACKLIST:
+        group = mesh_obj.vertex_groups.get(group_name)
+        if group is None:
+            continue
+        group_indices.add(group.index)
+        for vert in mesh.vertices:
+            for vg in vert.groups:
+                if vg.group == group.index:
+                    vertex_indices_to_remove.add(vert.index)
+        mesh_obj.vertex_groups.remove(group)
+
+    if not vertex_indices_to_remove:
+        return
+
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    vert_map = {vert.index: vert for vert in bm.verts}
+    for vert_index in sorted(vertex_indices_to_remove, reverse=True):
+        vert = vert_map.get(vert_index)
+        if vert is not None and not vert.is_valid:
+            continue
+        if vert is not None:
+            bmesh.ops.delete(bm, geom=[vert], context="VERTS")
+    bm.to_mesh(mesh)
+    bm.free()
 
 
 def ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL):
@@ -70,48 +108,39 @@ def ootAddLimbRecursively(
     enums: List["OOTEnum"],
 ):
     limbName = f3dContext.getLimbName(limbIndex)
-    defaultBoneName = f3dContext.getBoneName(limbIndex)
-    matchResult = ootGetLimb(skeletonData, limbName, False)
+    boneName = f3dContext.getBoneName(limbIndex)
+    limb_info = ootGetLimb(skeletonData, limbName, False)
+    assert limb_info is not None
 
-    isLOD = matchResult.lastindex > 6
-
-    if isLOD and useFarLOD:
-        dlName = matchResult.group(7)
+    if limb_info.is_lod and useFarLOD:
+        dlName = limb_info.far_dl_name
     else:
-        dlName = matchResult.group(6)
-
-    loadDL = dlName != "NULL"
-    boneName = dlName if loadDL else defaultBoneName
+        dlName = limb_info.dl_name
 
     # Animations override the root translation, so we just ignore importing them as well.
     if limbIndex == 0:
         translation = [0, 0, 0]
     else:
         translation = [
-            hexOrDecInt(matchResult.group(1)),
-            hexOrDecInt(matchResult.group(2)),
-            hexOrDecInt(matchResult.group(3)),
+            hexOrDecInt(limb_info.translationX_str),
+            hexOrDecInt(limb_info.translationY_str),
+            hexOrDecInt(limb_info.translationZ_str),
         ]
 
     LIMB_DONE = 0xFF
-    nextChildIndexStr = matchResult.group(4)
-    nextChildIndex = ootEvaluateLimbExpression(nextChildIndexStr, enums)
-    nextSiblingIndexStr = matchResult.group(5)
-    nextSiblingIndex = ootEvaluateLimbExpression(nextSiblingIndexStr, enums)
-
-    # str(limbIndex) + " " + str(translation) + " " + str(nextChildIndex) + " " + \
-    # 	str(nextSiblingIndex) + " " + str(dlName))
+    nextChildIndex = ootEvaluateLimbExpression(limb_info.nextChildIndex_str, enums)
+    nextSiblingIndex = ootEvaluateLimbExpression(limb_info.nextSiblingIndex_str, enums)
 
     currentTransform = parentTransform @ mathutils.Matrix.Translation(mathutils.Vector(translation))
     f3dContext.matrixData[limbName] = currentTransform
-    f3dContext.limbToBoneName[limbName] = boneName
+    loadDL = dlName != "NULL"
 
     ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL)
 
-    # DLs can access bone transforms not yet processed.
-    # Therefore were delay F3D parsing until after skeleton is processed.
     if loadDL:
         f3dContext.dlList.append(OOTDLEntry(dlName, limbIndex))
+
+    isLOD = limb_info.is_lod
 
     if nextChildIndex != LIMB_DONE:
         isLOD |= ootAddLimbRecursively(
@@ -171,6 +200,7 @@ def ootBuildSkeleton(
     basePath,
     drawLayer,
     isLink,
+    skipKokiriSwordHandle,
     flipbookArrayIndex2D: int,
     f3dContext: OOTF3DContext,
 ):
@@ -205,6 +235,8 @@ def ootBuildSkeleton(
         0, skeletonData, obj, armatureObj, transformMatrix, None, f3dContext, useFarLOD, enums
     )
     for dlEntry in f3dContext.dlList:
+        if skipKokiriSwordHandle and dlEntry.dlName == "gKokiriSwordHandleDL":
+            continue
         limbName = f3dContext.getLimbName(dlEntry.limbIndex)
         boneName = f3dContext.limbToBoneName.get(limbName, f3dContext.getBoneName(dlEntry.limbIndex))
         parseF3D(
@@ -220,6 +252,7 @@ def ootBuildSkeleton(
         if f3dContext.isBillboard:
             armatureObj.data.bones[boneName].ootBone.dynamicTransform.billboard = True
     f3dContext.createMesh(obj, removeDoubles, importNormals, False)
+    remove_blacklisted_vertex_groups(obj)
     armatureObj.location = bpy.context.scene.cursor.location
 
     # Set bone rotation mode.
@@ -284,17 +317,19 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     if overlayName is not None or isLink:
         skeletonData = ootGetIncludedAssetData(basePath, filepaths, skeletonData) + skeletonData
 
-    matchResult = ootGetSkeleton(skeletonData, skeletonName, False)
-    limbsName = matchResult.group(2)
+    skel_info = ootGetSkeleton(skeletonData, skeletonName, False)
+    assert skel_info is not None
 
-    matchResult = ootGetLimbs(skeletonData, limbsName, False)
-    limbsData = matchResult.group(2)
-    limbList = [entry.strip()[1:] for entry in ootStripComments(limbsData).split(",") if entry.strip() != ""]
+    limbs_info = ootGetLimbs(skeletonData, skel_info.limbs_name, False)
 
-    f3dContext = OOTF3DContext(get_F3D_GBI(), limbList, basePath)
+    f3dContext = OOTF3DContext(get_F3D_GBI(), limbs_info.limb_list, basePath)
     f3dContext.mat().draw_layer.oot = drawLayer
-    if importSettings.mode == "Human Link":
-        f3dContext.ignored_dl_names.add("gKokiriSwordHandleDL")
+    skipKokiriSwordHandle = importSettings.mode == "Human Link"
+    if skipKokiriSwordHandle:
+        original_process_dl_name = f3dContext.processDLName
+        f3dContext.processDLName = (
+            lambda name, _orig=original_process_dl_name: None if name == "gKokiriSwordHandleDL" else _orig(name)
+        )
 
     actorScale = None
 
@@ -318,6 +353,7 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
         basePath,
         drawLayer,
         isLink,
+        skipKokiriSwordHandle,
         flipbookArrayIndex2D,
         f3dContext,
     )

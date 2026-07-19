@@ -3,13 +3,16 @@ from __future__ import annotations
 
 from typing import Sequence, Union, Tuple
 from dataclasses import dataclass, fields, field
+from html import escape
 import bpy, os, enum, copy
-from ..utility import *
+from ...utility import *
+from ..utility import crc64
+import struct
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .f3d_material import TextureProperty
+    from ...f3d.f3d_material import TextureProperty
 
 
 class ScrollMethod(enum.Enum):
@@ -58,6 +61,13 @@ dlTypeEnum = [
     ("PROCEDURAL", "Procedural", "Procedural"),
 ]
 
+bitSizeDict = {
+    "G_IM_SIZ_4b": 4,
+    "G_IM_SIZ_8b": 8,
+    "G_IM_SIZ_16b": 16,
+    "G_IM_SIZ_32b": 32,
+}
+
 # 1-8 for F3DEX2 etc., 1-10 for F3DEX3
 lightIndex = {f"LIGHT_{n}": n for n in range(1, 11)}
 
@@ -93,6 +103,7 @@ oot_default_draw_layers = {
 default_draw_layers = {
     "SM64": sm64_default_draw_layers,
     "OOT": oot_default_draw_layers,
+    "MM": oot_default_draw_layers,
 }
 
 CCMUXDict = {
@@ -1762,17 +1773,15 @@ class F3D:
         nVal = self.numLights[n]
         return ((nVal) * 24) if self.F3DEX_GBI_2 else (((nVal) + 1) * 32 + 0x80000000)
 
-    def getLightMWO_a(self, n: str):
-        mwo_value = f"G_MWO_a{n}"
-        if hasattr(self, mwo_value):
-            return getattr(self, mwo_value)
+    def getLightMWO_a(self, n):
+        if n.startswith("G_MWO_aLIGHT_") and hasattr(self, n):
+            return getattr(self, n)
         else:
             raise PluginError("Invalid G_MWO_a value for lights: " + n)
 
-    def getLightMWO_b(self, n: str):
-        mwo_value = f"G_MWO_b{n}"
-        if hasattr(self, mwo_value):
-            return getattr(self, mwo_value)
+    def getLightMWO_b(self, n):
+        if n.startswith("G_MWO_bLIGHT_") and hasattr(self, n):
+            return getattr(self, n)
         else:
             raise PluginError("Invalid G_MWO_b value for lights: " + n)
 
@@ -2080,8 +2089,7 @@ class GfxFormatter:
         """
         return CScrollData()
 
-    # `layer`` argument used for Z64 overrides
-    def drawToC(self, f3d: F3D, gfxList: "GfxList", layer: Optional[str] = None) -> CData:
+    def drawToC(self, f3d: F3D, gfxList: "GfxList") -> CData:
         """
         Called for building the entry point DL for drawing a model.
         """
@@ -2151,6 +2159,45 @@ class VtxList:
         data.source += "};\n\n"
         return data
 
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"VtxList.toO2R {self.name} ({len(self.vertices)} vertices).")
+
+        # Write OTR Header
+        # I    - Endianness
+        # I    - Resource Type
+        # I    - Game Version
+        # Q    - Magic ID
+        # I    - Resource Version
+        # QI   - Empty space
+        # QQQI - Fill until 64 bytes
+        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F415252, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
+
+        data.extend(
+            struct.pack(
+                "<II",
+                25,  # VTX
+                len(self.vertices),  # Count
+            )
+        )
+
+        for vert in self.vertices:
+            data.extend(
+                struct.pack(
+                    "<hhhhhhBBBB",
+                    vert.position[0],
+                    vert.position[1],
+                    vert.position[2],
+                    vert.packedNormal,
+                    vert.uv[0],
+                    vert.uv[1],
+                    *vert.colorOrNormal,
+                )
+            )
+
+        return data
+
 
 class GfxList:
     def __init__(self, name, tag, DLFormat):
@@ -2202,13 +2249,10 @@ class GfxList:
             data.extend(command.to_binary(f3d, segments))
         return data
 
-    def to_c_static(self, name: str):
-        data = f"Gfx {name}[] = {{\n"
+    def to_c_static(self):
+        data = f"Gfx {self.name}[] = {{\n"
         for command in self.commands:
-            if command.default_formatting:
-                data += f"\t{command.to_c(True)},\n"
-            else:
-                data += command.to_c(True)
+            data += f"\t{command.to_c(True)},\n"
         data += "};\n\n"
         return data
 
@@ -2219,18 +2263,61 @@ class GfxList:
         data += "\treturn glistp;\n}\n\n"
         return data
 
-    def to_c(self, f3d, name_override: Optional[str] = None):
+    def to_c(self, f3d):
         data = CData()
-        name = name_override if name_override is not None else self.name
-
         if self.DLFormat == DLFormat.Static:
-            data.header = f"extern Gfx {name}[];\n"
-            data.source = self.to_c_static(name)
+            data.header = f"extern Gfx {self.name}[];\n"
+            data.source = self.to_c_static()
         elif self.DLFormat == DLFormat.Dynamic:
-            data.header = f"Gfx* {name}(Gfx* glistp);\n"
+            data.header = f"Gfx* {self.name}(Gfx* glistp);\n"
             data.source = self.to_c_dynamic()
         else:
             raise PluginError("Invalid GfxList format: " + str(self.DLFormat))
+        return data
+
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"GfxList.toO2R {self.name} ({len(self.commands)} commands).")
+
+        # Write OTR Header
+        # I    - Endianness
+        # I    - Resource Type
+        # I    - Game Version
+        # Q    - Magic ID
+        # I    - Resource Version
+        # QI   - Empty space
+        # QQQI - Fill until 64 bytes
+        data.extend(struct.pack("<I", 1))
+        data.extend(struct.pack(">IIQIQIQQQI", 0x4F444C54, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
+
+        data.extend(
+            struct.pack(
+                ">bBHI",
+                4,  # UCODE_F3DEX2?
+                0xFF,
+                0xFFFF,
+                0xFFFFFFFF,
+            )
+        )
+
+        data.extend(struct.pack(">II", 0x33 << 24, 0xBEEFBEEF))
+
+        dlPath = os.path.join(folderPath, self.name)
+        # For windows paths, replace backslashes with forward slashes
+        dlPath = dlPath.replace("\\", "/")
+        hash = int(crc64(dlPath), 16)
+        data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
+        # data.extend(dlPath.encode("utf-8"))
+
+        f3d = get_F3D_GBI()
+        for command in self.commands:
+            # if command has .toO2R, use that method
+            if hasattr(command, "toO2R"):
+                data.extend(command.toO2R(folderPath))
+            else:
+                # else, use default to_binary method
+                data.extend(command.to_binary(f3d, {}))
 
         return data
 
@@ -2449,17 +2536,14 @@ class FModel:
         fMaterial.usedLights.append(key)
         self.lights[key] = value
 
-    def addMesh(self, name, namePrefix, drawLayer, isSkinned, contextObj, dedup=False):
-        final_name = getFMeshName(name, namePrefix, drawLayer, isSkinned)
-        if dedup:
-            base_name = final_name
-            for i in range(1, len(self.meshes) + 2):
-                if final_name in self.meshes:
-                    final_name = f"{base_name}_{i:03}"
-        checkUniqueBoneNames(self, final_name, name)
-        self.meshes[final_name] = mesh = FMesh(final_name, self.DLFormat)
-        self.onAddMesh(mesh, contextObj)
-        return mesh
+    def addMesh(self, name, namePrefix, drawLayer, isSkinned, contextObj):
+        meshName = getFMeshName(name, namePrefix, drawLayer, isSkinned)
+        checkUniqueBoneNames(self, meshName, name)
+        self.meshes[meshName] = FMesh(meshName, self.DLFormat)
+
+        self.onAddMesh(self.meshes[meshName], contextObj)
+
+        return self.meshes[meshName]
 
     def onAddMesh(self, fMesh, contextObj):
         return
@@ -2897,7 +2981,9 @@ class FMesh:
         self.triangleGroups: list[FTriGroup] = []
         # VtxList
         self.cullVertexList = None
-        self.draw_overrides: list[GfxList] = []
+        # dict of (override Material, specified Material to override,
+        # overrideType, draw layer) : GfxList
+        self.drawMatOverrides = {}
         self.DLFormat = DLFormat
 
         # Used to avoid consecutive calls to the same material if unnecessary
@@ -2920,8 +3006,8 @@ class FMesh:
         addresses = self.draw.get_ptr_addresses(f3d)
         for triGroup in self.triangleGroups:
             addresses.extend(triGroup.get_ptr_addresses(f3d))
-        for cmd_list in self.draw_overrides:
-            addresses.extend(cmd_list.get_ptr_addresses(f3d))
+        for materialTuple, drawOverride in self.drawMatOverrides.items():
+            addresses.extend(drawOverride.get_ptr_addresses(f3d))
         return addresses
 
     def tri_group_new(self, fMaterial):
@@ -2937,8 +3023,8 @@ class FMesh:
             addrRange = triGroup.set_addr(addrRange[1], f3d)
         if self.cullVertexList is not None:
             addrRange = self.cullVertexList.set_addr(addrRange[1])
-        for cmd_list in self.draw_overrides:
-            addrRange = cmd_list.set_addr(addrRange[1], f3d)
+        for materialTuple, drawOverride in self.drawMatOverrides.items():
+            addrRange = drawOverride.set_addr(addrRange[1], f3d)
         return startAddress, addrRange[1]
 
     def save_binary(self, romfile, f3d, segments):
@@ -2947,24 +3033,18 @@ class FMesh:
             triGroup.save_binary(romfile, f3d, segments)
         if self.cullVertexList is not None:
             self.cullVertexList.save_binary(romfile)
-        for cmd_list in self.draw_overrides:
-            cmd_list.save_binary(romfile, f3d, segments)
+        for materialTuple, drawOverride in self.drawMatOverrides.items():
+            drawOverride.save_binary(romfile, f3d, segments)
 
-    def to_c(self, f3d: F3D, gfxFormatter: GfxFormatter):
+    def to_c(self, f3d, gfxFormatter):
         staticData = CData()
-
         if self.cullVertexList is not None:
             staticData.append(self.cullVertexList.to_c())
-
         for triGroup in self.triangleGroups:
             staticData.append(triGroup.to_c(f3d, gfxFormatter))
-
-        draw_layer = "Opaque" if "Opaque" in self.name else "Transparent" if "Transparent" in self.name else "Overlay"
-        dynamicData = gfxFormatter.drawToC(f3d, self.draw, layer=draw_layer)
-
-        for cmd_list in self.draw_overrides:
-            dynamicData.append(cmd_list.to_c(f3d))
-
+        dynamicData = gfxFormatter.drawToC(f3d, self.draw)
+        for materialTuple, drawOverride in self.drawMatOverrides.items():
+            dynamicData.append(drawOverride.to_c(f3d))
         return staticData, dynamicData
 
 
@@ -3037,11 +3117,7 @@ class FMaterial:
         self.material = GfxList(f"mat_{name}", GfxListTag.Material, DLFormat)
         self.mat_only_DL = GfxList(f"mat_only_{name}", GfxListTag.Material, DLFormat)
         self.texture_DL = GfxList(f"tex_{name}", GfxListTag.Material, DLFormat.Static)
-
-        self.revert: Optional[GfxList] = None
-        if bpy.context.scene.gameEditorMode not in {"OOT", "MM"}:
-            self.revert = GfxList(f"mat_revert_{name}", GfxListTag.MaterialRevert, DLFormat.Static)
-
+        self.revert = GfxList(f"mat_revert_{name}", GfxListTag.MaterialRevert, DLFormat.Static)
         self.DLFormat = DLFormat
         self.scrollData = FScrollData()
 
@@ -3376,6 +3452,56 @@ class FImage:
         romfile.seek(self.startAddress)
         romfile.write(self.to_binary())
 
+    def textureTypeO2R(self) -> int:
+        bitSize = bitSizeDict[self.bitSize]
+        if self.fmt == "G_IM_FMT_RGBA":
+            if bitSize == 32:
+                return 1  # RGBA32bpp
+            if bitSize == 16:
+                return 2  # RGBA16bpp
+
+        if self.fmt == "G_IM_FMT_CI":
+            if bitSize == 4:
+                return 3  # Palette4bpp
+            if bitSize == 8:
+                return 4  # Palette8bpp
+
+        if self.fmt == "G_IM_FMT_I":
+            if bitSize == 4:
+                return 5  # Grayscale4bpp
+            if bitSize == 8:
+                return 6  # Grayscale8bpp
+
+        if self.fmt == "G_IM_FMT_IA":
+            if bitSize == 4:
+                return 7  # GrayscaleAlpha4bpp
+            if bitSize == 8:
+                return 8  # GrayscaleAlpha8bpp
+            if bitSize == 16:
+                return 9  # GrayscaleAlpha16bpp
+
+        return 0  # Error
+
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"FImage.toO2R {self.name} {self.fmt} {self.bitSize} {self.width}x{self.height} {len(self.data)} bytes")
+
+        # Write OTR Header
+        # I    - Endianness
+        # I    - Resource Type
+        # I    - Game Version
+        # Q    - Magic ID
+        # I    - Resource Version
+        # QI   - Empty space
+        # QQQI - Fill until 64 bytes
+        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F544558, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
+
+        data.extend(struct.pack("<IIII", self.textureTypeO2R(), self.width, self.height, len(self.data)))
+        data.extend(self.data)
+
+        return data
+
 
 # second arg of Dma is a pointer.
 def gsDma0p(c, s, l):
@@ -3419,11 +3545,6 @@ class GbiMacro:
     That would cause an issue for scrolling that modifies static DLs, which requires the command's index into its current display list.
     For example, inling material commands.
     This is unannotated and will not be considered when calculating the hash.
-    """
-
-    default_formatting = True
-    """
-    Type: bool. Used to allow an overriden `to_c` function customize the formatting (identation, newlines, etc).
     """
 
     def get_ptr_offsets(self, f3d):
@@ -3470,6 +3591,20 @@ class SPMatrix(GbiMacro):
         else:
             return gsDma1p(f3d.G_MTX, matPtr, MTX_SIZE, self.param)
 
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPMatrix.toO2R {self.matrix}")
+
+        matPtr = int(self.matrix, 16)
+        matPtr = (matPtr & 0x0FFFFFFF) + 1
+
+        f3d = get_F3D_GBI()
+
+        data.extend(gsDma2p(f3d.G_MTX, matPtr, MTX_SIZE, 0x02 ^ f3d.G_MTX_PUSH, 0))
+
+        return data
+
 
 # TODO: Divide vertlist into sections
 # Divide mesh drawing by materials into separate gfx
@@ -3511,6 +3646,27 @@ class SPVertex(GbiMacro):
             header += self.vertList.name + " + " + str(self.offset)
         return header + ", " + str(self.count) + ", " + str(self.index) + ")"
 
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPVertex.toO2R {self.vertList.name} {self.offset} {self.count} {self.index}")
+
+        words = (
+            _SHIFTL(0x32, 24, 8) | _SHIFTL(self.count, 12, 8) | _SHIFTL(self.index + self.count, 1, 7),
+            self.offset * VTX_SIZE,
+        )
+
+        data.extend(words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big"))
+
+        vertPath = os.path.join(folderPath, self.vertList.name)
+        # For windows paths, replace backslashes with forward slashes
+        vertPath = vertPath.replace("\\", "/")
+        hash = int(crc64(vertPath), 16)
+        data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
+        # data.extend(vertPath.encode("utf-8"))
+
+        return data
+
 
 @dataclass(unsafe_hash=True)
 class SPViewport(GbiMacro):
@@ -3550,6 +3706,22 @@ class SPDisplayList(GbiMacro):
         else:
             return "glistp = " + self.displayList.name + "(glistp)"
 
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPDisplayList.toO2R {self.displayList.name}")
+
+        data.extend(gsDma1p(0x31, 0, 0, 0x00))
+
+        dlPath = os.path.join(folderPath, self.displayList.name)
+        # For windows paths, replace backslashes with forward slashes
+        dlPath = dlPath.replace("\\", "/")
+        hash = int(crc64(dlPath), 16)
+        data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
+        # data.extend(dlPath.encode("utf-8"))
+
+        return data
+
 
 @dataclass(unsafe_hash=True)
 class SPBranchList(GbiMacro):
@@ -3559,6 +3731,22 @@ class SPBranchList(GbiMacro):
     def to_binary(self, f3d, segments):
         dlPtr = int.from_bytes(encodeSegmentedAddr(self.displayList.startAddress, segments), "big")
         return gsDma1p(f3d.G_DL, dlPtr, 0, f3d.G_DL_NOPUSH)
+
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPBranchList.toO2R {self.displayList.name}")
+
+        data.extend(gsDma1p(0x31, 0, 0, 0x01))
+
+        dlPath = os.path.join(folderPath, self.displayList.name)
+        # For windows paths, replace backslashes with forward slashes
+        dlPath = dlPath.replace("\\", "/")
+        hash = int(crc64(dlPath), 16)
+        data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
+        # data.extend(dlPath.encode("utf-8"))
+
+        return data
 
 
 @dataclass(unsafe_hash=True)
@@ -4023,6 +4211,20 @@ class SPBranchLessZraw(GbiMacro):
     def size(self, f3d):
         return GFX_SIZE * 2
 
+    def toO2R(self, folderPath: str):
+        data = bytearray(0)
+
+        print(f"SPBranchLessZraw.toO2R {self.dl.name} TODO! This is not implemented yet!")
+
+        # dlPath = os.path.join(folderPath, self.dl.name)
+        # For windows paths, replace backslashes with forward slashes
+        # dlPath = dlPath.replace("\\", "/")
+        # hash = int(crc64(dlPath), 16)
+        # data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
+        # data.extend(dlPath.encode("utf-8"))
+
+        return data
+
 
 # SPLoadUcode (RSP)
 
@@ -4085,7 +4287,7 @@ class SPLightColor(GbiMacro):
 
     def to_binary(self, f3d, segments):
         return gsMoveWd(f3d.G_MW_LIGHTCOL, f3d.getLightMWO_a(self.n), self.color_to_int(), f3d) + gsMoveWd(
-            f3d.G_MW_LIGHTCOL, f3d.getLightMWO_b(self.n), self.color_to_int(), f3d
+            f3d.G_MW_LIGHTCOL, f3d.getLightMWO_b(self.n), self.col, f3d
         )
 
     def to_c(self, static=True):
@@ -4427,7 +4629,16 @@ class SPSetOtherMode(GbiMacro):
     def to_binary(self, f3d, segments):
         data = 0
         for flag in self.flagList:
-            data |= getattr(f3d, str(flag), flag)
+            # flag may be an int, a name (str), or a RendermodeBlender instance
+            if isinstance(flag, RendermodeBlender):
+                value = flag.to_binary(f3d)
+            elif isinstance(flag, str):
+                value = getattr(f3d, flag, None)
+                if value is None:
+                    raise ValueError(f"Flag {flag} not found in {f3d}")
+            else:
+                value = flag
+            data |= value
         cmd = getattr(f3d, str(self.cmd), self.cmd)
         sft = getattr(f3d, str(self.sft), self.sft)
         return gsSPSetOtherMode(cmd, sft, self.length, data, f3d)
@@ -4683,6 +4894,31 @@ class DPSetTextureImage(GbiMacro):
         imagePtr = int.from_bytes(encodeSegmentedAddr(self.image.startAddress, segments), "big")
         return gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr)
 
+    def toO2R(self, folderPath: str):
+        print(f"DPSetTextureImage.toO2R {self.image.name}")
+
+        data = bytearray(0)
+
+        f3d = get_F3D_GBI()
+        fmt = f3d.G_IM_FMT_VARS[self.fmt]
+        siz = f3d.G_IM_SIZ_VARS[self.siz]
+
+        # If name matches 0x0(\d)000000 then it's a raw data pointer
+        if re.match(r"^0x0(\d)000000$", self.image.name):
+            imagePtr = int(self.image.name, 16) + 1
+            data.extend(gsSetImage(f3d.G_SETTIMG, fmt, siz, self.width, imagePtr))
+        else:
+            data.extend(gsSetImage(0x20, fmt, siz, self.width, 0))
+
+            imagePath = os.path.join(folderPath, self.image.name)
+            # For windows paths, replace backslashes with forward slashes
+            imagePath = imagePath.replace("\\", "/")
+            hash = int(crc64(imagePath), 16)
+            data.extend(struct.pack(">II", hash >> 32, hash & 0xFFFFFFFF))
+            # data.extend(imagePath.encode("utf-8"))
+
+        return data
+
 
 def gsDPSetCombine(muxs0, muxs1, f3d):
     words = _SHIFTL(f3d.G_SETCOMBINE, 24, 8) | _SHIFTL(muxs0, 0, 24), muxs1
@@ -4765,15 +5001,35 @@ def sDPRGBColor(cmd, r, g, b, a):
     return gsDPSetColor(cmd, (_SHIFTL(r, 24, 8) | _SHIFTL(g, 16, 8) | _SHIFTL(b, 8, 8) | _SHIFTL(a, 0, 8)))
 
 
+def getDynamicCosmeticXmlAttrs(cosmeticEntry: str, cosmeticCategory: str):
+    entry = escape(cosmeticEntry.strip(), quote=True) if cosmeticEntry else ""
+    if not entry:
+        return ""
+
+    attrs = f' CosmeticEntry="{entry}"'
+    category = escape(cosmeticCategory.strip(), quote=True) if cosmeticCategory else ""
+    if category:
+        attrs += f' CosmeticCategory="{category}"'
+    return attrs
+
+
 @dataclass(unsafe_hash=True)
 class DPSetEnvColor(GbiMacro):
     r: int
     g: int
     b: int
     a: int
+    cosmeticEntry: str = ""
+    cosmeticCategory: str = ""
 
     def to_binary(self, f3d, segments):
         return sDPRGBColor(f3d.G_SETENVCOLOR, self.r, self.g, self.b, self.a)
+
+    def to_soh_xml(self, objectPath=""):
+        return (
+            f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
+            f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
+        )
 
 
 @dataclass(unsafe_hash=True)
@@ -4823,12 +5079,20 @@ class DPSetPrimColor(GbiMacro):
     g: int
     b: int
     a: int
+    cosmeticEntry: str = ""
+    cosmeticCategory: str = ""
 
     def to_binary(self, f3d, segments):
         words = (_SHIFTL(f3d.G_SETPRIMCOLOR, 24, 8) | _SHIFTL(self.m, 8, 8) | _SHIFTL(self.l, 0, 8)), (
             _SHIFTL(self.r, 24, 8) | _SHIFTL(self.g, 16, 8) | _SHIFTL(self.b, 8, 8) | _SHIFTL(self.a, 0, 8)
         )
         return words[0].to_bytes(4, "big") + words[1].to_bytes(4, "big")
+
+    def to_soh_xml(self, objectPath=""):
+        return (
+            f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
+            f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
+        )
 
 
 @dataclass(unsafe_hash=True)
@@ -4917,6 +5181,9 @@ class DPLoadTile(GbiMacro):
 
     def to_binary(self, f3d, segments):
         return gsDPLoadTileGeneric(f3d.G_LOADTILE, self.tile, self.uls, self.ult, self.lrs, self.lrt)
+
+    def to_soh_xml(self, objectPath=""):
+        return f'<LoadTile Tile="{self.tile}" Uls="{self.uls}" Ult="{self.ult}" ' f'Lrs="{self.lrs}" Lrt="{self.lrt}"/>'
 
 
 @dataclass(unsafe_hash=True)

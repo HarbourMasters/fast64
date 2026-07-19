@@ -1,7 +1,6 @@
 from typing import Union, Optional
 from dataclasses import dataclass, field
 import bpy
-import os
 from math import ceil, floor
 
 from .f3d_enums import *
@@ -278,20 +277,14 @@ def maybeSaveSingleLargeTextureSetup(
 # Functions for texture and palette definitions
 
 
-def getTextureNamesFromBasename(
-    baseName: str,
-    texOrPalFormat: str,
-    parent: Union[FModel, FTexRect],
-    isPalette: bool,
-    skip_pal_suffix: bool = False,
-):
-    sanitizedName = toAlnum(baseName)
-    imageName = sanitizedName
+def getTextureNamesFromBasename(baseName: str, texOrPalFormat: str, parent: Union[FModel, FTexRect], isPalette: bool):
+    suffix = getTextureSuffixFromFormat(texOrPalFormat)
+    imageName = parent.name + "_" + baseName + "_"
     if isPalette:
-        if not skip_pal_suffix:
-            imageName += "_pal"
-    imageName = checkDuplicateTextureName(parent, imageName)
-    filename = baseName + (".pal" if isPalette else ".inc.c")
+        imageName += "pal_"
+    imageName += suffix
+    imageName = checkDuplicateTextureName(parent, toAlnum(imageName))
+    filename = baseName + (f"" if (baseName.endswith(suffix)) else f".{suffix}") + (".pal" if isPalette else ".inc.c")
     return imageName, filename
 
 
@@ -323,76 +316,6 @@ def checkDuplicateTextureName(parent: Union[FModel, FTexRect], name):
     return name
 
 
-@dataclass
-class SharedTLUTState:
-    palette_name: str
-    tex_format: str
-    pal_format: str
-    palette: list[int] = field(default_factory=list)
-    texture_uses: dict[tuple[str, str, str], tuple[bpy.types.Image, FImage, str, str]] = field(default_factory=dict)
-    palette_image: Optional[FImage] = None
-    load_commands: list[tuple[DPLoadTLUTCmd, Optional[int]]] = field(default_factory=list)
-
-
-def get_shared_tlut_state(parent: Union[FModel, FTexRect], tex_info: "TexInfo") -> Optional[SharedTLUTState]:
-    if (
-        not tex_info.useTex
-        or not tex_info.isTexCI
-        or tex_info.isTexRef
-        or tex_info.isPalRef
-        or tex_info.flipbook is not None
-        or tex_info.pal is None
-        or tex_info.texProp is None
-        or tex_info.texProp.tex is None
-        or not tex_info.custom_palette_requested
-    ):
-        return None
-
-    groups = getattr(parent, "shared_tlut_states", None)
-    if groups is None:
-        groups = {}
-        setattr(parent, "shared_tlut_states", groups)
-
-    palette_name = sanitize_palette_base_name(tex_info.palBaseName)
-    shared_key = (palette_name, tex_info.texFormat, tex_info.palFormat)
-    state = groups.get(shared_key)
-    if state is None:
-        state = SharedTLUTState(palette_name, tex_info.texFormat, tex_info.palFormat)
-        groups[shared_key] = state
-
-    merged_palette = mergePalettes(state.palette, tex_info.pal)
-    palette_limit = 16 if tex_info.texFormat == "CI4" else 256
-    if len(merged_palette) > palette_limit:
-        raise PluginError(
-            f"Textures sharing TLUT '{tex_info.palBaseName}' contain {len(merged_palette)} colors, "
-            + f"which cannot fit in format {tex_info.texFormat}."
-        )
-
-    state.palette = merged_palette
-    tex_info.pal = state.palette
-    tex_info.palLen = len(state.palette)
-    return state
-
-
-def apply_shared_tlut_state(state: SharedTLUTState):
-    if state.palette_image is not None:
-        state.palette_image.data = bytearray()
-        state.palette_image.height = len(state.palette)
-        state.palette_image.converted = False
-        writePaletteData(state.palette_image, state.palette)
-
-    for image, fImage, tex_format, pal_format in state.texture_uses.values():
-        fImage.data = bytearray()
-        fImage.converted = False
-        writeCITextureData(image, fImage, state.palette, pal_format, tex_format)
-
-    for load_cmd, count_override in state.load_commands:
-        load_count = len(state.palette) - 1
-        if count_override is not None:
-            load_count = count_override
-        load_cmd.count = max(0, min(load_count, 255))
-
-
 def saveOrGetPaletteDefinition(
     fMaterial: FMaterial,
     parent: Union[FModel, FTexRect],
@@ -401,12 +324,11 @@ def saveOrGetPaletteDefinition(
     images: list[bpy.types.Image],
     palBaseName: str,
     palLen: int,
-    skip_pal_suffix: bool = False,
 ) -> tuple[FPaletteKey, FImage]:
     texFmt = texProp.tex_format
     palFmt = texProp.ci_format
     palFormat = texFormatOf[palFmt]
-    paletteKey = FPaletteKey(palFmt, palBaseName)
+    paletteKey = FPaletteKey(palFmt, images)
 
     if isPalRef:
         fPalette = FImage(texProp.pal_reference, None, None, 1, palLen, None)
@@ -416,18 +338,10 @@ def saveOrGetPaletteDefinition(
     fPalette = parent.getTextureAndHandleShared(paletteKey)
     if fPalette is not None:
         # print(f"Palette already exists")
-        if texProp and texProp.texture_internal_path:
-            fPalette.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
-        if texProp:
-            fPalette.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
         return paletteKey, fPalette
 
-    paletteName, filename = getTextureNamesFromBasename(palBaseName, palFmt, parent, True, skip_pal_suffix)
+    paletteName, filename = getTextureNamesFromBasename(palBaseName, palFmt, parent, True)
     fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", 1, palLen, filename)
-    if texProp:
-        fPalette.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
-    if texProp:
-        fPalette.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
 
     parent.addTexture(paletteKey, fPalette, fMaterial)
     return paletteKey, fPalette
@@ -455,19 +369,11 @@ def saveOrGetTextureDefinition(
     fImage = parent.getTextureAndHandleShared(imageKey)
     if fImage is not None:
         # print(f"Image already exists")
-        if texProp and texProp.texture_internal_path:
-            fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
-        if texProp:
-            fImage.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
         return imageKey, fImage
 
     imageName, filename = getTextureNamesFromProp(texProp, parent)
     fImage = FImage(imageName, texFormat, bitSize, image.size[0], image.size[1], filename)
     fImage.isLargeTexture = isLarge
-    if texProp:
-        fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
-    if texProp:
-        fImage.skip_export = is_hm64_feature_set() and texProp.is_vanilla_texture
 
     parent.addTexture(imageKey, fImage, fMaterial)
     return imageKey, fImage
@@ -505,7 +411,6 @@ class TexInfo:
     # Internal parameters--copies of passed parameters
     texProp: Optional[TextureProperty] = None
     indexInMat: int = -1
-    custom_palette_requested: bool = False
 
     def fromMat(self, index: int, f3dMat: F3DMaterialProperty) -> bool:
         useDict = all_combiner_uses(f3dMat)
@@ -623,18 +528,8 @@ class TexInfo:
     def getPaletteName(self):
         if not self.useTex or self.isPalRef:
             return None
-        self.custom_palette_requested = False
-        if is_hm64_feature_set() and self.texProp is not None:
-            custom_name = getattr(self.texProp, "custom_palette_name", "")
-            if custom_name:
-                stripped = custom_name.strip()
-                if stripped:
-                    self.custom_palette_requested = True
-                    return stripped
         if self.flipbook is not None:
-            self.custom_palette_requested = False
             return self.flipbook.name
-        self.custom_palette_requested = False
         return getImageName(self.texProp.tex)
 
     def setup_single_tex(self, is_ci: bool, use_large_tex: bool):
@@ -669,47 +564,21 @@ class TexInfo:
             self.imDependencies is not None
         ), "self.imDependencies is None, either moreSetupFromModel or materialless_setup must be called beforehand"
 
-        shared_tlut_state = get_shared_tlut_state(fModel, self)
-
         # Get definitions
         imageKey, fImage = saveOrGetTextureDefinition(
             fMaterial, fModel, self.texProp, self.imDependencies, fMaterial.isTexLarge[self.indexInMat]
         )
         fMaterial.imageKey[self.indexInMat] = imageKey
-        fPalette = None
         if self.loadPal:
             _, fPalette = saveOrGetPaletteDefinition(
-                fMaterial,
-                fModel,
-                self.texProp,
-                self.isPalRef,
-                self.palDependencies,
-                self.palBaseName,
-                self.palLen,
-                self.custom_palette_requested,
+                fMaterial, fModel, self.texProp, self.isPalRef, self.palDependencies, self.palBaseName, self.palLen
             )
 
         # Write loads
         loadGfx = fMaterial.texture_DL
         f3d = fModel.f3d
-        palette_load_cmd = None
         if self.loadPal:
-            override = self.texProp.palette_color_count if is_hm64_feature_set() and self.texProp is not None else None
-            palette_load_cmd = savePaletteLoad(
-                loadGfx,
-                fPalette,
-                self.palFormat,
-                self.palAddr,
-                self.palLen,
-                5 - self.indexInMat,
-                f3d,
-                override,
-            )
-            if shared_tlut_state is not None and fPalette is not None:
-                shared_tlut_state.palette_image = fPalette
-                shared_pair = (palette_load_cmd, override)
-                if shared_pair not in shared_tlut_state.load_commands:
-                    shared_tlut_state.load_commands.append(shared_pair)
+            savePaletteLoad(loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d)
         if self.doTexLoad:
             saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
         if self.doTexTile:
@@ -718,14 +587,10 @@ class TexInfo:
             )
 
         # Write texture data
-        texProp = self.texProp
-        should_write_data = convertTextureData and not (
-            is_hm64_feature_set() and texProp and texProp.is_vanilla_texture
-        )
-        if should_write_data:
+        if convertTextureData:
+            if self.loadPal and not self.isPalRef:
+                writePaletteData(fPalette, self.pal)
             if self.isTexRef:
-                if self.loadPal and not self.isPalRef:
-                    writePaletteData(fPalette, self.pal)
                 if self.isTexCI:
                     fModel.writeTexRefCITextures(
                         self.flipbook, fMaterial, self.imDependencies, self.pal, self.texFormat, self.palFormat
@@ -737,19 +602,7 @@ class TexInfo:
                     assert (
                         self.pal is not None
                     ), "self.pal is None, either moreSetupFromModel or materialless_setup must be called beforehand"
-                    if shared_tlut_state is not None:
-                        image_id = canonical_image_identity(self.texProp.tex)
-                        shared_tlut_state.texture_uses[image_id] = (
-                            self.texProp.tex,
-                            fImage,
-                            self.texFormat,
-                            self.palFormat,
-                        )
-                        apply_shared_tlut_state(shared_tlut_state)
-                    else:
-                        if self.loadPal and not self.isPalRef:
-                            writePaletteData(fPalette, self.pal)
-                        writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
+                    writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
                 else:
                     writeNonCITextureData(self.texProp.tex, fImage, self.texFormat)
 
@@ -1153,13 +1006,9 @@ def saveTextureLoadOnly(
             loadCommand = DPLoadTile(loadtile, sl, tl, sh, th)
 
     if not omitSetTextureImage:
-        gfxOut.commands.append(DPTileSync())
         gfxOut.commands.append(DPSetTextureImage(fmt, siz, wid, fImage))
-    elif not omitSetTile:
-        gfxOut.commands.append(DPTileSync())
     if not omitSetTile:
         gfxOut.commands.append(DPSetTile(fmt, siz, line, tmem, loadtile, 0, nocm, 0, 0, nocm, 0, 0))
-    gfxOut.commands.append(DPLoadSync())
     gfxOut.commands.append(loadCommand)
 
 
@@ -1213,7 +1062,6 @@ def saveTextureTile(
 
     tileSizeCommand.fMaterial = fMaterial
     if not omitSetTile:
-        gfxOut.commands.append(DPPipeSync())
         gfxOut.commands.append(tileCommand)
     gfxOut.commands.append(tileSizeCommand)
 
@@ -1232,30 +1080,17 @@ def savePaletteLoad(
     palLen: int,
     loadtile: int,
     f3d: F3D,
-    count_override: int | None = None,
 ):
     assert 0 <= palAddr < 256 and (palAddr & 0xF) == 0
     palFmt = texFormatOf[palFormat]
-    loadTileIndex = f3d.G_TX_LOADTILE
     nocm = ("G_TX_WRAP", "G_TX_NOMIRROR")
-    lutMode = "G_TT_RGBA16" if palFmt == "G_IM_FMT_RGBA" else "G_TT_IA16"
-    load_count = palLen - 1
-    if count_override is not None:
-        load_count = count_override
-    load_count = max(0, min(load_count, 255))
-    load_tlut_cmd = DPLoadTLUTCmd(loadTileIndex, load_count)
     gfxOut.commands.extend(
         [
-            DPSetTextureLUT(lutMode),
             DPSetTextureImage(palFmt, "G_IM_SIZ_16b", 1, fPalette),
-            DPTileSync(),
-            DPSetTile("0", "0", 0, 256 + palAddr, loadTileIndex, 0, nocm, 0, 0, nocm, 0, 0),
-            DPLoadSync(),
-            load_tlut_cmd,
-            DPPipeSync(),
+            DPSetTile("0", "0", 0, 256 + palAddr, loadtile, 0, nocm, 0, 0, nocm, 0, 0),
+            DPLoadTLUTCmd(loadtile, palLen - 1),
         ]
     )
-    return load_tlut_cmd
 
 
 # Functions for converting and writing texture and palette data

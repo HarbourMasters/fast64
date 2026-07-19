@@ -86,21 +86,6 @@ def ootImportNonLinkAnimationC(armatureObj, filepath, animName, actorScale, isCu
             + r"\s*=\s*\{\s*\{\s*([^,\s]*)\s*\}*\s*,\s*([^,\s]*)\s*,\s*([^,\s]*)\s*,\s*([^,\s]*)\s*\}\s*;"
         )
 
-    matchResult = re.search(re.escape(animName) + r"\s*=\s*\{(.*?)\}\s*;", animData, re.DOTALL | re.MULTILINE)
-
-    if matchResult is None:
-        raise PluginError("Cannot find definition named " + animName + " in " + filepath)
-
-    if "#include" in matchResult.group(1):
-        anim_data = removeComments(get_include_data(matchResult.group(1))).replace("\n", "").replace(" ", "")
-        regex = r"\{(.*?),?\},(.*?),(.*?),(.*?),"
-    else:
-        anim_data = animData
-        regex = (
-            re.escape(animName)
-            + r"\s*=\s*\{\s*\{\s*([^,\s]*)\s*\}*\s*,\s*([^,\s]*)\s*,\s*([^,\s]*)\s*,\s*([^,\s]*)\s*\}\s*;"
-        )
-
     matchResult = re.search(
         regex,
         anim_data,

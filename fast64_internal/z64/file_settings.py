@@ -5,8 +5,7 @@ from bpy.types import Scene
 from ..game_data import game_data
 from ..utility import prop_split
 from ..render_settings import on_update_render_settings
-from ..panels import MM_Panel, OOT_Panel
-from .utility import is_hm64
+from ..panels import OOT_Panel
 
 
 class OOT_FileSettingsPanel(OOT_Panel):
@@ -22,23 +21,28 @@ class OOT_FileSettingsPanel(OOT_Panel):
 
         prop_split(col, context.scene, "ootDecompPath", "Decomp Path")
 
+        oot_settings = context.scene.fast64.oot
         is_oot = game_data.z64.is_oot()
-        version = "oot_version" if is_oot else "mm_version"
-        prop_split(col, context.scene.fast64.oot, version, "Game Version")
-        if context.scene.fast64.oot.oot_version == "Custom":
-            prop_split(col, context.scene.fast64.oot, "oot_version_custom", "Custom Version")
+        feature_set = oot_settings.feature_set
+        is_decomp = feature_set == "default"
+        show_hm64_mm_toggle = is_oot and feature_set == "hm64"
+        use_mm_version = (not is_oot) or (show_hm64_mm_toggle and oot_settings.mm_features)
 
-        is_decomp = context.scene.fast64.oot.feature_set == "default"
+        version = "mm_version" if use_mm_version else "oot_version"
+        prop_split(col, oot_settings, version, "Game Version")
+        if getattr(oot_settings, version) == "Custom":
+            prop_split(col, oot_settings, "oot_version_custom", "Custom Version")
+
         if is_oot:
-            prop_split(col, context.scene.fast64.oot, "feature_set", "Feature Set")
+            prop_split(col, oot_settings, "feature_set", "Feature Set")
 
-        col.prop(context.scene.fast64.oot, "headerTabAffectsVisibility")
+        col.prop(oot_settings, "headerTabAffectsVisibility")
 
-        if is_oot and is_decomp:
-            col.prop(context.scene.fast64.oot, "mm_features")
+        if is_oot and (is_decomp or show_hm64_mm_toggle):
+            col.prop(oot_settings, "mm_features")
 
         if game_data.z64.is_mm() or is_decomp:
-            col.prop(context.scene.fast64.oot, "useDecompFeatures")
+            col.prop(oot_settings, "useDecompFeatures")
 
         col.prop(context.scene.fast64.oot, "exportMotionOnly")
 
@@ -46,20 +50,7 @@ class OOT_FileSettingsPanel(OOT_Panel):
             col.prop(context.scene.fast64.oot, "use_new_actor_panel")
 
 
-class MM_FileSettingsPanel(MM_Panel):
-    bl_idname = "Z64_PT_file_settings_mm"
-    bl_label = "Workspace Settings"
-    bl_options = set()
-
-    @classmethod
-    def poll(cls, context):
-        return MM_Panel.poll(context) and is_hm64()
-
-    def draw(self, context):
-        OOT_FileSettingsPanel.draw(self, context)
-
-
-oot_classes = (OOT_FileSettingsPanel, MM_FileSettingsPanel)
+oot_classes = (OOT_FileSettingsPanel,)
 
 
 def file_register():

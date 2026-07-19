@@ -1,14 +1,3 @@
-# info about add on
-bl_info = {
-    "name": "Fast64 (HM64)",
-    "version": (2, 5, 3),
-    "author": "kurethedead (Fast64), Jameriquiah (HM64), PurpleHato (HM64)",
-    "location": "3DView",
-    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games to Harbour Masters 64 PC Port.",
-    "category": "Import-Export",
-    "blender": (3, 2, 0),
-}
-
 import bpy
 
 from bpy.utils import register_class, unregister_class
@@ -38,8 +27,7 @@ from .fast64_internal.z64.props_panel_main import OOT_ObjectProperties
 from .fast64_internal.z64.actor.properties import initOOTActorProperties
 from .fast64_internal.utility_anim import utility_anim_register, utility_anim_unregister, ArmatureApplyWithMeshOperator
 
-from .fast64_internal.mk64 import mk64_register, mk64_unregister
-from .fast64_internal.hm64.mk64.mk64_properties import MK64_ObjectProperties, MK64_Properties
+from .fast64_internal.mk64 import MK64_Properties, mk64_register, mk64_unregister
 from .fast64_internal.mk64.mk64_constants import mk64_world_defaults
 
 from .fast64_internal.f3d.f3d_gbi import get_F3D_GBI
@@ -50,6 +38,7 @@ from .fast64_internal.f3d.f3d_material import (
     check_or_ask_color_management,
 )
 from .fast64_internal.f3d.f3d_writer import f3d_writer_register, f3d_writer_unregister
+from .fast64_internal.f3d.f3d_parser import f3d_parser_register, f3d_parser_unregister
 from .fast64_internal.f3d.flipbook import flipbook_register, flipbook_unregister
 from .fast64_internal.f3d.op_largetexture import op_largetexture_register, op_largetexture_unregister, ui_oplargetexture
 
@@ -78,12 +67,23 @@ from .fast64_internal.gltf_extension import (
     gltf_extension_unregister,
 )
 
+# info about add on
+bl_info = {
+    "name": "Fast64 (HM64)",
+    "version": (2, 5, 3),
+    "author": "kurethedead (Fast64), Jameriquiah (HM64), PurpleHato (HM64)",
+    "location": "3DView",
+    "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games to Harbour Masters 64 PC Ports.",
+    "category": "Import-Export",
+    "blender": (3, 2, 0),
+}
+
 gameEditorEnum = (
     ("SM64", "SM64", "Super Mario 64", 0),
     ("OOT", "OOT", "Ocarina Of Time", 1),
-    ("MM", "MM", "Majora's Mask", 4),
+    # ("MM", "MM", "Majora's Mask", 4),
     ("MK64", "MK64", "Mario Kart 64", 3),
-    # ("Homebrew", "Homebrew", "Homebrew", 2),
+    ("Homebrew", "Homebrew", "Homebrew", 2),
 )
 
 
@@ -291,17 +291,7 @@ class Fast64_ObjectProperties(bpy.types.PropertyGroup):
     """
 
     sm64: bpy.props.PointerProperty(type=SM64_ObjectProperties, name="SM64 Object Properties")
-    oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="Z64 Object Properties")
-    mk64: bpy.props.PointerProperty(type=MK64_ObjectProperties, name="MK64 Object Properties")
-
-
-class Fast64_CurveProperties(bpy.types.PropertyGroup):
-    """
-    Properties in object.fast64 (bpy.types.Curve)
-    All new object properties should be children of this property group.
-    """
-
-    mk64: bpy.props.PointerProperty(type=MK64_Properties, name="MK64 Curve Properties")
+    oot: bpy.props.PointerProperty(type=OOT_ObjectProperties, name="Z64 Object Properties")  # TODO: rename oot to z64
 
 
 class UpgradeF3DMaterialsDialog(bpy.types.Operator):
@@ -357,7 +347,6 @@ classes = (
     Fast64_ActionProperties,
     Fast64_BoneProperties,
     Fast64_ObjectProperties,
-    Fast64_CurveProperties,
     F3D_GlobalSettingsPanel,
     Fast64_GlobalSettingsPanel,
     Fast64_GlobalToolsPanel,
@@ -431,9 +420,6 @@ def set_game_defaults(scene: bpy.types.Scene, set_ucode=True):
     if scene.gameEditorMode == "SM64":
         f3d_type = "F3D"
         world_defaults = sm64_world_defaults
-    elif scene.gameEditorMode == "MK64":
-        f3d_type = "F3DEX"
-        world_defaults = mk64_world_defaults
     elif scene.gameEditorMode in {"OOT", "MM"}:
         f3d_type = "F3DEX2/LX2"
         world_defaults = oot_world_defaults
@@ -493,6 +479,7 @@ def register():
     bsdf_conv_panel_regsiter()
     f3d_writer_register()
     flipbook_register()
+    f3d_parser_register()
     op_largetexture_register()
 
     # ROM
@@ -516,11 +503,8 @@ def register():
     bpy.types.Scene.fast64 = bpy.props.PointerProperty(type=Fast64_Properties, name="Fast64 Properties")
     bpy.types.Bone.fast64 = bpy.props.PointerProperty(type=Fast64_BoneProperties, name="Fast64 Bone Properties")
     bpy.types.Object.fast64 = bpy.props.PointerProperty(type=Fast64_ObjectProperties, name="Fast64 Object Properties")
-    bpy.types.Curve.fast64 = bpy.props.PointerProperty(type=Fast64_CurveProperties, name="Fast64 Curve Properties")
     bpy.types.Action.fast64 = bpy.props.PointerProperty(type=Fast64_ActionProperties, name="Fast64 Action Properties")
     bpy.app.handlers.load_post.append(after_load)
-
-    # Register HM64 extensions (XML export, MM support, etc.)
     from .fast64_internal.hm64 import hm64_register
 
     hm64_register()
@@ -528,15 +512,14 @@ def register():
 
 # called on add-on disabling
 def unregister():
-    # Unregister HM64 extensions first
     from .fast64_internal.hm64 import hm64_unregister
 
     hm64_unregister()
-
     utility_anim_unregister()
     op_largetexture_unregister()
     flipbook_unregister()
     f3d_writer_unregister()
+    f3d_parser_unregister()
     sm64_unregister(True)
     oot_unregister(True)
     mk64_unregister(True)

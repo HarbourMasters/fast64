@@ -28,7 +28,6 @@ from ..utility import (
     binOps,
     deselectAllObjects,
     selectSingleObject,
-    get_internal_asset_path as _get_internal_asset_path,
 )
 
 if TYPE_CHECKING:
@@ -234,10 +233,6 @@ def replaceMatchContent(data: str, newContent: str, match: re.Match, index: int)
 def addIncludeFiles(objectName, objectPath, assetName):
     addIncludeFilesExtension(objectName, objectPath, assetName, "h")
     addIncludeFilesExtension(objectName, objectPath, assetName, "c")
-
-
-def get_internal_asset_path(settings, folderName):
-    return _get_internal_asset_path(settings, folderName)
 
 
 def addIncludeFilesExtension(objectName, objectPath, assetName, extension):
@@ -1041,10 +1036,6 @@ def is_oot_features():
 
 def is_hackeroot():
     return game_data.z64.is_oot() and bpy.context.scene.fast64.oot.feature_set == "hackeroot"
-
-
-def is_hm64():
-    return bpy.context.scene.fast64.oot.feature_set == "hm64"
 
 
 def add_include_to_spec_segment(spec_p: Path, segment: str, inc: str):

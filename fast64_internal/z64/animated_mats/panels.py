@@ -1,7 +1,7 @@
 from bpy.utils import register_class, unregister_class
 
-from ...panels import MM_Panel, OOT_Panel
-from ..utility import is_oot_features, is_hackeroot, is_hm64
+from ...panels import OOT_Panel
+from ..utility import is_oot_features, is_hackeroot
 
 
 class Z64_AnimatedMaterialsPanel(OOT_Panel):
@@ -17,21 +17,6 @@ class Z64_AnimatedMaterialsPanel(OOT_Panel):
 
 
 panel_classes = (Z64_AnimatedMaterialsPanel,)
-
-
-class MM_AnimatedMaterialsPanel(MM_Panel):
-    bl_idname = "Z64_PT_animated_materials_mm"
-    bl_label = "Animated Materials Exporter"
-
-    @classmethod
-    def poll(cls, context):
-        return MM_Panel.poll(context) and is_hm64()
-
-    def draw(self, context):
-        Z64_AnimatedMaterialsPanel.draw(self, context)
-
-
-panel_classes = (*panel_classes, MM_AnimatedMaterialsPanel)
 
 
 def animated_mats_panels_register():

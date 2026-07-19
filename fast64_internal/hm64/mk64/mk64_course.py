@@ -11,8 +11,7 @@ from pathlib import Path
 from mathutils import Vector, Euler, Matrix
 from dataclasses import dataclass, fields
 
-from ...mk64.mk64_constants import MODEL_HEADER, SURFACE_TYPE_ENUM, CLIP_TYPE_ENUM, DRAW_LAYER_ENUM, PATH_TYPE_ENUM
-from .mk64_properties import MK64_ObjectProperties
+from .mk64_constants import MODEL_HEADER, SURFACE_TYPE_ENUM, CLIP_TYPE_ENUM, DRAW_LAYER_ENUM, PATH_TYPE_ENUM
 
 from ...f3d.f3d_writer import exportF3DCommon, getInfoDict, TriangleConverterInfo, saveStaticModel
 from ...f3d.f3d_bleed import BleedGraphics
@@ -38,8 +37,8 @@ from ...utility import (
     PluginError,
     CData,
     writeCData,
-    writeXMLData,
 )
+from ..utility import writeXMLData
 
 # ------------------------------------------------------------------------
 #    Classes
@@ -102,17 +101,14 @@ class MK64_BpyCourse:
         return fModel
 
     def is_mk64_actor(self, obj: bpy.Types.Object):
-        mk64_props: MK64_ObjectProperties = obj.fast64.mk64
-        return mk64_props.obj_type == "Actor"
+        return obj.hm64_mk64_obj_type == "Actor"
 
     def add_actor(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
-        mk64_props: MK64_ObjectProperties = obj.fast64.mk64
         position = (transform @ obj.matrix_local).translation
-        fModel.actors.append(MK64_Actor(position, mk64_props.actor_type))
+        fModel.actors.append(MK64_Actor(position, 0))
         return
 
     def add_curve(self, obj: bpy.Types.Object, transform: Matrix, fModel: FModel):
-        mk64_props: MK64_ObjectProperties = obj.fast64.mk64
         curve_data = obj.data
 
         points = []
@@ -136,11 +132,10 @@ class MK64_BpyCourse:
                 points.append(pos_int)
 
         if points:
-            fModel.path.append(MK64_Path(points, mk64_props.path_type))
+            fModel.path.append(MK64_Path(points, obj.hm64_mk64_path_type))
             return
 
     def add_path(self, obj: bpy.types.Object, transform: Matrix, fModel: FModel, logging_func):
-        mk64_props: MK64_ObjectProperties = obj.fast64.mk64
         depsgraph = bpy.context.evaluated_depsgraph_get()
 
         eval_obj = obj.evaluated_get(depsgraph)
@@ -164,7 +159,7 @@ class MK64_BpyCourse:
         eval_obj.to_mesh_clear()
 
         if points:
-            fModel.path.append(MK64_Path(points, mk64_props.path_type))
+            fModel.path.append(MK64_Path(points, obj.hm64_mk64_path_type))
 
     # look into speeding this up by calculating just the apprent
     # transform using transformMatrix vs clearing parent and applying
@@ -172,8 +167,7 @@ class MK64_BpyCourse:
     def export_f3d_from_obj(
         self, context: bpy.Types.Context, obj: bpy.types.Object, fModel: MK64_fModel, transformMatrix: Matrix
     ):
-        mk64_props: MK64_ObjectProperties = obj.fast64.mk64
-        mk_props: MK64_Properties = context.scene.fast64.mk64
+        mk_props = context.scene.fast64.mk64
         if obj and obj.type == "MESH":
             # Export as geometry
             try:
@@ -182,8 +176,7 @@ class MK64_BpyCourse:
                     # Treat transparent objects like a normal object which means the position is exported.
                     # This is required for z-sort so that they are rendered over-top of each other correctly.
                     # Normal geometry is placed at 0,0,0 and the vertices are used for positionnig instead.
-                    if mk64_props.draw_layer in {"DRAW_TRANSLUCENT", "DRAW_TRANSLUCENT_NO_ZBUFFER"}:
-                        mk64_props.location = obj.matrix_world.to_translation() * mk_props.scale
+                    if obj.hm64_mk64_draw_layer in {"DRAW_TRANSLUCENT", "DRAW_TRANSLUCENT_NO_ZBUFFER"}:
                         transformMatrix.translation = Vector((0.0, 0.0, 0.0))
                         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True, properties=False)
                     else:
@@ -224,15 +217,14 @@ class MK64_fModel(FModel):
     # parent override so I can keep track of original mesh data
     # to lookup collision data later
     def onAddMesh(self, fMesh: FMesh, obj: bpy.Types.Object):
-        mk64_props: MK64_ObjectProperties = obj.fast64.mk64
         self.track_sections.append(
             MK64_TrackSection(
                 fMesh.draw.name,
-                mk64_props.surface_type,
-                mk64_props.section_id,
-                mk64_props.clip_type,
-                mk64_props.draw_layer,
-                mk64_props.location,
+                obj.hm64_mk64_surface_type,
+                obj.hm64_mk64_section_id,
+                obj.hm64_mk64_clip_type,
+                obj.hm64_mk64_draw_layer,
+                obj.matrix_world.to_translation(),
             )
         )
         return

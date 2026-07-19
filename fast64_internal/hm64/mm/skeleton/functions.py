@@ -3,9 +3,9 @@ import bpy
 import os
 
 from pathlib import Path
-from ..mm_f3d_gbi import DLFormat, FMesh, TextureExportSettings, ScrollMethod, get_F3D_GBI
-from ..mm_f3d_writer import getInfoDict
-from .. import mm_z64_f3d_writer
+from ...f3d.hm64_f3d_gbi import DLFormat, FMesh, TextureExportSettings, ScrollMethod, get_F3D_GBI
+from ...f3d.hm64_f3d_writer import getInfoDict
+from ...z64 import hm64_z64_f3d_writer
 from ....z64.model_classes import OOTModel, OOTGfxFormatter
 from ....game_data import game_data
 from ....z64.skeleton.properties import OOTSkeletonExportSettings
@@ -42,10 +42,8 @@ from ....utility import (
     writeCData,
     toAlnum,
     cleanupDuplicatedObjects,
-    crc64,
-    get_internal_asset_path,
-    resolve_internal_export_path,
 )
+from ...utility import crc64, get_internal_asset_path, resolve_internal_export_path
 
 from ....z64.utility import (
     checkEmptyName,
@@ -89,7 +87,7 @@ def ootProcessBone(
         mesh = None
         hasSkinnedFaces = None
     else:
-        mesh, hasSkinnedFaces, lastMaterialName = mm_z64_f3d_writer.ootProcessVertexGroup(
+        mesh, hasSkinnedFaces, lastMaterialName = hm64_z64_f3d_writer.ootProcessVertexGroup(
             fModel,
             meshObj,
             boneName,
@@ -332,14 +330,14 @@ def ootConvertArmatureToC(
     data.append(skeletonC)
 
     if isCustomExport:
-        textureArrayData = mm_z64_f3d_writer.writeTextureArraysNew(fModel, flipbookArrayIndex2D)
+        textureArrayData = hm64_z64_f3d_writer.writeTextureArraysNew(fModel, flipbookArrayIndex2D)
         data.append(textureArrayData)
 
     data.header += "\n#endif\n"
     writeCData(data, os.path.join(path, filename + ".h"), os.path.join(path, filename + ".c"))
 
     if not isCustomExport:
-        mm_z64_f3d_writer.writeTextureArraysExisting(
+        hm64_z64_f3d_writer.writeTextureArraysExisting(
             bpy.context.scene.ootDecompPath, overlayName, isLink, flipbookArrayIndex2D, fModel
         )
         addIncludeFiles(folderName, path, filename)
@@ -442,14 +440,24 @@ def ootConvertArmatureToO2R(
             with open(os.path.join(exportFolderPath, fMaterial.revert.name), "wb") as f:
                 f.write(fMaterial.revert.toO2R(folderPath))
 
+    from ...f3d.soh_xml_exporter import _FMaterial_to_soh_xml, _FMesh_to_soh_xml
+
     for _, (fMaterial, _) in fModel.materials.items():
         if fMaterial is not None:
-            fMaterial.to_soh_xml(exportFolderPath, objectPath)
+            material_to_soh_xml = getattr(fMaterial, "to_soh_xml", None)
+            if callable(material_to_soh_xml):
+                material_to_soh_xml(exportFolderPath, objectPath)
+            else:
+                _FMaterial_to_soh_xml(fMaterial, exportFolderPath, objectPath)
 
     # dict[str, FMesh]
     for _, mesh in fModel.meshes.items():
         if mesh.draw is not None:
-            mesh.to_soh_xml(exportFolderPath, objectPath, include_cull_vertices=False)
+            mesh_to_soh_xml = getattr(mesh, "to_soh_xml", None)
+            if callable(mesh_to_soh_xml):
+                mesh_to_soh_xml(exportFolderPath, objectPath, include_cull_vertices=False)
+            else:
+                _FMesh_to_soh_xml(mesh, exportFolderPath, objectPath, include_cull_vertices=False)
 
     with open(os.path.join(exportFolderPath, filename), "wb") as f:
         f.write(skeleton.toO2R(folderPath))

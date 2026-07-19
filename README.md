@@ -1,7 +1,7 @@
 # Fast64
 
 > [!IMPORTANT]
-> This is the updated version of HM's fork of Fast64, the old version of HM's fork is [here](https://github.com/HarbourMasters/fast64/tree/legacy)
+> This is the updated version of HM's fork of Fast64.
 
 This requires Blender 3.2 - 5.1.2. Blender 4.0+ is recommended.
 
