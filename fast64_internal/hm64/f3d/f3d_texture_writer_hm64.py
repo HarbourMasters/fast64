@@ -227,13 +227,13 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
     loadGfx = fMaterial.texture_DL
     f3d = fModel.f3d
     if self.loadPal:
-        base.savePaletteLoad(loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d)
+        load_tlut_cmd = base.savePaletteLoad(loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d)
         override = getattr(self.texProp, "palette_color_count", None) if self.texProp is not None else None
-        if loadGfx.commands and isinstance(loadGfx.commands[-1], DPLoadTLUTCmd):
-            loadGfx.commands[-1].count = max(0, min((override if override is not None else self.palLen) - 1, 255))
+        if load_tlut_cmd is not None:
+            load_tlut_cmd.count = max(0, min((override if override is not None else self.palLen - 1), 255))
             if shared_tlut_state is not None and fPalette is not None:
                 shared_tlut_state.palette_image = fPalette
-                shared_pair = (loadGfx.commands[-1], override)
+                shared_pair = (load_tlut_cmd, override)
                 if shared_pair not in shared_tlut_state.load_commands:
                     shared_tlut_state.load_commands.append(shared_pair)
     if self.doTexLoad:
