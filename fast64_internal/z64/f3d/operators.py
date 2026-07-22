@@ -14,7 +14,7 @@ from ...utility import CData, PluginError, ExportUtils, raisePluginError, writeC
 from ...f3d.f3d_parser import importMeshC, getImportData
 from ...f3d.f3d_gbi import DLFormat, TextureExportSettings, ScrollMethod, get_F3D_GBI
 from ...f3d.f3d_writer import TriangleConverterInfo, removeDL, saveStaticModel, getInfoDict
-from ..utility import ootGetObjectPath, ootGetObjectHeaderPath, getOOTScale, is_hm64
+from ..utility import ootGetObjectPath, ootGetObjectHeaderPath, getOOTScale
 from ..model_classes import OOTF3DContext, ootGetIncludedAssetData
 from ..texture_array import ootReadTextureArrays
 from ..model_classes import OOTModel, OOTGfxFormatter
@@ -192,16 +192,17 @@ class OOT_ImportDL(Operator):
             if scale is None:
                 scale = getOOTScale(settings.actorScale)
 
+            import_scale = scale / 0.1
             obj = importMeshC(
                 filedata,
                 name,
-                scale,
+                import_scale,
                 removeDoubles,
                 importNormals,
                 drawLayer,
                 f3dContext,
             )
-            obj.ootActorScale = scale / context.scene.ootBlenderScale
+            obj.ootActorScale = import_scale / context.scene.ootBlenderScale
 
             self.report({"INFO"}, "Success!")
             return {"FINISHED"}
@@ -242,24 +243,19 @@ class OOT_ExportDL(Operator):
                 saveTextures = context.scene.saveTextures
                 exportSettings = context.scene.fast64.oot.DLExportSettings
 
-                if is_hm64():
+                export_mesh = ootConvertMeshToC
+                if context.scene.fast64.oot.feature_set == "hm64":
                     from ...hm64.z64.operators import ootConvertMeshToXML
 
-                    ootConvertMeshToXML(
-                        obj,
-                        finalTransform,
-                        DLFormat.Static,
-                        saveTextures,
-                        exportSettings,
-                    )
-                else:
-                    ootConvertMeshToC(
-                        obj,
-                        finalTransform,
-                        DLFormat.Static,
-                        saveTextures,
-                        exportSettings,
-                    )
+                    export_mesh = ootConvertMeshToXML
+
+                export_mesh(
+                    obj,
+                    finalTransform,
+                    DLFormat.Static,
+                    saveTextures,
+                    exportSettings,
+                )
 
                 self.report({"INFO"}, "Success!")
                 return {"FINISHED"}

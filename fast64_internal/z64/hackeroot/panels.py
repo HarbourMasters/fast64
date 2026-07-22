@@ -1,7 +1,6 @@
 from bpy.utils import register_class, unregister_class
 
-from ...panels import MM_Panel, OOT_Panel
-from ..utility import is_hm64
+from ...panels import OOT_Panel
 
 
 class HackerOoTSettingsPanel(OOT_Panel):
@@ -16,21 +15,6 @@ class HackerOoTSettingsPanel(OOT_Panel):
 
 
 panel_classes = (HackerOoTSettingsPanel,)
-
-
-class MM_HackerOoTSettingsPanel(MM_Panel):
-    bl_idname = "Z64_PT_hackeroot_settings_mm"
-    bl_label = "HackerOoT Settings"
-
-    @classmethod
-    def poll(cls, context):
-        return MM_Panel.poll(context) and is_hm64()
-
-    def draw(self, context):
-        HackerOoTSettingsPanel.draw(self, context)
-
-
-panel_classes = (*panel_classes, MM_HackerOoTSettingsPanel)
 
 
 def hackeroot_panels_register():

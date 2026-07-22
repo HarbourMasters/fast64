@@ -2,10 +2,9 @@
 
 import bpy
 from bpy.props import CollectionProperty, IntProperty
-from bpy.types import Object, Panel, Mesh, Operator, UIList
+from bpy.types import Object, Mesh, Operator, UIList
 
-from ...panels import MM_Panel
-from ...z64.utility import is_hm64
+from ..utility import is_hm64
 from ...z64.f3d.properties import OOTDLExportSettings
 from .properties import OOTDLMatrixCallPair
 
@@ -57,84 +56,7 @@ class FAST64_OT_RemoveObjectMatrixCall(Operator):
         return {"FINISHED"}
 
 
-class MM_DisplayListPanel(MM_Panel):
-    bl_label = "Display List Inspector"
-    bl_idname = "OBJECT_PT_OOT_DL_Inspector_mm"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "object"
-    bl_options = {"HIDE_HEADER"}
-
-    @classmethod
-    def poll(cls, context):
-        return (
-            is_hm64()
-            and context.scene.gameEditorMode == "MM"
-            and (context.object is not None and isinstance(context.object.data, Mesh))
-        )
-
-    def draw(self, context):
-        from ...z64.f3d.panels import OOT_DisplayListPanel
-
-        OOT_DisplayListPanel.draw(self, context)
-
-
-class MM_MaterialPanel(MM_Panel):
-    bl_label = "OOT Material"
-    bl_idname = "MATERIAL_PT_OOT_Material_Inspector_mm"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "material"
-    bl_options = {"HIDE_HEADER"}
-
-    @classmethod
-    def poll(cls, context):
-        return is_hm64() and context.material is not None and context.scene.gameEditorMode == "MM"
-
-    def draw(self, context):
-        from ...z64.f3d.panels import OOT_MaterialPanel
-
-        OOT_MaterialPanel.draw(self, context)
-
-
-class MM_DrawLayersPanel(MM_Panel):
-    bl_label = "OOT Draw Layers"
-    bl_idname = "WORLD_PT_OOT_Draw_Layers_Panel_mm"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "world"
-    bl_options = {"HIDE_HEADER"}
-
-    @classmethod
-    def poll(cls, context):
-        return is_hm64() and context.scene.gameEditorMode == "MM"
-
-    def draw(self, context):
-        from ...z64.f3d.panels import OOT_DrawLayersPanel
-
-        OOT_DrawLayersPanel.draw(self, context)
-
-
-class MM_ExportDLPanel(MM_Panel):
-    bl_idname = "Z64_PT_export_dl_mm"
-    bl_label = "DL Exporter"
-
-    @classmethod
-    def poll(cls, context):
-        return MM_Panel.poll(context) and is_hm64()
-
-    def draw(self, context):
-        from ...z64.f3d.panels import OOT_ExportDLPanel
-
-        OOT_ExportDLPanel.draw(self, context)
-
-
-hm64_panel_classes = (
-    MM_DisplayListPanel,
-    MM_MaterialPanel,
-    MM_DrawLayersPanel,
-    MM_ExportDLPanel,
-)
+hm64_panel_classes = ()
 
 hm64_support_classes = (
     OOTDLMatrixCallPair,

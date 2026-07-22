@@ -21,55 +21,16 @@ from ...f3d_writer import ootReadActorScale
 from ...model_classes import OOTF3DContext, ootGetIncludedAssetData
 from ...utility import OOTEnum, ootGetObjectPath, getOOTScale, ootGetObjectHeaderPath, ootGetEnums, ootStripComments
 from ...texture_array import ootReadTextureArrays
-from ..constants import find_skeleton_import_info
+from ..constants import ootSkeletonImportDict
 from ..properties import OOTSkeletonImportSettings
 from ..utility import ootGetLimb, ootGetLimbs, ootGetSkeleton, applySkeletonRestPose, get_anim_names
 from ...tools.quick_import import quick_import_exec
-
-import bmesh
-
-
-SKEL_VERTEX_GROUP_BLACKLIST = {
-    "&gLinkHumanSheathedKokiriSwordMtx_x_gLinkHumanSheathLimb",
-}
 
 
 class OOTDLEntry:
     def __init__(self, dlName, limbIndex):
         self.dlName = dlName
         self.limbIndex = limbIndex
-
-
-def remove_blacklisted_vertex_groups(mesh_obj):
-    mesh = mesh_obj.data
-    vertex_indices_to_remove: set[int] = set()
-
-    group_indices: set[int] = set()
-    for group_name in SKEL_VERTEX_GROUP_BLACKLIST:
-        group = mesh_obj.vertex_groups.get(group_name)
-        if group is None:
-            continue
-        group_indices.add(group.index)
-        for vert in mesh.vertices:
-            for vg in vert.groups:
-                if vg.group == group.index:
-                    vertex_indices_to_remove.add(vert.index)
-        mesh_obj.vertex_groups.remove(group)
-
-    if not vertex_indices_to_remove:
-        return
-
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    vert_map = {vert.index: vert for vert in bm.verts}
-    for vert_index in sorted(vertex_indices_to_remove, reverse=True):
-        vert = vert_map.get(vert_index)
-        if vert is not None and not vert.is_valid:
-            continue
-        if vert is not None:
-            bmesh.ops.delete(bm, geom=[vert], context="VERTS")
-    bm.to_mesh(mesh)
-    bm.free()
 
 
 def ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL):
@@ -261,7 +222,6 @@ def ootBuildSkeleton(
         if f3dContext.isBillboard:
             armatureObj.data.bones[boneName].ootBone.dynamicTransform.billboard = True
     f3dContext.createMesh(obj, removeDoubles, importNormals, False)
-    remove_blacklisted_vertex_groups(obj)
     armatureObj.location = bpy.context.scene.cursor.location
 
     # Set bone rotation mode.
@@ -290,9 +250,7 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     isCustomImport = importSettings.isCustom
 
     if importSettings.mode != "Generic" and not importSettings.isCustom:
-        importInfo = find_skeleton_import_info(importSettings.mode, bpy.context.scene.gameEditorMode)
-        if importInfo is None:
-            raise PluginError(f"Unknown skeleton import mode '{importSettings.mode}'")
+        importInfo = ootSkeletonImportDict[importSettings.mode]
         skeletonName = importInfo.skeletonName
         folderName = importInfo.folderName
         overlayName = importInfo.actorOverlayName
@@ -358,7 +316,7 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
 
     skeletonData = getImportData(filepaths)
     if overlayName is not None or isLink:
-        skeletonData = ootGetIncludedAssetData(basePath, filepaths, skeletonData) + skeletonData
+        skeletonData = ootGetIncludedAssetData([basePath], filepaths, skeletonData) + skeletonData
 
     skel_info = ootGetSkeleton(skeletonData, skeletonName, False)
     assert skel_info is not None
@@ -372,8 +330,6 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     f3dContext = OOTF3DContext(get_F3D_GBI(), limbs_info.limb_list, basePath)
     f3dContext.mat().draw_layer.oot = drawLayer
     f3dContext.ignore_tlut = ignore_tlut
-    if importSettings.mode == "Human Link":
-        f3dContext.ignored_dl_names.add("gKokiriSwordHandleDL")
 
     actorScale = None
 
@@ -383,7 +339,7 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     if actorScale is None:
         actorScale = getOOTScale(importSettings.actorScale)
 
-    _, armatureObj = ootBuildSkeleton(
+    isLOD, armatureObj = ootBuildSkeleton(
         skeletonName,
         overlayName,
         skeletonData,
@@ -397,11 +353,30 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
         flipbookArrayIndex2D,
         f3dContext,
     )
+    if isLOD:
+        isLOD, LODArmatureObj = ootBuildSkeleton(
+            skeletonName,
+            overlayName,
+            skeletonData,
+            actorScale,
+            removeDoubles,
+            importNormals,
+            True,
+            basePath,
+            drawLayer,
+            isLink,
+            flipbookArrayIndex2D,
+            f3dContext,
+        )
+        armatureObj.ootSkeleton.LOD = LODArmatureObj
+        LODArmatureObj.location += mathutils.Vector((10, 0, 0))
 
     f3dContext.deleteMaterialContext()
 
     if importSettings.applyRestPose and restPoseData is not None:
         applySkeletonRestPose(restPoseData, armatureObj)
+        if isLOD:
+            applySkeletonRestPose(restPoseData, LODArmatureObj)
 
     if import_animations:
         if armatureObj is not None:

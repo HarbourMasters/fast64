@@ -116,7 +116,7 @@ class OOT_Properties(bpy.types.PropertyGroup):
     """Global OOT Scene Properties found under scene.fast64.oot"""
 
     version: bpy.props.IntProperty(name="OOT_Properties Version", default=0)
-    feature_set: bpy.props.EnumProperty(name="Feature Set", default=0, items=feature_set_enum)
+    feature_set: bpy.props.EnumProperty(name="Feature Set", default="hm64", items=feature_set_enum)
     headerTabAffectsVisibility: bpy.props.BoolProperty(
         default=False, name="Header Sets Actor Visibility", update=setAllActorsVisibility
     )

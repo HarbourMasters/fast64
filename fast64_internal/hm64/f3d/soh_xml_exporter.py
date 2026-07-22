@@ -114,15 +114,13 @@ from ...f3d.f3d_gbi import (
     DPSetKeyGB,
     SPTextureRectangle,
     SPScisTextureRectangle,
-    format_asset_path,
-    get_image_from_image_key,
 )
-from ...utility import (
-    PluginError,
-    writeXMLData,
-    resolve_internal_export_path,
-)
+from ...utility import PluginError
+from ..utility import writeXMLData, resolve_internal_export_path
 from ...z64.exporter.skeleton.classes import OOTSkeleton, OOTLimb
+from .f3d_gbi_hm64 import format_asset_path, get_image_from_image_key
+
+_REGISTERED = False
 
 # --- Helper functions ---
 
@@ -303,7 +301,8 @@ def _Vtx_to_soh_xml(self):
 def _VtxList_to_soh_xml(self):
     data = '<Vertex Version="0">\n'
     for vert in self.vertices:
-        data += "\t" + vert.to_soh_xml() + "\n"
+        vert_to_soh_xml = getattr(vert, "to_soh_xml", None)
+        data += "\t" + (vert_to_soh_xml() if callable(vert_to_soh_xml) else _Vtx_to_soh_xml(vert)) + "\n"
     data += "</Vertex>\n"
     return data
 
@@ -312,14 +311,37 @@ def _VtxList_to_soh_xml(self):
 def _GfxList_to_soh_xml(self, modelDirPath, objectPath):
     data = '<DisplayList Version="0">\n'
     for command in self.commands:
-        if isinstance(command, (SPDisplayList, SPBranchList, SPVertex, DPSetTextureImage)):
-            data += "\t" + command.to_soh_xml(objectPath) + "\n"
-        else:
-            data += "\t" + command.to_soh_xml() + "\n"
+        data += "\t" + _call_to_soh_xml(command, modelDirPath, objectPath) + "\n"
 
     data += "</DisplayList>\n\n"
 
     return data
+
+
+def _call_to_soh_xml(command, modelDirPath=None, objectPath=""):
+    command_to_soh_xml = getattr(command, "to_soh_xml", None)
+    if callable(command_to_soh_xml):
+        if isinstance(command, (SPDisplayList, SPBranchList, SPVertex, DPSetTextureImage)):
+            return command_to_soh_xml(objectPath)
+        if modelDirPath is not None:
+            try:
+                return command_to_soh_xml(modelDirPath, objectPath)
+            except TypeError:
+                pass
+        return command_to_soh_xml()
+
+    patch = _PATCHES.get(type(command), {}).get("to_soh_xml")
+    if patch is None:
+        raise PluginError(f"Unsupported SOH XML command type: {type(command).__name__}")
+
+    if isinstance(command, (SPDisplayList, SPBranchList, SPVertex, DPSetTextureImage)):
+        return patch(command, objectPath)
+    if modelDirPath is not None:
+        try:
+            return patch(command, modelDirPath, objectPath)
+        except TypeError:
+            pass
+    return patch(command)
 
 
 # FModel.to_soh_xml
@@ -330,8 +352,17 @@ def _FModel_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=Tru
         combined_call_lines = []
         combined_other_lines = []
         for mesh in self.meshes.values():
-            data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices, write_root_draw=False)
-            call_lines, other_lines = mesh.get_soh_root_draw_lines(objectPath)
+            mesh_to_soh_xml = getattr(mesh, "to_soh_xml", None)
+            data += (
+                mesh_to_soh_xml(modelDirPath, objectPath, include_cull_vertices, write_root_draw=False)
+                if callable(mesh_to_soh_xml)
+                else _FMesh_to_soh_xml(mesh, modelDirPath, objectPath, include_cull_vertices, write_root_draw=False)
+            )
+            get_root_draw_lines = getattr(mesh, "get_soh_root_draw_lines", None)
+            if callable(get_root_draw_lines):
+                call_lines, other_lines = get_root_draw_lines(objectPath)
+            else:
+                call_lines, other_lines = _FMesh_get_soh_root_draw_lines(mesh, objectPath)
             combined_call_lines.extend(call_lines)
             if call_lines or other_lines:
                 combined_other_lines = other_lines
@@ -344,13 +375,24 @@ def _FModel_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=Tru
             )
     else:
         for mesh in self.meshes.values():
-            data += mesh.to_soh_xml(modelDirPath, objectPath, include_cull_vertices)
+            mesh_to_soh_xml = getattr(mesh, "to_soh_xml", None)
+            data += (
+                mesh_to_soh_xml(modelDirPath, objectPath, include_cull_vertices)
+                if callable(mesh_to_soh_xml)
+                else _FMesh_to_soh_xml(mesh, modelDirPath, objectPath, include_cull_vertices)
+            )
 
     for lod in self.LODGroups.values():
-        data += lod.to_soh_xml(modelDirPath)
+        lod_to_soh_xml = getattr(lod, "to_soh_xml", None)
+        data += lod_to_soh_xml(modelDirPath) if callable(lod_to_soh_xml) else _FLODGroup_to_soh_xml(lod, modelDirPath)
 
     for fMaterial, _ in self.materials.values():
-        data += fMaterial.to_soh_xml(modelDirPath, objectPath)
+        material_to_soh_xml = getattr(fMaterial, "to_soh_xml", None)
+        data += (
+            material_to_soh_xml(modelDirPath, objectPath)
+            if callable(material_to_soh_xml)
+            else _FMaterial_to_soh_xml(fMaterial, modelDirPath, objectPath)
+        )
 
     self.texturesSavedLastExport = self.save_soh_textures(modelDirPath)
     self.save_soh_palettes(modelDirPath)
@@ -548,9 +590,7 @@ def _FModel_save_soh_palettes(self, exportPath):
 # FMesh.get_soh_root_draw_lines
 def _FMesh_get_soh_root_draw_lines(self, objectPath):
     def command_xml(command):
-        if isinstance(command, (SPDisplayList, SPBranchList, DPSetTextureImage)):
-            return "\t" + command.to_soh_xml(objectPath) + "\n"
-        return "\t" + command.to_soh_xml() + "\n"
+        return "\t" + _call_to_soh_xml(command, None, objectPath) + "\n"
 
     call_lines = []
     other_lines = []
@@ -569,20 +609,34 @@ def _FMesh_get_soh_root_draw_lines(self, objectPath):
 # FMesh.to_soh_xml
 def _FMesh_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True, write_root_draw=True):
     if include_cull_vertices and self.cullVertexList is not None:
-        cullData = self.cullVertexList.to_soh_xml()
+        cull_to_soh_xml = getattr(self.cullVertexList, "to_soh_xml", None)
+        cullData = cull_to_soh_xml() if callable(cull_to_soh_xml) else _VtxList_to_soh_xml(self.cullVertexList)
         writeXMLData(cullData, os.path.join(modelDirPath, self.cullVertexList.name))
 
     for triGroup in self.triangleGroups:
-        triGroup.to_soh_xml(modelDirPath, objectPath)
+        tri_group_to_soh_xml = getattr(triGroup, "to_soh_xml", None)
+        if callable(tri_group_to_soh_xml):
+            tri_group_to_soh_xml(modelDirPath, objectPath)
+        else:
+            _FTriGroup_to_soh_xml(triGroup, modelDirPath, objectPath)
 
     for drawOverride in self.draw_overrides:
-        overrideData = drawOverride.to_soh_xml(modelDirPath)
+        override_to_soh_xml = getattr(drawOverride, "to_soh_xml", None)
+        overrideData = (
+            override_to_soh_xml(modelDirPath)
+            if callable(override_to_soh_xml)
+            else _FMesh_to_soh_xml(drawOverride, modelDirPath, objectPath)
+        )
         writeXMLData(overrideData, os.path.join(modelDirPath, drawOverride.name))
 
     if not write_root_draw:
         return ""
 
-    call_lines, other_lines = self.get_soh_root_draw_lines(objectPath)
+    get_root_draw_lines = getattr(self, "get_soh_root_draw_lines", None)
+    if callable(get_root_draw_lines):
+        call_lines, other_lines = get_root_draw_lines(objectPath)
+    else:
+        call_lines, other_lines = _FMesh_get_soh_root_draw_lines(self, objectPath)
     drawData = '<DisplayList Version="0">\n' + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
     writeXMLData(drawData, os.path.join(modelDirPath, self.draw.name))
     return drawData
@@ -590,10 +644,16 @@ def _FMesh_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True
 
 # FTriGroup.to_soh_xml
 def _FTriGroup_to_soh_xml(self, modelDirPath, objectPath):
-    vtxData = self.vertexList.to_soh_xml()
+    vertex_list_to_soh_xml = getattr(self.vertexList, "to_soh_xml", None)
+    vtxData = vertex_list_to_soh_xml() if callable(vertex_list_to_soh_xml) else _VtxList_to_soh_xml(self.vertexList)
     writeXMLData(vtxData, os.path.join(modelDirPath, self.vertexList.name))
 
-    triListData = self.triList.to_soh_xml(modelDirPath, objectPath)
+    tri_list_to_soh_xml = getattr(self.triList, "to_soh_xml", None)
+    triListData = (
+        tri_list_to_soh_xml(modelDirPath, objectPath)
+        if callable(tri_list_to_soh_xml)
+        else _GfxList_to_soh_xml(self.triList, modelDirPath, objectPath)
+    )
     writeXMLData(triListData, os.path.join(modelDirPath, self.triList.name))
     return ""
 
@@ -610,11 +670,21 @@ def _FScrollData_to_soh_xml(self):
 
     # Export tex0 scroll if present
     if self.tile_scroll_tex0.s != 0 or self.tile_scroll_tex0.t != 0:
-        data += "\t\t" + self.tile_scroll_tex0.to_soh_xml(0, self.dimensions)
+        tex0_to_soh_xml = getattr(self.tile_scroll_tex0, "to_soh_xml", None)
+        data += "\t\t" + (
+            tex0_to_soh_xml(0, self.dimensions)
+            if callable(tex0_to_soh_xml)
+            else _FSetTileSizeScrollField_to_soh_xml(self.tile_scroll_tex0, 0, self.dimensions)
+        )
 
     # Export tex1 scroll if present
     if self.tile_scroll_tex1.s != 0 or self.tile_scroll_tex1.t != 0:
-        data += "\t\t" + self.tile_scroll_tex1.to_soh_xml(1, self.dimensions)
+        tex1_to_soh_xml = getattr(self.tile_scroll_tex1, "to_soh_xml", None)
+        data += "\t\t" + (
+            tex1_to_soh_xml(1, self.dimensions)
+            if callable(tex1_to_soh_xml)
+            else _FSetTileSizeScrollField_to_soh_xml(self.tile_scroll_tex1, 1, self.dimensions)
+        )
 
     return data
 
@@ -624,10 +694,28 @@ def _FMaterial_to_soh_xml(self, modelDirPath, objectPath):
     data = ""
 
     if self.material.tag.Export:
-        matData = self.material.to_soh_xml(modelDirPath, objectPath)
+        material_dl_to_soh_xml = getattr(self.material, "to_soh_xml", None)
+        matData = (
+            material_dl_to_soh_xml(modelDirPath, objectPath)
+            if callable(material_dl_to_soh_xml)
+            else _GfxList_to_soh_xml(self.material, modelDirPath, objectPath)
+        )
         # Insert scroll data before closing DisplayList tag if present
-        if self.scrollData.has_scroll_data():
-            scrollData = self.scrollData.to_soh_xml()
+        has_scroll_data = getattr(self.scrollData, "has_scroll_data", None)
+        if (
+            has_scroll_data()
+            if callable(has_scroll_data)
+            else (
+                self.scrollData.tile_scroll_tex0.s != 0
+                or self.scrollData.tile_scroll_tex0.t != 0
+                or self.scrollData.tile_scroll_tex1.s != 0
+                or self.scrollData.tile_scroll_tex1.t != 0
+            )
+        ):
+            scroll_to_soh_xml = getattr(self.scrollData, "to_soh_xml", None)
+            scrollData = (
+                scroll_to_soh_xml() if callable(scroll_to_soh_xml) else _FScrollData_to_soh_xml(self.scrollData)
+            )
             matData = matData.replace("</DisplayList>", scrollData + "</DisplayList>")
         writeXMLData(matData, os.path.join(modelDirPath, self.material.name))
         _write_custom_cosmetics_manifest(
@@ -637,7 +725,12 @@ def _FMaterial_to_soh_xml(self, modelDirPath, objectPath):
         )
 
     if self.revert is not None and self.revert.tag.Export:
-        revData = self.revert.to_soh_xml(modelDirPath, objectPath)
+        revert_to_soh_xml = getattr(self.revert, "to_soh_xml", None)
+        revData = (
+            revert_to_soh_xml(modelDirPath, objectPath)
+            if callable(revert_to_soh_xml)
+            else _GfxList_to_soh_xml(self.revert, modelDirPath, objectPath)
+        )
         writeXMLData(revData, os.path.join(modelDirPath, self.revert.name))
 
     return data
@@ -738,11 +831,8 @@ def _DPSetTextureLUT_to_soh_xml(self, objectPath=""):
 
 # DPSetTextureImage.to_soh_xml
 def _DPSetTextureImage_to_soh_xml(self, objectPath=""):
-    prefix = (
-        self.image.internal_path
-        if self.image.internal_path
-        else (objectPath if self.image.filename is not None else "")
-    )
+    internal_path = getattr(self.image, "internal_path", "")
+    prefix = internal_path if internal_path else (objectPath if self.image.filename is not None else "")
     imagePath = format_asset_path(prefix, self.image.name if self.image.name else "")
     return f'<SetTextureImage Path="{imagePath}" Format="{self.fmt}" Size="{self.siz}" Width="{self.width}"/>'
 
@@ -766,17 +856,21 @@ def _DPSetCombineMode_to_soh_xml(self, objectPath=""):
 
 # DPSetEnvColor.to_soh_xml
 def _DPSetEnvColor_to_soh_xml(self, objectPath=""):
+    cosmetic_entry = getattr(self, "cosmeticEntry", "")
+    cosmetic_category = getattr(self, "cosmeticCategory", "")
     return (
         f'<SetEnvColor R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-        f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
+        f"{getDynamicCosmeticXmlAttrs(cosmetic_entry, cosmetic_category)}/>"
     )
 
 
 # DPSetPrimColor.to_soh_xml
 def _DPSetPrimColor_to_soh_xml(self, objectPath=""):
+    cosmetic_entry = getattr(self, "cosmeticEntry", "")
+    cosmetic_category = getattr(self, "cosmeticCategory", "")
     return (
         f'<SetPrimColor M="{self.m}" L="{self.l}" R="{self.r}" G="{self.g}" B="{self.b}" A="{self.a}"'
-        f"{getDynamicCosmeticXmlAttrs(self.cosmeticEntry, self.cosmeticCategory)}/>"
+        f"{getDynamicCosmeticXmlAttrs(cosmetic_entry, cosmetic_category)}/>"
     )
 
 
@@ -1710,13 +1804,23 @@ _PATCHES = {
 
 
 def register():
+    global _REGISTERED
+    if _REGISTERED:
+        return
+
     for cls, methods in _PATCHES.items():
         for name, func in methods.items():
             setattr(cls, name, func)
+    _REGISTERED = True
 
 
 def unregister():
+    global _REGISTERED
+    if not _REGISTERED:
+        return
+
     for cls, methods in _PATCHES.items():
         for name in methods:
             if hasattr(cls, name):
                 delattr(cls, name)
+    _REGISTERED = False

@@ -5,8 +5,9 @@ from bpy.props import EnumProperty, PointerProperty, StringProperty, FloatProper
 from bpy.utils import register_class, unregister_class
 from ...f3d.f3d_material import ootEnumDrawLayers
 from ...utility import prop_split
-from ..utility import is_hm64
-from .constants import get_skeleton_mode_items
+from .constants import ootEnumSkeletonImportMode
+from ...data.z64.data import mm_skeleton_dict
+from ...hm64.utility import is_hm64
 
 
 ootEnumBoneType = [
@@ -18,6 +19,18 @@ ootEnumBoneType = [
 
 def pollArmature(self, obj):
     return obj.type == "ARMATURE"
+
+
+hm64_mm_enum_skeleton_mode = [("Generic", "Generic", "Generic")] + [
+    (name, name, name) for name in mm_skeleton_dict.keys()
+]
+
+
+def get_skeleton_import_mode_items(_self=None, context=None):
+    scene = context.scene if context is not None else bpy.context.scene
+    if is_hm64() and scene.fast64.oot.mm_features:
+        return hm64_mm_enum_skeleton_mode
+    return ootEnumSkeletonImportMode
 
 
 class OOTDynamicTransformProperty(PropertyGroup):
@@ -57,8 +70,8 @@ class OOTSkeletonExportSettings(PropertyGroup):
         name="Use Custom Filename", description="Override filename instead of basing it off of the Blender name"
     )
     filename: StringProperty(name="Filename")
-    mode: EnumProperty(name="Mode", items=get_skeleton_mode_items)
-    folder: StringProperty(name="Skeleton Folder", default="object_geldb")
+    mode: EnumProperty(name="Mode", items=ootEnumSkeletonImportMode)
+    folder: StringProperty(name="Skeleton Folder", default="objects/object_geldb")
     customPath: StringProperty(name="Custom Skeleton Path", subtype="FILE_PATH")
     isCustom: BoolProperty(
         name="Use Custom Path", description="Determines whether or not to export to an explicitly specified folder"
@@ -81,8 +94,9 @@ class OOTSkeletonExportSettings(PropertyGroup):
 
     def draw_props(self, layout: UILayout):
         if is_hm64():
-            prop_split(layout, self, "folder", "Internal Path")
-            prop_split(layout, self, "customPath", "Path")
+            from ...hm64.z64.skeleton_properties_ui import draw_hm64_skeleton_export_props
+
+            draw_hm64_skeleton_export_props(self, layout)
             return
 
         layout.prop(self, "removeVanillaData")
@@ -109,13 +123,13 @@ class OOTSkeletonExportSettings(PropertyGroup):
                 if self.flipbookUses2DArray:
                     box = layout.box().column()
                     prop_split(box, self, "flipbookArrayIndex2D", "Flipbook Index")
-            elif self.mode == "Adult Link" or self.mode == "Child Link":
+            elif self.mode in {"Adult Link", "Child Link", "Dark Link"}:
                 layout.label(text="Requires enabling NON_MATCHING in Makefile.", icon="ERROR")
                 layout.label(text="Preserve all bone deform toggles if modifying an imported skeleton.", icon="ERROR")
 
 
 class OOTSkeletonImportSettings(PropertyGroup):
-    mode: EnumProperty(name="Mode", items=get_skeleton_mode_items)
+    mode: EnumProperty(name="Mode", items=get_skeleton_import_mode_items)
     applyRestPose: BoolProperty(name="Apply Friendly Rest Pose (If Available)", default=True)
     name: StringProperty(name="Skeleton Name", default="gGerudoRedSkel")
     folder: StringProperty(name="Skeleton Folder", default="object_geldb")

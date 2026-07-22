@@ -3,9 +3,12 @@
 import bpy
 import os
 
-from ...utility import PluginError, writeXMLData, toAlnum
+from ...utility import PluginError, toAlnum
+from ..utility import writeXMLData
 from ...f3d.f3d_gbi import DLFormat, SPClearGeometryMode, SPSetGeometryMode
-from ...f3d.f3d_writer import TriangleConverterInfo, saveStaticModel, getInfoDict
+from ..f3d.hm64_f3d_writer import TriangleConverterInfo, saveStaticModel, getInfoDict
+from ..f3d.soh_xml_exporter import register as ensure_hm64_soh_xml
+from ..f3d.f3d_texture_writer_hm64 import register as ensure_hm64_texture_writer
 from ...z64.utility import getOOTScale, checkEmptyName
 from ...z64.model_classes import OOTModel
 from ...z64.f3d_writer import writeTextureArraysExisting
@@ -15,8 +18,8 @@ from ...z64.utility import (
     OOTObjectCategorizer,
     ootDuplicateHierarchy,
     ootCleanupScene,
-    get_internal_asset_path,
 )
+from ..utility import get_internal_asset_path
 
 
 def build_extra_xml_entries(entries) -> str:
@@ -123,6 +126,8 @@ def ootConvertMeshToXML(
 
     path = resolve_custom_export_folder(exportPath, folderName)
     includeDir = get_internal_asset_path(settings, folderName)
+    ensure_hm64_soh_xml()
+    ensure_hm64_texture_writer()
     exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False, combine_root_meshes=True)
     extra_entries = matrix_entries
     extra_xml = build_extra_xml_entries(extra_entries)

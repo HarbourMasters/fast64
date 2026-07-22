@@ -5,7 +5,7 @@ from bpy.path import abspath
 from mathutils import Matrix
 from ...f3d.f3d_gbi import DLFormat
 from ...utility import PluginError, ExportUtils, raisePluginError
-from ..utility import getStartBone, getNextBone, getOOTScale, is_hm64
+from ..utility import getStartBone, getNextBone, getOOTScale
 from ..exporter.skeleton import ootConvertArmatureToC
 from .importer import ootImportSkeletonC
 from .properties import OOTSkeletonImportSettings, OOTSkeletonExportSettings
@@ -73,7 +73,13 @@ class OOT_ImportSkeleton(Operator):
             importSettings: OOTSkeletonImportSettings = context.scene.fast64.oot.skeletonImportSettings
             decompPath = abspath(context.scene.ootDecompPath)
 
-            ootImportSkeletonC(decompPath, importSettings)
+            import_skeleton = ootImportSkeletonC
+            if context.scene.fast64.oot.feature_set == "hm64":
+                from ...hm64.z64.skeleton import hm64_import_skeleton
+
+                import_skeleton = hm64_import_skeleton
+
+            import_skeleton(decompPath, importSettings)
 
             self.report({"INFO"}, "Success!")
             return {"FINISHED"}
@@ -123,16 +129,13 @@ class OOT_ExportSkeleton(Operator):
                 saveTextures = context.scene.saveTextures
                 drawLayer = armatureObj.ootDrawLayer
 
-                if is_hm64():
-                    from ...hm64.z64.skeleton_xml import ootConvertArmatureToXML
+                export_skeleton = ootConvertArmatureToC
+                if context.scene.fast64.oot.feature_set == "hm64":
+                    from ...hm64.z64.skeleton import hm64_export_skeleton
 
-                    ootConvertArmatureToXML(
-                        armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings
-                    )
-                else:
-                    ootConvertArmatureToC(
-                        armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings
-                    )
+                    export_skeleton = hm64_export_skeleton
+
+                export_skeleton(armatureObj, finalTransform, DLFormat.Static, saveTextures, drawLayer, exportSettings)
 
                 self.report({"INFO"}, "Success!")
                 return {"FINISHED"}

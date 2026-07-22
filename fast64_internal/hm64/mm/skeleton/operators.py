@@ -6,7 +6,8 @@ from mathutils import Matrix
 
 from ....f3d.f3d_gbi import DLFormat
 from ....z64.skeleton.properties import OOTSkeletonExportSettings
-from ....z64.utility import getOOTScale, is_hm64
+from ....z64.utility import getOOTScale
+from ...utility import hm64_mm_features_enabled
 from ....utility import ExportUtils, PluginError, raisePluginError
 from .functions import ootConvertArmatureToO2R
 
@@ -18,7 +19,7 @@ class MM_ExportSkeleton(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene.gameEditorMode == "MM" and is_hm64()
+        return hm64_mm_features_enabled(context.scene)
 
     def execute(self, context):
         with ExportUtils() as export_utils:

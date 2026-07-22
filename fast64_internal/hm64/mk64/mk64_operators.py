@@ -6,7 +6,6 @@ from pathlib import Path
 from ...mk64.mk64_model_classes import MK64F3DContext, parse_course_vtx
 from .mk64_course import export_course_c, export_course_xml
 from .mk64_properties import MK64_ImportProperties
-from ...mk64.f3d.properties import MK64DLExportSettings
 
 from ...f3d.f3d_material import createF3DMat
 from ...f3d.f3d_gbi import get_F3D_GBI, DLFormat
@@ -128,9 +127,7 @@ class MK64_ExportCourse(Operator):
             if not selected:
                 raise PluginError("No objects selected.")
 
-            selected_roots = [
-                obj for obj in selected if obj.type == "EMPTY" and obj.fast64.mk64.obj_type == "Track Root"
-            ]
+            selected_roots = [obj for obj in selected if obj.type == "EMPTY" and obj.hm64_mk64_obj_type == "Track Root"]
 
             if len(selected_roots) > 1:
                 raise PluginError("Multiple Track Roots selected.")
@@ -144,7 +141,7 @@ class MK64_ExportCourse(Operator):
                     visited = set()
                     while current and current not in visited:
                         visited.add(current)
-                        if current.type == "EMPTY" and current.fast64.mk64.obj_type == "Track Root":
+                        if current.type == "EMPTY" and current.hm64_mk64_obj_type == "Track Root":
                             course_roots.add(current)
                             break
                         current = current.parent
@@ -163,13 +160,13 @@ class MK64_ExportCourse(Operator):
             applyRotation([root], math.radians(90), "X")
             rotation_applied = True
 
-            name = mk64_props.course_export_settings.name
-            export_path = Path(bpy.path.abspath(mk64_props.course_export_settings.export_path))
+            name = context.scene.hm64_mk64_export_name
+            export_path = Path(bpy.path.abspath(context.scene.hm64_mk64_export_path))
 
             internal_path = Path("tracks") / name
             (export_path / internal_path).mkdir(parents=True, exist_ok=True)
 
-            if context.scene.fast64.mk64.featureSet == "HM64":
+            if context.scene.hm64_mk64_feature_set == "HM64":
                 export_course_xml(root, context, export_path, internal_path.as_posix(), self.report)
             else:
                 export_course_c(root, context, export_path)

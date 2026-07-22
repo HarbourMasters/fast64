@@ -3,19 +3,19 @@
 import mathutils
 import bpy
 import os
+from contextlib import contextmanager
 
-from ...f3d.f3d_gbi import DLFormat
+from ...f3d.f3d_gbi import DLFormat, FModel
 from ...z64.model_classes import OOTModel
 from ...z64.skeleton.constants import ootSkeletonImportDict
 from ...z64.skeleton.properties import OOTSkeletonExportSettings
+from ..f3d.hm64_f3d_writer import getInfoDict as hm64_getInfoDict
+from . import hm64_z64_f3d_writer
+from ..f3d.soh_xml_exporter import register as ensure_hm64_soh_xml
+from ..f3d.f3d_texture_writer_hm64 import register as ensure_hm64_texture_writer
 
-from ...utility import (
-    PluginError,
-    toAlnum,
-    get_internal_asset_path,
-    sanitize_internal_asset_path,
-    writeXMLData,
-)
+from ...utility import PluginError, toAlnum
+from ..utility import get_internal_asset_path, sanitize_internal_asset_path, writeXMLData
 
 from ...z64.utility import (
     addIncludeFiles,
@@ -34,6 +34,21 @@ def _normalize_folder_for_path(
     if ensure_objects_prefix and folder_path and not folder_path.startswith("objects/"):
         folder_path = "objects/" + folder_path
     return folder_path
+
+
+@contextmanager
+def _use_hm64_skeleton_material_writer():
+    from ...z64.exporter.skeleton import functions as shared_skeleton_functions
+
+    old_get_info_dict = shared_skeleton_functions.getInfoDict
+    old_process_vertex_group = shared_skeleton_functions.ootProcessVertexGroup
+    shared_skeleton_functions.getInfoDict = hm64_getInfoDict
+    shared_skeleton_functions.ootProcessVertexGroup = hm64_z64_f3d_writer.ootProcessVertexGroup
+    try:
+        yield shared_skeleton_functions
+    finally:
+        shared_skeleton_functions.getInfoDict = old_get_info_dict
+        shared_skeleton_functions.ootProcessVertexGroup = old_process_vertex_group
 
 
 def ootConvertArmatureToXML(
@@ -68,25 +83,29 @@ def ootConvertArmatureToXML(
         os.makedirs(exportPath, exist_ok=True)
     isCustomExport = True
 
-    from ...z64.exporter.skeleton.functions import ootConvertArmatureToSkeletonWithMesh
+    with _use_hm64_skeleton_material_writer() as shared_skeleton_functions:
+        ootConvertArmatureToSkeletonWithMesh = shared_skeleton_functions.ootConvertArmatureToSkeletonWithMesh
 
-    fModel = OOTModel(skeletonName, DLFormat, drawLayer)
-    skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
-    )
+        ensure_hm64_soh_xml()
+        ensure_hm64_texture_writer()
 
-    if originalArmatureObj.ootSkeleton.LOD is not None:
-        lodSkeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-            originalArmatureObj.ootSkeleton.LOD,
-            convertTransformMatrix,
-            fModel,
-            skeletonName + "_lod",
-            not savePNG,
-            drawLayer,
-            False,
+        fModel = OOTModel(skeletonName, DLFormat, drawLayer)
+        skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
+            originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
         )
-    else:
-        lodSkeleton = None
+
+        if originalArmatureObj.ootSkeleton.LOD is not None:
+            lodSkeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
+                originalArmatureObj.ootSkeleton.LOD,
+                convertTransformMatrix,
+                fModel,
+                skeletonName + "_lod",
+                not savePNG,
+                drawLayer,
+                False,
+            )
+        else:
+            lodSkeleton = None
 
     if lodSkeleton is not None:
         skeleton.hasLOD = True

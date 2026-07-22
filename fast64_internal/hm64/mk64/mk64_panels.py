@@ -8,7 +8,7 @@ from bpy.utils import register_class, unregister_class
 from ...utility import prop_split
 from ...panels import MK64_Panel
 
-from .mk64_properties import MK64_ImportProperties, MK64_ObjectProperties
+from .mk64_properties import MK64_ImportProperties
 from .mk64_operators import MK64_ImportCourseDL, MK64_ExportCourse
 
 
@@ -37,11 +37,11 @@ class MK64_ExportCoursePanel(MK64_Panel):
 
     def draw(self, context):
         col = self.layout.column()
-        col.prop(context.scene.fast64.mk64, "featureSet")
+        col.prop(context.scene, "hm64_mk64_feature_set", text="Feature Set")
         col.scale_y = 1.1  # extra padding
 
-        course_settings: MK64_ExportProperties = context.scene.fast64.mk64.course_export_settings
-        course_settings.draw_props(col)
+        prop_split(col, context.scene, "hm64_mk64_export_name", "Name")
+        prop_split(col, context.scene, "hm64_mk64_export_path", "Mods Path")
         prop_split(col, context.scene.fast64.mk64, "scale", "Scale")
 
         col.operator(MK64_ExportCourse.bl_idname)
@@ -59,22 +59,21 @@ class MK64_ObjectPanel(MK64_Panel):
         box = self.layout.box()
         box.label(text="MK64 Object Properties")
         obj = context.object
-        props = obj.fast64.mk64
         if obj.type == "EMPTY":
-            prop_split(box, props, "obj_type", "object type")
+            prop_split(box, obj, "hm64_mk64_obj_type", "object type")
         elif obj.type == "MESH":
-            self.draw_mesh_props(box, props)
+            self.draw_mesh_props(box, obj)
         elif obj.type == "CURVE":
-            self.draw_curve_props(box, props)
+            self.draw_curve_props(box, obj)
 
-    def draw_mesh_props(self, layout: UILayout, props: MK64_ObjectProperties):
-        prop_split(layout, props, "section_id", "Section ID")
-        prop_split(layout, props, "surface_type", "Surface")
-        prop_split(layout, props, "clip_type", "Clip")
-        prop_split(layout, props, "draw_layer", "Draw Layer")
+    def draw_mesh_props(self, layout: UILayout, obj):
+        prop_split(layout, obj, "hm64_mk64_section_id", "Section ID")
+        prop_split(layout, obj, "hm64_mk64_surface_type", "Surface")
+        prop_split(layout, obj, "hm64_mk64_clip_type", "Clip")
+        prop_split(layout, obj, "hm64_mk64_draw_layer", "Draw Layer")
 
-    def draw_curve_props(self, layout: UILayout, props: MK64_ObjectProperties):
-        prop_split(layout, props, "path_type", "Path Type")
+    def draw_curve_props(self, layout: UILayout, obj):
+        prop_split(layout, obj, "hm64_mk64_path_type", "Path Type")
 
 
 class MK64_CurvePanel(MK64_Panel):

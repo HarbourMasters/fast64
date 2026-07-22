@@ -82,7 +82,6 @@ def ootProcessVertexGroup(
         return None, False, lastMaterialName
 
     bone = armatureObj.data.bones[vertexGroup]
-    is_root_bone = bone.parent is None
 
     # dict of material_index keys to face array values
     groupFaces = {}
@@ -130,9 +129,7 @@ def ootProcessVertexGroup(
         # This doesn't handle case where vertices belong to a limb, but not triangles.
         # Therefore we create a dummy DL
         if anyConnectedToUnhandledBone:
-            fMesh = fModel.addMesh(
-                vertexGroup, namePrefix, drawLayerOverride, False, bone, useSkeletonName=is_root_bone
-            )
+            fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone)
             fModel.endDraw(fMesh, bone)
             meshInfo.vertexGroupInfo.vertexGroupToMatrixIndex[currentGroupIndex] = nextDLIndex
             return fMesh, False, lastMaterialName
@@ -157,7 +154,7 @@ def ootProcessVertexGroup(
     # however it seems like OOT skeletons don't have this ability.
     # Therefore we always use the drawLayerOverride as the draw layer key.
     # This means everything will be saved to one mesh.
-    fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone, useSkeletonName=is_root_bone)
+    fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone)
 
     for material_index, faces in groupFaces.items():
         material = meshObj.material_slots[material_index].material
@@ -479,6 +476,9 @@ def ootReadActorScale(basePath: str, overlayName: str, isLink: bool) -> Optional
         resolvedScale = ootResolveScaleExpression(actorData, scale)
         if resolvedScale is not None:
             return getOOTScale(1 / resolvedScale)
+
+    if isLink:
+        return getOOTScale(100.0)
 
     print("WARNING: auto-detection failed, defaulting to this panel's actor scale property value")
     return None

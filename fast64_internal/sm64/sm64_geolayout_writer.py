@@ -2400,9 +2400,9 @@ def saveModelGivenVertexGroup(
     fMeshes = {}
     fSkinnedMeshes = {}
     for drawLayer, materialFaces in skinnedFaces.items():
-        meshName = getFMeshName(fModel, vertexGroup, namePrefix, drawLayer, False)
+        meshName = getFMeshName(vertexGroup, namePrefix, drawLayer, False)
         checkUniqueBoneNames(fModel, meshName, vertexGroup)
-        skinnedMeshName = getFMeshName(fModel, vertexGroup, namePrefix, drawLayer, True)
+        skinnedMeshName = getFMeshName(vertexGroup, namePrefix, drawLayer, True)
         checkUniqueBoneNames(fModel, skinnedMeshName, vertexGroup)
 
         fMesh, fSkinnedMesh = saveSkinnedMeshByMaterial(
