@@ -2,6 +2,7 @@ import bpy
 import os
 from pathlib import Path
 import mathutils
+from contextlib import nullcontext
 
 from bpy.types import Operator
 from bpy.ops import object
@@ -11,6 +12,7 @@ from mathutils import Matrix
 from typing import Optional
 
 from ...utility import CData, PluginError, ExportUtils, raisePluginError, writeCData, toAlnum
+from ...hm64.utility import hm64_mm_features_enabled
 from ...f3d.f3d_parser import importMeshC, getImportData
 from ...f3d.f3d_gbi import DLFormat, TextureExportSettings, ScrollMethod, get_F3D_GBI
 from ...f3d.f3d_writer import TriangleConverterInfo, removeDL, saveStaticModel, getInfoDict
@@ -38,6 +40,14 @@ class OOTF3DGfxFormatter(OOTGfxFormatter):
     # override the function to give a custom name to the DL array
     def drawToC(self, f3d, gfxList, layer: Optional[str] = None):
         return gfxList.to_c(f3d, name_override=f"{gfxList.name}_{layer.lower()}_dl")
+
+
+def get_dl_import_game_data_context(context):
+    if hm64_mm_features_enabled(context.scene):
+        from ...hm64.z64.skeleton import _using_mm_game_data
+
+        return _using_mm_game_data()
+    return nullcontext()
 
 
 def ootConvertMeshToC(
@@ -127,6 +137,7 @@ class OOT_ImportDL(Operator):
     # Can also be called from operator search menu (Spacebar)
     def execute(self, context):
         obj = None
+        game_data_context = nullcontext()
         if context.mode != "OBJECT":
             object.mode_set(mode="OBJECT")
 
@@ -143,6 +154,8 @@ class OOT_ImportDL(Operator):
             overlayName = settings.actorOverlayName
             flipbookUses2DArray = settings.flipbookUses2DArray
             flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
+            game_data_context = get_dl_import_game_data_context(context)
+            game_data_context.__enter__()
 
             paths = None
 
@@ -204,10 +217,12 @@ class OOT_ImportDL(Operator):
             )
             obj.ootActorScale = import_scale / context.scene.ootBlenderScale
 
+            game_data_context.__exit__(None, None, None)
             self.report({"INFO"}, "Success!")
             return {"FINISHED"}
 
         except Exception as e:
+            game_data_context.__exit__(type(e), e, e.__traceback__)
             if context.mode != "OBJECT":
                 object.mode_set(mode="OBJECT")
             raisePluginError(self, e)
