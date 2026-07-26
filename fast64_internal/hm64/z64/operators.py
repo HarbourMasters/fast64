@@ -5,6 +5,7 @@ import os
 
 from ...utility import PluginError, toAlnum
 from ..utility import writeXMLData
+from ...f3d import f3d_gbi
 from ...f3d.f3d_gbi import DLFormat, SPClearGeometryMode, SPSetGeometryMode
 from ..f3d.hm64_f3d_writer import TriangleConverterInfo, saveStaticModel, getInfoDict
 from ..f3d.soh_xml_exporter import register as ensure_hm64_soh_xml
@@ -112,7 +113,16 @@ def ootConvertMeshToXML(
 
         fModel = OOTModel(name, DLFormat, None)
         triConverterInfo = TriangleConverterInfo(obj, None, fModel.f3d, finalTransform, getInfoDict(obj))
-        fMeshes = saveStaticModel(triConverterInfo, fModel, obj, finalTransform, fModel.name, not savePNG, False, None)
+        original_get_fmesh_name = f3d_gbi.getFMeshName
+        f3d_gbi.getFMeshName = lambda vertexGroup, namePrefix, drawLayer, isSkinned: (
+            toAlnum(namePrefix + ("_" if namePrefix != "" else "") + vertexGroup)
+            + ("_skinned" if isSkinned else "")
+            + (f"_layer_{drawLayer}" if drawLayer is not None else "")
+        )
+        try:
+            fMeshes = saveStaticModel(triConverterInfo, fModel, obj, finalTransform, "", not savePNG, False, None)
+        finally:
+            f3d_gbi.getFMeshName = original_get_fmesh_name
 
         for fMesh in fMeshes.values():
             strip_hm64_xml_cull_preamble(fMesh)
