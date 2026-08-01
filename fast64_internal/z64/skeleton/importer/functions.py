@@ -18,13 +18,14 @@ from ....utility import (
     removeComments,
 )
 from ...f3d_writer import ootReadActorScale
-from ...model_classes import OOTF3DContext, ootGetIncludedAssetData
+from ...model_classes import LimbType, LimbSkinType, OOTF3DContext, ootGetIncludedAssetData
 from ...utility import OOTEnum, ootGetObjectPath, getOOTScale, ootGetObjectHeaderPath, ootGetEnums, ootStripComments
 from ...texture_array import ootReadTextureArrays
 from ..constants import ootSkeletonImportDict
 from ..properties import OOTSkeletonImportSettings
 from ..utility import ootGetLimb, ootGetLimbs, ootGetSkeleton, applySkeletonRestPose, get_anim_names
 from ...tools.quick_import import quick_import_exec
+from ...skinLimb_parser import parseSkinAnimatedLimbData, getSkinLimbRestPose
 
 
 class OOTDLEntry:
@@ -33,18 +34,21 @@ class OOTDLEntry:
         self.limbIndex = limbIndex
 
 
-def ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL):
+def ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL, limbSkinType):
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     selectSingleObject(armatureObj)
     bpy.ops.object.mode_set(mode="EDIT")
     bone = armatureObj.data.edit_bones.new(boneName)
     bone.use_connect = False
-    bone.use_deform = loadDL
+    bone.use_deform = (loadDL and limbSkinType != LimbSkinType.SKIN_LIMB_TYPE_ANIMATED) | (
+        limbSkinType == LimbSkinType.SKINNED
+    )
     if parentBoneName is not None:
         bone.parent = armatureObj.data.edit_bones[parentBoneName]
     bone.head = currentTransform @ mathutils.Vector((0, 0, 0))
     bone.tail = bone.head + (currentTransform.to_quaternion() @ mathutils.Vector((0, 0.3, 0)))
+    bone.align_roll(currentTransform.to_quaternion() @ mathutils.Vector((0, 0, 0.3)))
 
     # Connect bone to parent if it is possible without changing parent direction.
 
@@ -70,30 +74,59 @@ def ootAddLimbRecursively(
     obj: bpy.types.Object,
     armatureObj: bpy.types.Object,
     parentTransform: mathutils.Matrix,
-    parentBoneName: str,
+    parentBoneName: str | None,
     f3dContext: OOTF3DContext,
     useFarLOD: bool,
+    smoothSkinned: bool,
     enums: List["OOTEnum"],
+    restPoseData: list[tuple[float, float, float]] | None = None,
 ):
     limbName = f3dContext.getLimbName(limbIndex)
     boneName = f3dContext.getBoneName(limbIndex)
+    f3dContext.limbToBoneName[limbName] = boneName
     limb_info = ootGetLimb(skeletonData, limbName, False)
     assert limb_info is not None
 
-    if limb_info.is_lod and useFarLOD:
+    if limb_info.limb_type == LimbType.LOD and useFarLOD:
         dlName = limb_info.far_dl_name
+    elif limb_info.limb_type == LimbType.SKIN:
+        if limb_info.skin_type == LimbSkinType.SKIN_LIMB_TYPE_ANIMATED:
+            f3dContext.skinAnimatedLimbData = parseSkinAnimatedLimbData(skeletonData, limb_info.dl_name)
+            dlName = f3dContext.skinAnimatedLimbData.dlName
+        else:
+            dlName = limb_info.dl_name
     else:
         dlName = limb_info.dl_name
 
     # Animations override the root translation, so we just ignore importing them as well.
-    if limbIndex == 0:
-        translation = [0, 0, 0]
+    if not smoothSkinned or restPoseData is None:
+        if limbIndex == 0:
+            translation = [0, 0, 0]
+
+            rotation = mathutils.Euler((0, 0, 0))
+
+        else:
+            translation = [
+                hexOrDecInt(limb_info.translationX_str),
+                hexOrDecInt(limb_info.translationY_str),
+                hexOrDecInt(limb_info.translationZ_str),
+            ]
+            rotation = mathutils.Euler((0, 0, 0))
+
     else:
-        translation = [
-            hexOrDecInt(limb_info.translationX_str),
-            hexOrDecInt(limb_info.translationY_str),
-            hexOrDecInt(limb_info.translationZ_str),
-        ]
+        if limbIndex == 0:
+            translation = mathutils.Vector(restPoseData[limbIndex])
+            # translation = [0,0,0]
+            rotation = mathutils.Euler(restPoseData[limbIndex + 1])
+
+        else:
+            translation = [
+                hexOrDecInt(limb_info.translationX_str),
+                hexOrDecInt(limb_info.translationY_str),
+                hexOrDecInt(limb_info.translationZ_str),
+            ]
+            translation = mathutils.Vector(translation)
+            rotation = mathutils.Euler(restPoseData[limbIndex + 1])
 
     LIMB_DONE = 0xFF
     nextChildIndex = ootEvaluateLimbExpression(limb_info.nextChildIndex_str, enums)
@@ -102,22 +135,39 @@ def ootAddLimbRecursively(
     # str(limbIndex) + " " + str(translation) + " " + str(nextChildIndex) + " " + \
     # 	str(nextSiblingIndex) + " " + str(dlName))
 
-    currentTransform = parentTransform @ mathutils.Matrix.Translation(mathutils.Vector(translation))
+    if not limb_info.limb_type == LimbType.SKIN:
+        f3dContext.skinLimbType.append(None)
+    else:
+        f3dContext.skinLimbType.append(limb_info.skin_type)
+
+    translationMatrix = mathutils.Matrix.Translation(translation)
+    rotationMatrix = rotation.to_matrix().to_4x4()
+    currentTransform = parentTransform @ translationMatrix @ rotationMatrix
     f3dContext.matrixData[limbName] = currentTransform
     loadDL = dlName != "NULL"
 
-    ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL)
+    ootAddBone(armatureObj, boneName, parentBoneName, currentTransform, loadDL, limb_info.skin_type)
 
     # DLs can access bone transforms not yet processed.
     # Therefore were delay F3D parsing until after skeleton is processed.
     if loadDL:
         f3dContext.dlList.append(OOTDLEntry(dlName, limbIndex))
 
-    isLOD = limb_info.is_lod
+    isLOD = limb_info.limb_type == LimbType.LOD
 
     if nextChildIndex != LIMB_DONE:
         isLOD |= ootAddLimbRecursively(
-            nextChildIndex, skeletonData, obj, armatureObj, currentTransform, boneName, f3dContext, useFarLOD, enums
+            nextChildIndex,
+            skeletonData,
+            obj,
+            armatureObj,
+            currentTransform,
+            boneName,
+            f3dContext,
+            useFarLOD,
+            smoothSkinned,
+            enums,
+            restPoseData,
         )
 
     if nextSiblingIndex != LIMB_DONE:
@@ -130,7 +180,9 @@ def ootAddLimbRecursively(
             parentBoneName,
             f3dContext,
             useFarLOD,
+            smoothSkinned,
             enums,
+            restPoseData,
         )
 
     return isLOD
@@ -173,8 +225,10 @@ def ootBuildSkeleton(
     basePath,
     drawLayer,
     isLink,
+    smoothSkinned,
     flipbookArrayIndex2D: int,
     f3dContext: OOTF3DContext,
+    restPoseData: list[tuple[float, float, float]] | None = None,
 ):
     lodString = "_lod" if useFarLOD else ""
 
@@ -204,11 +258,26 @@ def ootBuildSkeleton(
 
     transformMatrix = mathutils.Matrix.Scale(1 / actorScale, 4)
     isLOD = ootAddLimbRecursively(
-        0, skeletonData, obj, armatureObj, transformMatrix, None, f3dContext, useFarLOD, enums
+        0,
+        skeletonData,
+        obj,
+        armatureObj,
+        transformMatrix,
+        None,
+        f3dContext,
+        useFarLOD,
+        smoothSkinned,
+        enums,
+        restPoseData,
     )
     for dlEntry in f3dContext.dlList:
         limbName = f3dContext.getLimbName(dlEntry.limbIndex)
         boneName = f3dContext.getBoneName(dlEntry.limbIndex)
+        f3dContext.isSkinDL = False
+
+        if f3dContext.skinLimbType[dlEntry.limbIndex] == LimbSkinType.SKIN_LIMB_TYPE_ANIMATED:
+            f3dContext.isSkinDL = True
+
         parseF3D(
             skeletonData,
             dlEntry.dlName,
@@ -339,6 +408,11 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
     if actorScale is None:
         actorScale = getOOTScale(importSettings.actorScale)
 
+    smoothSkinned = "SkinAnimatedLimbData" in skeletonData
+    skinLimbRestPoseData = None
+    if smoothSkinned:
+        skinLimbRestPoseData = getSkinLimbRestPose(filepaths[0], skeletonData, isCustomImport, actorScale)
+
     isLOD, armatureObj = ootBuildSkeleton(
         skeletonName,
         overlayName,
@@ -350,8 +424,10 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
         basePath,
         drawLayer,
         isLink,
+        smoothSkinned,
         flipbookArrayIndex2D,
         f3dContext,
+        skinLimbRestPoseData,
     )
     if isLOD:
         isLOD, LODArmatureObj = ootBuildSkeleton(
@@ -365,15 +441,17 @@ def ootImportSkeletonC(basePath: str, importSettings: OOTSkeletonImportSettings)
             basePath,
             drawLayer,
             isLink,
+            smoothSkinned,
             flipbookArrayIndex2D,
             f3dContext,
+            skinLimbRestPoseData,
         )
         armatureObj.ootSkeleton.LOD = LODArmatureObj
         LODArmatureObj.location += mathutils.Vector((10, 0, 0))
 
     f3dContext.deleteMaterialContext()
 
-    if importSettings.applyRestPose and restPoseData is not None:
+    if importSettings.applyRestPose and restPoseData is not None and not smoothSkinned:
         applySkeletonRestPose(restPoseData, armatureObj)
         if isLOD:
             applySkeletonRestPose(restPoseData, LODArmatureObj)

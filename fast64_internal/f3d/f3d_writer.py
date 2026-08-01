@@ -801,10 +801,10 @@ class F3DVert:
             and self.alpha == other.alpha
         )
 
-    def toVtx(self, mesh, texDimensions, transformMatrix, isPointSampled: bool, tex_scale=(1, 1)) -> Vtx:
-        # Position (8 bytes)
-        position = [int(round(floatValue)) for floatValue in (transformMatrix @ self.position)]
+    def convertPosition(self, transformMatrix: Matrix) -> list[int]:
+        return [int(round(floatValue)) for floatValue in (transformMatrix @ self.position)]
 
+    def convertUV(self, texDimensions, isPointSampled: bool, tex_scale=(1, 1)) -> List[int]:
         # UV (4 bytes)
         # For F3D, Bilinear samples the point from the center of the pixel.
         # However, Point samples from the corner.
@@ -821,7 +821,9 @@ class F3DVert:
             convertFloatToFixed16(self.uv[0] * texDimensions[0] - pixelOffset[0]),
             convertFloatToFixed16(self.uv[1] * texDimensions[1] - pixelOffset[1]),
         ]
+        return uv
 
+    def convertNormalRGB(self, transformMatrix: Matrix):
         packedNormal = 0
         if self.normal is not None:
             # normal transformed correctly.
@@ -838,6 +840,14 @@ class F3DVert:
                 int(round(normal[2] * 127)).to_bytes(1, "big", signed=True)[0],
             ]
         colorOrNormal.append(scaleToU8(self.alpha).to_bytes(1, "big")[0])
+
+        return colorOrNormal, packedNormal
+
+    def toVtx(self, mesh, texDimensions, transformMatrix, isPointSampled: bool, tex_scale=(1, 1)) -> Vtx:
+        # Position (8 bytes)
+        position = self.convertPosition(transformMatrix)
+        uv = self.convertUV(texDimensions, isPointSampled, tex_scale)
+        colorOrNormal, packedNormal = self.convertNormalRGB(transformMatrix)
 
         return Vtx(position, uv, colorOrNormal, packedNormal)
 
