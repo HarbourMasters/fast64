@@ -86,9 +86,9 @@ def get_original_name(obj: bpy.types.Object):
     return getattr(obj, "original_name", obj.name)
 
 
-def getInfoDict(obj: bpy.types.Object):
+def getInfoDict(obj: bpy.types.Object, vertOverride: type["F3DVert"] | None = None):
     try:
-        return getInfoDict_impl(obj)
+        return getInfoDict_impl(obj, vertOverride)
     except:
         print(f"Error in getInfoDict_impl(obj name = {get_original_name(obj)!r})")
         raise
@@ -132,7 +132,7 @@ def check_face_materials(
             )
 
 
-def getInfoDict_impl(obj: bpy.types.Object):
+def getInfoDict_impl(obj: bpy.types.Object, vertOverride: type["F3DVert"] | None = None):
     mesh: bpy.types.Mesh = obj.data
     material_slots = obj.material_slots
     if len(mesh.materials) == 0 or len(material_slots) == 0:
@@ -189,7 +189,7 @@ def getInfoDict_impl(obj: bpy.types.Object):
 
         for loopIndex in face.loops:
             convertInfo = LoopConvertInfo(uv_data, obj, obj.material_slots[face.material_index].material)
-            f3dVertDict[loopIndex] = getF3DVert(mesh.loops[loopIndex], face, convertInfo, mesh)
+            f3dVertDict[loopIndex] = getF3DVert(mesh.loops[loopIndex], face, convertInfo, mesh, vertOverride)
     for face in mesh.loop_triangles:
         for edgeKey in face.edge_keys:
             for otherFace in edgeDict[edgeKey]:
@@ -704,52 +704,6 @@ def saveTriangleStrip(triConverter, faces, faceSTOffsets, mesh, terminateDL):
     return triConverter.currentGroupIndex
 
 
-def saveMeshByFaces(
-    material,
-    faces,
-    fModel,
-    fMesh,
-    obj,
-    drawLayer,
-    convertTextureData,
-    currentGroupIndex,
-    triConverterInfo,
-    existingVertData,
-    matRegionDict,
-    lastMaterialName,
-):
-    """
-    lastMaterialName is for optimization; set it to None to disable optimization.
-    """
-
-    if len(faces) == 0:
-        print("0 Faces Provided.")
-        return
-    fMaterial, texDimensions = saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData)
-
-    if material.name != lastMaterialName:
-        fMesh.add_material_call(fMaterial)
-    triGroup = fMesh.tri_group_new(fMaterial)
-    fMesh.draw.commands.append(SPDisplayList(triGroup.triList))
-
-    triConverter = TriangleConverter(
-        triConverterInfo,
-        texDimensions,
-        material,
-        currentGroupIndex,
-        triGroup,
-        copy.deepcopy(existingVertData),
-        copy.deepcopy(matRegionDict),
-    )
-
-    currentGroupIndex = saveTriangleStrip(triConverter, faces, None, obj.data, True)
-
-    if fMaterial.revert is not None:
-        fMesh.draw.commands.append(SPDisplayList(fMaterial.revert))
-
-    return currentGroupIndex
-
-
 @dataclass
 class LoopConvertInfo:
     uv_data: bpy.types.bpy_prop_collection | list[bpy.types.MeshUVLoop]
@@ -1186,7 +1140,14 @@ class TriangleConverter:
             self.triList.commands.append(SPEndDisplayList())
 
 
-def getF3DVert(loop: bpy.types.MeshLoop, face, convertInfo: LoopConvertInfo, mesh: bpy.types.Mesh):
+def getF3DVert(
+    loop: bpy.types.MeshLoop,
+    face,
+    convertInfo: LoopConvertInfo,
+    mesh: bpy.types.Mesh,
+    vertOverride: type[F3DVert] | None = F3DVert,
+) -> F3DVert:
+    vertOverride = vertOverride or F3DVert
     position: Vector = mesh.vertices[loop.vertex_index].co.copy().freeze()
     # N64 is -Y, Blender is +Y
     uv: Vector = convertInfo.uv_data[loop.index].uv.copy()
@@ -1201,7 +1162,7 @@ def getF3DVert(loop: bpy.types.MeshLoop, face, convertInfo: LoopConvertInfo, mes
     normal = getLoopNormal(loop) if has_normal else None
     alpha = color[3]
 
-    return F3DVert(position, uv, rgb, normal, alpha)
+    return vertOverride(position, uv, rgb, normal, alpha)
 
 
 def getLoopNormal(loop: bpy.types.MeshLoop) -> Vector:
@@ -1216,6 +1177,53 @@ def getLoopNormal(loop: bpy.types.MeshLoop) -> Vector:
             round(loop.normal[2] * 2**16) / 2**16,
         )
     ).freeze()
+
+
+def saveMeshByFaces(
+    material,
+    faces,
+    fModel,
+    fMesh,
+    obj,
+    drawLayer,
+    convertTextureData,
+    currentGroupIndex,
+    triConverterInfo,
+    existingVertData,
+    matRegionDict,
+    lastMaterialName,
+    converterOverride: type[TriangleConverter] = TriangleConverter,
+):
+    """
+    lastMaterialName is for optimization; set it to None to disable optimization.
+    """
+
+    if len(faces) == 0:
+        print("0 Faces Provided.")
+        return
+    fMaterial, texDimensions = saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData)
+
+    if material.name != lastMaterialName:
+        fMesh.add_material_call(fMaterial)
+    triGroup = fMesh.tri_group_new(fMaterial)
+    fMesh.draw.commands.append(SPDisplayList(triGroup.triList))
+
+    triConverter = converterOverride(
+        triConverterInfo,
+        texDimensions,
+        material,
+        currentGroupIndex,
+        triGroup,
+        copy.deepcopy(existingVertData),
+        copy.deepcopy(matRegionDict),
+    )
+
+    currentGroupIndex = saveTriangleStrip(triConverter, faces, None, obj.data, True)
+
+    if fMaterial.revert is not None:
+        fMesh.draw.commands.append(SPDisplayList(fMaterial.revert))
+
+    return currentGroupIndex
 
 
 @functools.lru_cache(0)

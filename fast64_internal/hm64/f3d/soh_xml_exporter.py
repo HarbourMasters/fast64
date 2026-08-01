@@ -114,10 +114,28 @@ from ...f3d.f3d_gbi import (
     DPSetKeyGB,
     SPTextureRectangle,
     SPScisTextureRectangle,
+    VTX_SIZE,
 )
 from ...utility import PluginError
 from ..utility import writeXMLData, resolve_internal_export_path
-from ...z64.exporter.skeleton.classes import OOTSkeleton, OOTLimb
+from ...z64.exporter.skeleton.classes import (
+    OOTSkeleton,
+    OOTLimb,
+    OOTBaseLimb,
+    StandardLimb,
+    LODLimb,
+    SkinLimb,
+    OOTBaseSkeleton,
+    FlexSkeleton,
+)
+
+from ...z64.model_classes import (
+    SkinVertex,
+    SkinTransformation,
+    SkinLimbModif,
+    OOTVtxList,
+    SkinAnimData,
+)
 from .f3d_gbi_hm64 import format_asset_path, get_image_from_image_key
 
 _REGISTERED = False
@@ -298,13 +316,14 @@ def _Vtx_to_soh_xml(self):
 
 
 # VtxList.to_soh_xml
-def _VtxList_to_soh_xml(self):
+def _VtxList_to_soh_xml(self, modelDirPath, objectPath):
     data = '<Vertex Version="0">\n'
     for vert in self.vertices:
         vert_to_soh_xml = getattr(vert, "to_soh_xml", None)
         data += "\t" + (vert_to_soh_xml() if callable(vert_to_soh_xml) else _Vtx_to_soh_xml(vert)) + "\n"
     data += "</Vertex>\n"
-    return data
+    writeXMLData(data, os.path.join(modelDirPath, self.name))
+    return ""
 
 
 # GfxList.to_soh_xml
@@ -645,8 +664,12 @@ def _FMesh_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True
 # FTriGroup.to_soh_xml
 def _FTriGroup_to_soh_xml(self, modelDirPath, objectPath):
     vertex_list_to_soh_xml = getattr(self.vertexList, "to_soh_xml", None)
-    vtxData = vertex_list_to_soh_xml() if callable(vertex_list_to_soh_xml) else _VtxList_to_soh_xml(self.vertexList)
-    writeXMLData(vtxData, os.path.join(modelDirPath, self.vertexList.name))
+    vtxData = (
+        vertex_list_to_soh_xml(modelDirPath, objectPath)
+        if callable(vertex_list_to_soh_xml)
+        else _VtxList_to_soh_xml(self.vertexList, modelDirPath, objectPath)
+    )
+    # writeXMLData(vtxData, os.path.join(modelDirPath, self.vertexList.name))
 
     tri_list_to_soh_xml = getattr(self.triList, "to_soh_xml", None)
     triListData = (
@@ -745,10 +768,15 @@ def _SPMatrix_to_soh_xml(self, objectPath=""):
 
 # SPVertex.to_soh_xml
 def _SPVertex_to_soh_xml(self, objectPath=""):
-    baseStr = '<LoadVertices Path="{parent}/{vertexPath}" VertexBufferIndex="{bufferIndex}" VertexOffset="{vertexOffset}" Count="{count}"/>'
+    vertexPath = format_asset_path(objectPath, self.vertList.name)
+    if vertexPath.startswith(">"):
+        seg = int(vertexPath[1:], 16) + self.offset * VTX_SIZE
+        vertexPath = f">{seg:#010x}"
+        self.offset = 0
+    baseStr = '<LoadVertices Path="{vertexPath}" VertexBufferIndex="{bufferIndex}" VertexOffset="{vertexOffset}" Count="{count}"/>'
     return baseStr.format(
         parent=objectPath,
-        vertexPath=self.vertList.name,
+        vertexPath=vertexPath,
         bufferIndex=self.index,
         vertexOffset=self.offset,
         count=self.count,
@@ -957,6 +985,38 @@ def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
     return limbData
 
 
+def _OOTBaseSkeleton_toSohXML(self: OOTBaseSkeleton, modelDirPath, objectPath) -> str:
+    limbData = ""
+    data = ""
+
+    if self.limbRoot is None:
+        return data
+
+    limbList = self.createLimbList()
+    isFlex = isinstance(self, FlexSkeleton)
+
+    limbData += '<Skeleton Version="0" Type="'
+
+    if isFlex:
+        limbData += 'Flex" LimbCount="{lc}" DisplayListCount="{dlC}">\n'.format(
+            lc=self.getNumLimbs(), dlC=self.getNumDLs()
+        )
+    else:
+        limbData += 'Normal" LimbCount="{lc}">\n'.format(lc=self.getNumLimbs())
+
+    for limb in limbList:
+        indLimbData = limb.toSohXML(objectPath)
+
+        writeXMLData(indLimbData, os.path.join(modelDirPath, limb.name))
+
+        limbData += '\t<SkeletonLimb Path="{path}/{name}"/>\n'.format(
+            path=objectPath if len(objectPath) > 0 else ">", name=limb.name
+        )
+
+    limbData += "</Skeleton>"
+    return limbData
+
+
 # OOTLimb.toSohXML
 def _OOTLimb_toSohXML(self, isLOD, objectPath):
     data = '<SkeletonLimb Version="0" Type="'
@@ -982,6 +1042,60 @@ def _OOTLimb_toSohXML(self, isLOD, objectPath):
         siblingIndex=self.nextSiblingIndex,
         displayList1=DLName,
     )
+
+    return data
+
+
+# OOTBaseLimb.typeDataXML
+def _OOTBaseLimb_typeDataXML(self) -> str:
+    return ""
+
+
+# OOTBaseLimb.toSohXML
+def _OOTBaseLimb_toSohXML(self: OOTBaseLimb, objectPath) -> str:
+    data = f'<SkeletonLimb Version="0" Type="{self.typeName}" '
+    # typeData = self.typeData()
+
+    data += (
+        'LegTransX="{legTransX}" LegTransY="{legTransY}" LegTransZ="{legTransZ}" '
+        'ChildIndex="{firstChildIndex}" SiblingIndex="{siblingIndex}" '
+    ).format(
+        legTransX=int(round(self.translation[0])),
+        legTransY=int(round(self.translation[1])),
+        legTransZ=int(round(self.translation[2])),
+        firstChildIndex=self.firstChildIndex,
+        siblingIndex=self.nextSiblingIndex,
+    )
+
+    data += self.typeDataXML(objectPath)
+    data += "/>\n"
+
+    return data
+
+
+# StandardLimb.typeDataXML
+def _StandardLimb_typeDataXML(self: StandardLimb, objectPath) -> str:
+    data = self.DL.name if self.DL is not None else "NULL"
+    return data
+
+
+# SkinLimb.typeDataXML
+def _SkinLimb_typeDataXML(self: SkinLimb, objectPath) -> str:
+    if self.segmentType == "SKIN_LIMB_TYPE_ANIMATED":
+        self.segmentType = "4"
+    elif self.segmentType == "SKIN_LIMB_TYPE_NORMAL":
+        self.segmentType = "11"
+
+    data = f'SegmentType="{self.segmentType}" '
+
+    DLName = self.segment.name if self.segment else "gEmptyDL"
+    if DLName == "NULL":
+        DLName = "gEmptyDL"
+
+    if DLName != "gEmptyDL":
+        DLName = (objectPath + "/" if len(objectPath) > 0 else ">") + DLName
+
+    data += f'Segment="{DLName}"'
 
     return data
 
@@ -1490,6 +1604,67 @@ def _SPScisTextureRectangle_to_soh_xml(self):
     return f'<ScisTextureRectangle Ulx="{self.xl}" Uly="{self.yl}" Lrx="{self.xh}" Lry="{self.yh}" Tile="{self.tile}" S="{self.s}" T="{self.t}" Dsdx="{self.dsdx}" Dsdy="{self.dtdy}"/>'
 
 
+# SkinVertex.to_soh_xml
+def _SkinVertex_to_soh_xml(self: SkinVertex) -> str:
+    return f'<SkinVertex Index="{self.index}" S="{self.s}" T="{self.t}" NormX="{self.normX}" NormY="{self.normY}" NormZ="{self.normZ}" Alpha="{self.alpha}"/>\n'
+
+
+# SkinTransformation.to_soh_xml
+def _SkinTransformation_to_soh_xml(self: SkinTransformation) -> str:
+    return f'<SkinTransformation LimbIndex="{self.limbIndex}" X="{self.x}" Y="{self.y}" Z="{self.z}" Scale="{self.scale}"/>\n'
+
+
+# SkinLimbModif.to_soh_xml
+def _SkinLimbModif_to_soh_xml(self: SkinLimbModif, objectPath, verticesName, transformsName) -> str:
+    return f'<SkinLimbModif VtxCount="{self.vtxCount}" TransformCount="{self.transformCount}" Unk_4="{self.unk_4}" SkinVertices="{objectPath}/{verticesName}" LimbTransformations="{objectPath}/{transformsName}"/>\n'
+
+
+# OOTVtxList.to_soh_xml
+def _OOTVtxList_to_soh_xml(self: OOTVtxList, modelDirPath, objectPath) -> str:
+    return ""
+
+
+# OOTMesh.to_soh_xml
+def _OOTMesh_to_soh_xml(
+    self: SkinAnimData, modelDirPath, objectPath, include_cull_vertices=True, write_root_draw=True
+) -> str:
+    self.name = self.name.partition("_")[0] + "_SkinAnimatedLimbData"
+    for triGroup in self.triangleGroups:
+        triGroup.to_soh_xml(modelDirPath, objectPath)
+
+    for drawOverride in self.draw_overrides:
+        overrideData = drawOverride.to_soh_xml(modelDirPath)
+        writeXMLData(overrideData, os.path.join(modelDirPath, drawOverride.name))
+
+    DLName = f"{objectPath}/{self.draw.name}"
+    modifData = '<SkinModif Version="0">\n'
+    for modif in self.limbModifications:
+        modifName = f"{self.name}_SkinLimbModif_{modif.id:003}"
+        skinVertexData = '<SkinVert Version="0">\n'
+        verticesName = f"{modifName}_SkinVertices"
+        transformData = '<SkinTransform Version="0">\n'
+        transformsName = f"{modifName}_SkinTransforms"
+        modifData += "\t" + modif.to_soh_xml(objectPath, verticesName, transformsName)
+        for skinVertex in modif.skinVertices:
+            skinVertexData += "\t" + skinVertex.to_soh_xml()
+        for skinTransform in modif.limbTransformations:
+            transformData += "\t" + skinTransform.to_soh_xml()
+        skinVertexData += "</SkinVert>"
+        transformData += "</SkinTransform>"
+        writeXMLData(skinVertexData, os.path.join(modelDirPath, verticesName))
+        writeXMLData(transformData, os.path.join(modelDirPath, transformsName))
+    modifData += "</SkinModif>"
+    writeXMLData(modifData, os.path.join(modelDirPath, f"{self.name}_SkinLimbModifs"))
+
+    skinAnimatedLimbData = f'<SkinAnimData Version="0" TotalVtxCount="{self.totalVtxCount}" LimbModifCount="{self.limbModifCount}" LimbModifications="{objectPath}/{self.name}_SkinLimbModifs" DList="{DLName}"/>'
+    writeXMLData(skinAnimatedLimbData, os.path.join(modelDirPath, self.name))
+
+    call_lines, other_lines = self.get_soh_root_draw_lines(objectPath)
+    drawData = '<DisplayList Version="0">\n' + "".join(call_lines + other_lines) + "</DisplayList>\n\n"
+    writeXMLData(drawData, os.path.join(modelDirPath, self.draw.name))
+    return ""
+
+
 # --- Patch registry ---
 
 
@@ -1610,6 +1785,19 @@ _PATCHES = {
     },
     OOTLimb: {
         "toSohXML": _OOTLimb_toSohXML,
+    },
+    OOTBaseSkeleton: {
+        "toSohXML": _OOTBaseSkeleton_toSohXML,
+    },
+    OOTBaseLimb: {
+        "toSohXML": _OOTBaseLimb_toSohXML,
+    },
+    StandardLimb: {
+        "typeDataXML": _StandardLimb_typeDataXML,
+    },
+    LODLimb: {},
+    SkinLimb: {
+        "typeDataXML": _SkinLimb_typeDataXML,
     },
     FTexRect: {
         "to_soh_xml": _FTexRect_to_soh_xml,
@@ -1799,6 +1987,21 @@ _PATCHES = {
     },
     SPScisTextureRectangle: {
         "to_soh_xml": _SPScisTextureRectangle_to_soh_xml,
+    },
+    SkinVertex: {
+        "to_soh_xml": _SkinVertex_to_soh_xml,
+    },
+    SkinTransformation: {
+        "to_soh_xml": _SkinTransformation_to_soh_xml,
+    },
+    SkinLimbModif: {
+        "to_soh_xml": _SkinLimbModif_to_soh_xml,
+    },
+    OOTVtxList: {
+        "to_soh_xml": _OOTVtxList_to_soh_xml,
+    },
+    SkinAnimData: {
+        "to_soh_xml": _OOTMesh_to_soh_xml,
     },
 }
 
