@@ -1,6 +1,4 @@
 import mathutils
-import struct
-import os
 from ....f3d.f3d_writer import GfxList
 from ....utility import CData, toAlnum
 from ...z64.constants import o2rLimbNames
@@ -91,41 +89,6 @@ class OOTSkeleton:
         limbData.append(data)
 
         return limbData
-
-    def toO2R(self, folderPath: str):
-        data = bytearray(0)
-
-        # Write OTR Header
-        # I    - Endianness
-        # I    - Resource Type
-        # I    - Game Version
-        # Q    - Magic ID
-        # I    - Resource Version
-        # QI   - Empty space
-        # QQQI - Fill until 64 bytes
-        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F534B4C, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
-
-        data.extend(
-            struct.pack(
-                "<BBIIBI",
-                1 if self.isFlexSkeleton() else 0,
-                1 if self.hasLOD else 2,
-                self.getNumLimbs(),
-                self.getNumDLs(),
-                1 if self.hasLOD else 2,
-                self.getNumLimbs(),
-            )
-        )
-
-        limbList = self.createLimbList()
-        for limb in limbList:
-            limbPath = os.path.join(folderPath, limb.o2rName())
-            # For windows paths, replace backslashes with forward slashes
-            limbPath = limbPath.replace("\\", "/")
-            data.extend(struct.pack("<I", len(limbPath)))
-            data.extend(limbPath.encode())
-
-        return data
 
 
 class OOTDLReference:
@@ -250,58 +213,3 @@ class OOTLimb:
                 self.children[i].nextSiblingIndex = self.children[i + 1].index
             self.children[i].setLinks()
         # self -> child -> sibling
-
-    def toO2R(self, folderPath: str):
-        data = bytearray(0)
-
-        # Write OTR Header
-        # I    - Endianness
-        # I    - Resource Type
-        # I    - Game Version
-        # Q    - Magic ID
-        # I    - Resource Version
-        # QI   - Empty space
-        # QQQI - Fill until 64 bytes
-        data.extend(struct.pack("<IIIQIQIQQQI", 0, 0x4F534C42, 0, 0xDEADBEEFDEADBEEF, 0, 0, 0, 0, 0, 0, 0))
-
-        data.extend(
-            struct.pack(
-                "<BB",
-                2,  # LOD?
-                0,
-            )
-        )
-
-        data.extend(struct.pack("<I", len("")))
-        data.extend(struct.pack("<HI", 0, 0))
-        data.extend(struct.pack("<I", len("")))
-
-        data.extend(struct.pack("<IIIHHH", 0, 0, 0, 0, 0, 0))
-
-        data.extend(struct.pack("<I", len("")))
-        data.extend(struct.pack("<I", len("")))
-
-        if self.DL is not None:
-            dlPath = os.path.join(folderPath, self.DL.name)
-            # For windows paths, replace backslashes with forward slashes
-            dlPath = dlPath.replace("\\", "/")
-            data.extend(struct.pack("<I", len(dlPath)))
-            data.extend(dlPath.encode())
-            data.extend(struct.pack("<I", len(dlPath)))
-            data.extend(dlPath.encode())
-        else:
-            data.extend(struct.pack("<I", len("")))
-            data.extend(struct.pack("<I", len("")))
-
-        data.extend(
-            struct.pack(
-                "<hhhBB",
-                int(round(self.translation[0])),
-                int(round(self.translation[1])),
-                int(round(self.translation[2])),
-                self.firstChildIndex,
-                self.nextSiblingIndex,
-            )
-        )
-
-        return data

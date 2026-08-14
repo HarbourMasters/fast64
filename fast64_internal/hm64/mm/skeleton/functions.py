@@ -2,7 +2,6 @@ import mathutils
 import bpy
 import os
 
-from pathlib import Path
 from ...f3d.hm64_f3d_gbi import DLFormat, FMesh, TextureExportSettings, ScrollMethod, get_F3D_GBI
 from ...f3d.hm64_f3d_writer import getInfoDict
 from ...z64 import hm64_z64_f3d_writer
@@ -43,7 +42,7 @@ from ....utility import (
     toAlnum,
     cleanupDuplicatedObjects,
 )
-from ...utility import crc64, get_internal_asset_path, resolve_internal_export_path
+from ...utility import crc64
 
 from ....z64.utility import (
     checkEmptyName,
@@ -343,125 +342,3 @@ def ootConvertArmatureToC(
         addIncludeFiles(folderName, path, filename)
         if removeVanillaData:
             ootRemoveSkeleton(path, folderName, skeletonName)
-
-
-def ootConvertArmatureToO2R(
-    originalArmatureObj: bpy.types.Object,
-    convertTransformMatrix: mathutils.Matrix,
-    DLFormat: DLFormat,
-    savePNG: bool,
-    drawLayer: str,
-    settings: OOTSkeletonExportSettings,
-):
-    if settings.mode != "Generic" and not settings.isCustom:
-        importInfo = game_data.z64.skeleton_dict[settings.mode]
-        skeletonName = importInfo.skeletonName
-        filename = skeletonName
-        folderName = importInfo.folderName
-        overlayName = importInfo.actorOverlayName
-        flipbookUses2DArray = importInfo.flipbookArrayIndex2D is not None
-        flipbookArrayIndex2D = importInfo.flipbookArrayIndex2D
-        isLink = importInfo.isLink
-    else:
-        skeletonName = toAlnum(originalArmatureObj.name)
-        filename = settings.filename if settings.isCustomFilename else skeletonName
-        folderName = settings.folder
-        overlayName = settings.actorOverlayName if not settings.isCustom else None
-        flipbookUses2DArray = settings.flipbookUses2DArray
-        flipbookArrayIndex2D = settings.flipbookArrayIndex2D if flipbookUses2DArray else None
-        isLink = False
-
-    exportPath = bpy.path.abspath(settings.customPath)
-    isCustomExport = settings.isCustom
-    removeVanillaData = settings.removeVanillaData
-    optimize = settings.optimize
-
-    fModel = OOTModel(skeletonName, DLFormat, drawLayer)
-    skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-        originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, optimize
-    )
-
-    if originalArmatureObj.ootSkeleton.LOD is not None:
-        lodSkeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-            originalArmatureObj.ootSkeleton.LOD,
-            convertTransformMatrix,
-            fModel,
-            skeletonName + "_lod",
-            not savePNG,
-            drawLayer,
-            optimize,
-        )
-    else:
-        lodSkeleton = None
-
-    limbList = skeleton.createLimbList()
-
-    if lodSkeleton is not None:
-        skeleton.hasLOD = True
-        lodLimbList = lodSkeleton.createLimbList()
-
-        if len(limbList) != len(lodLimbList):
-            raise PluginError(
-                originalArmatureObj.name
-                + " cannot use "
-                + originalArmatureObj.ootSkeleton.LOD.name
-                + "as LOD because they do not have the same bone structure."
-            )
-
-        for i in range(len(limbList)):
-            limbList[i].lodDL = lodLimbList[i].DL
-            limbList[i].isFlex |= lodLimbList[i].isFlex
-
-    folderPath = folderName
-    exportFolderPath = os.path.join(exportPath, folderPath)
-    if not os.path.exists(exportFolderPath):
-        os.makedirs(exportFolderPath)
-    objectPath = get_internal_asset_path(settings, folderName)
-
-    # dict[Union[FImageKey, FPaletteKey], FImage]
-    for _, fImage in fModel.textures.items():
-        if getattr(fImage, "skip_export", False):
-            continue
-        internal_path = getattr(fImage, "internal_path", "")
-        target_path = resolve_internal_export_path(exportFolderPath, internal_path, fImage.name)
-        target_dir = os.path.dirname(target_path)
-        if target_dir and not os.path.exists(target_dir):
-            os.makedirs(target_dir, exist_ok=True)
-        with open(target_path, "wb") as f:
-            f.write(fImage.toO2R(folderPath))
-
-    # dict[Tuple[bpy.types.Material, str, FAreaData], Tuple[FMaterial, Tuple[int, int]]]
-    for _, (fMaterial, _) in fModel.materials.items():
-        if fMaterial.material is not None:
-            with open(os.path.join(exportFolderPath, fMaterial.material.name), "wb") as f:
-                f.write(fMaterial.material.toO2R(folderPath))
-
-        if fMaterial.revert is not None:
-            with open(os.path.join(exportFolderPath, fMaterial.revert.name), "wb") as f:
-                f.write(fMaterial.revert.toO2R(folderPath))
-
-    from ...f3d.soh_xml_exporter import _FMaterial_to_soh_xml, _FMesh_to_soh_xml
-
-    for _, (fMaterial, _) in fModel.materials.items():
-        if fMaterial is not None:
-            material_to_soh_xml = getattr(fMaterial, "to_soh_xml", None)
-            if callable(material_to_soh_xml):
-                material_to_soh_xml(exportFolderPath, objectPath)
-            else:
-                _FMaterial_to_soh_xml(fMaterial, exportFolderPath, objectPath)
-
-    # dict[str, FMesh]
-    for _, mesh in fModel.meshes.items():
-        if mesh.draw is not None:
-            mesh_to_soh_xml = getattr(mesh, "to_soh_xml", None)
-            if callable(mesh_to_soh_xml):
-                mesh_to_soh_xml(exportFolderPath, objectPath, include_cull_vertices=False)
-            else:
-                _FMesh_to_soh_xml(mesh, exportFolderPath, objectPath, include_cull_vertices=False)
-
-    with open(os.path.join(exportFolderPath, filename), "wb") as f:
-        f.write(skeleton.toO2R(folderPath))
-
-    for limb in limbList:
-        with open(os.path.join(exportFolderPath, limb.o2rName()), "wb") as f:
-            f.write(limb.toO2R(folderPath))

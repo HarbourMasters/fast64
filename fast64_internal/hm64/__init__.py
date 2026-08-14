@@ -10,7 +10,6 @@ def hm64_register():
     from .mk64 import register as register_mk64
     from .z64.panels import register as register_z64_panels
     from .z64.skeleton import register as register_z64_skeleton
-    from .mm.skeleton.operators import mm_skeleton_ops_register
 
     register_f3d_gbi_hm64()
     register_f3d_material_hm64()
@@ -19,7 +18,6 @@ def hm64_register():
     register_mk64()
     register_z64_skeleton()
     register_z64_panels()
-    mm_skeleton_ops_register()
 
 
 def hm64_unregister():
@@ -30,9 +28,7 @@ def hm64_unregister():
     from .mk64 import unregister as unregister_mk64
     from .z64.panels import unregister as unregister_z64_panels
     from .z64.skeleton import unregister as unregister_z64_skeleton
-    from .mm.skeleton.operators import mm_skeleton_ops_unregister
 
-    mm_skeleton_ops_unregister()
     unregister_z64_panels()
     unregister_z64_skeleton()
     unregister_mk64()
