@@ -459,6 +459,10 @@ def _FModel_save_soh_textures(self, exportPath):
         oldpath = image.filepath
         try:
             image.filepath = targetPath
+            width = getattr(texture, "hd_width", texture.width)
+            height = getattr(texture, "hd_height", texture.height)
+            h_byte_scale = getattr(texture, "hd_byte_scale", 1.0)
+            v_pixel_scale = getattr(texture, "hd_pixel_scale", 1.0)
             with open(targetPath, "wb") as file:
                 file.write(
                     pack(
@@ -475,11 +479,11 @@ def _FModel_save_soh_textures(self, exportPath):
                         0,
                         0,
                         fmt_code,
-                        texture.width,
-                        texture.height,
+                        width,
+                        height,
                         0,
-                        1.0,
-                        1.0,
+                        h_byte_scale,
+                        v_pixel_scale,
                         len(texture.data),
                     )
                     + texture.data
