@@ -49,6 +49,31 @@ def computeAutoNativeSize(tex_size: tuple[int, int], texFormat: str) -> tuple[in
         divisor *= 2
 
 
+def getNativeSizeOverride(texProp: TextureProperty) -> Optional[tuple[int, int]]:
+    """Returns the artist-selected native size (Native Width/Height dropdowns), or None if unset."""
+    w = int(getattr(texProp, "hd_native_width", "0"))
+    h = int(getattr(texProp, "hd_native_height", "0"))
+    return (w, h) if w and h else None
+
+
+HD_EXPORT_FORMAT = "RGBA32"
+
+
+def resolveNativeSize(texProp: TextureProperty, real_size: tuple[int, int]) -> tuple[int, int]:
+    """Native/TMEM size to spoof to: artist override, else auto-computed TMEM fit."""
+    return getNativeSizeOverride(texProp) or computeAutoNativeSize(real_size, texProp.tex_format)
+
+
+def resolveHdScale(real_size: tuple[int, int], native_size: tuple[int, int]) -> tuple[float, float]:
+    """H/V scale from native_size to real_size."""
+    return real_size[0] / native_size[0], real_size[1] / native_size[1]
+
+
+def isHdFImage(fImage: FImage) -> bool:
+    """True when an FImage's addressing was spoofed to a smaller native size than its real content."""
+    return getattr(fImage, "hd_byte_scale", 1.0) != 1.0 or getattr(fImage, "hd_pixel_scale", 1.0) != 1.0
+
+
 def writeRawTextureData(image: bpy.types.Image, fImage: FImage):
     """Write plain 4-bytes-per-texel RGBA8 pixel data (TEX_FLAG_LOAD_AS_RAW), not N64 bit-packed."""
     width, height = image.size[0], image.size[1]
@@ -221,13 +246,13 @@ def saveOrGetTextureDefinition(
         fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
         fImage.skip_export = getattr(texProp, "is_vanilla_texture", False)
-    if texProp and not texProp.use_tex_reference and texProp.tex is not None and texProp.tex_format[:2] != "CI":
+    if texProp and not texProp.use_tex_reference and texProp.tex is not None and texProp.tex_format == HD_EXPORT_FORMAT:
+        # Spoof FImage's own size down to native/TMEM-legal; real HD size + scale go on the side.
         tex_size = tuple(texProp.tex.size)
-        native_size = computeAutoNativeSize(tex_size, texProp.tex_format)
+        native_size = resolveNativeSize(texProp, tex_size)
         if native_size != tex_size:
             fImage.hd_width, fImage.hd_height = tex_size
-            fImage.hd_byte_scale = tex_size[0] / native_size[0]
-            fImage.hd_pixel_scale = tex_size[1] / native_size[1]
+            fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(tex_size, native_size)
             fImage.width, fImage.height = native_size
     return imageKey, fImage
 
@@ -262,10 +287,11 @@ def fromProp(self, texProp: TextureProperty, index: int, ignore_tex_set=False) -
 
     if self.isTexRef:
         width, height = texProp.tex_reference_size
-    elif self.isTexCI:
+    elif self.texFormat != HD_EXPORT_FORMAT:
         width, height = tex.size
     else:
-        width, height = computeAutoNativeSize(tuple(tex.size), self.texFormat)
+        # Spoof the TMEM/tile size against the native size, not the real HD image size.
+        width, height = resolveNativeSize(texProp, tuple(tex.size))
     self.imageDims = (width, height)
 
     self.tmemSize = base.getTmemWordUsage(self.texFormat, width, height)
@@ -368,10 +394,7 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                         base.writePaletteData(fPalette, self.pal)
                     base.writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
             else:
-                isHd = (
-                    getattr(fImage, "hd_byte_scale", 1.0) != 1.0 or getattr(fImage, "hd_pixel_scale", 1.0) != 1.0
-                )
-                if isHd:
+                if isHdFImage(fImage):
                     writeRawTextureData(self.texProp.tex, fImage)
                 else:
                     base.writeNonCITextureData(self.texProp.tex, fImage, self.texFormat)

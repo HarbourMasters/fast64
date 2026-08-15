@@ -459,6 +459,7 @@ def _FModel_save_soh_textures(self, exportPath):
         oldpath = image.filepath
         try:
             image.filepath = targetPath
+            # Resource header carries the real HD size/scale/raw-tag; display list stays native.
             width = getattr(texture, "hd_width", texture.width)
             height = getattr(texture, "hd_height", texture.height)
             h_byte_scale = getattr(texture, "hd_byte_scale", 1.0)

@@ -2,16 +2,87 @@ from __future__ import annotations
 
 import bpy
 from bpy.types import Material, UILayout
+from bpy.utils import register_class, unregister_class
 
 from ...f3d import f3d_material as base
-from ...f3d.f3d_material import F3DMaterialProperty, F3DPanel, TextureProperty
+from ...f3d.f3d_material import F3DMaterialProperty, F3DPanel, TextureProperty, setAutoProp
+
+from ..utility import is_hm64
+from .f3d_texture_writer_hm64 import getNativeSizeOverride, resolveNativeSize
 
 
 _ORIGINALS = {}
 
+_HD_NATIVE_SIZES = (4, 8, 16, 32, 64, 128, 256)
+_HD_NATIVE_SIZE_ITEMS = [("0", "Auto (TMEM-fit)", "Divide down to fit the TMEM budget; may not match the original asset's true resolution")] + [
+    (str(v), str(v), f"{v} texels") for v in _HD_NATIVE_SIZES
+]
+
 
 def is_hm64_feature_set() -> bool:
     return True
+
+
+def _update_tex_values_field(self: Material, texProperty: TextureProperty, tex_size: list[int], tex_index: int):
+    if not is_hm64():
+        return _ORIGINALS["update_tex_values_field"](self, texProperty, tex_size, tex_index)
+
+    nodes = self.node_tree.nodes
+    textureSettings = nodes["TextureSettings"]
+    inputs = textureSettings.inputs
+
+    base.set_texture_size(self, tex_size, tex_index)
+
+    if texProperty.autoprop:
+        tex_size = tuple(tex_size)
+        if texProperty.tex_format != "RGBA32":
+            native_size = tex_size
+        else:
+            native_size = resolveNativeSize(texProperty, tex_size)
+        setAutoProp(texProperty.S, native_size[0])
+        setAutoProp(texProperty.T, native_size[1])
+
+    str_index = str(tex_index)
+
+    inputs[str_index + " S Low"].default_value = base.trunc_10_2(texProperty.S.low)
+    inputs[str_index + " T Low"].default_value = base.trunc_10_2(texProperty.T.low)
+
+    inputs[str_index + " S High"].default_value = base.trunc_10_2(texProperty.S.high)
+    inputs[str_index + " T High"].default_value = base.trunc_10_2(texProperty.T.high)
+
+    inputs[str_index + " ClampX"].default_value = 1 if texProperty.S.clamp else 0
+    inputs[str_index + " ClampY"].default_value = 1 if texProperty.T.clamp else 0
+
+    inputs[str_index + " S Mask"].default_value = texProperty.S.mask
+    inputs[str_index + " T Mask"].default_value = texProperty.T.mask
+
+
+class HM64_OT_ApplyReferenceSize(bpy.types.Operator):
+    bl_idname = "material.hm64_apply_reference_size"
+    bl_label = "Apply Native Size to Reference"
+    bl_description = (
+        "Fill Texture Size and S/T tile bounds (mask/shift/low/high) from the Native Width/Height selection, "
+        "since Auto Set Other Properties doesn't track reference-mode textures"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    combinerTexIndex: bpy.props.IntProperty()
+
+    def execute(self, context):
+        material = context.material
+        texProp = getattr(material.f3d_mat, "tex" + str(self.combinerTexIndex))
+        if texProp.tex_format != "RGBA32":
+            self.report({"ERROR"}, "Set Format to RGBA32 first.")
+            return {"CANCELLED"}
+        native_size = getNativeSizeOverride(texProp)
+        if native_size is None:
+            self.report({"ERROR"}, "Set Native Width and Native Height first.")
+            return {"CANCELLED"}
+        texProp.tex_reference_size = native_size
+        setAutoProp(texProp.S, native_size[0])
+        setAutoProp(texProp.T, native_size[1])
+        self.report({"INFO"}, f"Set Texture Size and S/T bounds to {native_size}.")
+        return {"FINISHED"}
 
 
 def _ui_dynamic_cosmetic_entry(self, f3dMat, layout, enabledProp, nameProp, categoryProp):
@@ -92,6 +163,17 @@ def _ui_image(
         row.prop(textureProp, "is_vanilla_texture", text="Is Vanilla Texture?")
         row = box.row(align=True)
         row.prop(textureProp, "texture_internal_path", text="Internal Path")
+        if is_hm64_feature_set() and textureProp.tex_format == "RGBA32":
+            row = box.row(align=True)
+            row.prop(textureProp, "hd_native_width", text="Native Width")
+            row.prop(textureProp, "hd_native_height", text="Native Height")
+    elif is_hm64_feature_set() and textureProp.tex_format == "RGBA32":
+        row = box.row(align=True)
+        row.prop(textureProp, "hd_native_width", text="Native Width")
+        row.prop(textureProp, "hd_native_height", text="Native Height")
+        row = box.row(align=True)
+        applyOp = row.operator(HM64_OT_ApplyReferenceSize.bl_idname, text="Apply to Texture Size")
+        applyOp.combinerTexIndex = int(name[-1]) if name and name[-1].isdigit() else 0
 
 
 def _texture_to_dict(self):
@@ -147,7 +229,10 @@ def _n64_colors_from_dict(self, data: dict):
 
 
 def register():
+    register_class(HM64_OT_ApplyReferenceSize)
+
     _ORIGINALS["ui_image"] = base.ui_image
+    _ORIGINALS["update_tex_values_field"] = base.update_tex_values_field
     _ORIGINALS["TextureProperty.to_dict"] = TextureProperty.to_dict
     _ORIGINALS["TextureProperty.from_dict"] = TextureProperty.from_dict
     _ORIGINALS["F3DMaterialProperty.n64_colors_to_dict"] = F3DMaterialProperty.n64_colors_to_dict
@@ -157,6 +242,7 @@ def register():
     F3DPanel.ui_prim = _ui_prim
     F3DPanel.ui_env = _ui_env
     base.ui_image = _ui_image
+    base.update_tex_values_field = _update_tex_values_field
     TextureProperty.to_dict = _texture_to_dict
     TextureProperty.from_dict = _texture_from_dict
     F3DMaterialProperty.n64_colors_to_dict = _n64_colors_to_dict
@@ -184,6 +270,18 @@ def register():
         description="Override the TLUT name used when exporting CI textures",
         default="",
     )
+    TextureProperty.hd_native_width = bpy.props.EnumProperty(
+        items=_HD_NATIVE_SIZE_ITEMS,
+        name="Native Width",
+        description="N64-native/TMEM width to spoof for this texture's addressing. Overrides TMEM-fit auto-divide.",
+        default="0",
+    )
+    TextureProperty.hd_native_height = bpy.props.EnumProperty(
+        items=_HD_NATIVE_SIZE_ITEMS,
+        name="Native Height",
+        description="N64-native/TMEM height to spoof for this texture's addressing. Overrides TMEM-fit auto-divide.",
+        default="0",
+    )
 
     F3DMaterialProperty.prim_dynamic_entry = bpy.props.BoolProperty(name="Dynamic Cosmetic Entry", default=False)
     F3DMaterialProperty.prim_dynamic_entry_name = bpy.props.StringProperty(name="Dynamic Cosmetic Entry Name")
@@ -194,14 +292,24 @@ def register():
 
 
 def unregister():
+    unregister_class(HM64_OT_ApplyReferenceSize)
+
     base.ui_image = _ORIGINALS["ui_image"]
+    base.update_tex_values_field = _ORIGINALS["update_tex_values_field"]
     TextureProperty.to_dict = _ORIGINALS["TextureProperty.to_dict"]
     TextureProperty.from_dict = _ORIGINALS["TextureProperty.from_dict"]
     F3DMaterialProperty.n64_colors_to_dict = _ORIGINALS["F3DMaterialProperty.n64_colors_to_dict"]
     F3DMaterialProperty.n64_colors_from_dict = _ORIGINALS["F3DMaterialProperty.n64_colors_from_dict"]
 
     for cls, names in {
-        TextureProperty: ("palette_color_count", "is_vanilla_texture", "texture_internal_path", "custom_palette_name"),
+        TextureProperty: (
+            "palette_color_count",
+            "is_vanilla_texture",
+            "texture_internal_path",
+            "custom_palette_name",
+            "hd_native_width",
+            "hd_native_height",
+        ),
         F3DMaterialProperty: (
             "prim_dynamic_entry",
             "prim_dynamic_entry_name",
