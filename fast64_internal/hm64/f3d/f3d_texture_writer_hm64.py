@@ -49,6 +49,25 @@ def computeAutoNativeSize(tex_size: tuple[int, int], texFormat: str) -> tuple[in
         divisor *= 2
 
 
+def writeRawTextureData(image: bpy.types.Image, fImage: FImage):
+    """Write plain 4-bytes-per-texel RGBA8 pixel data (TEX_FLAG_LOAD_AS_RAW), not N64 bit-packed."""
+    width, height = image.size[0], image.size[1]
+    pixels = image.pixels[:]
+    channels = image.channels
+    data = bytearray(width * height * 4)
+    i = 0
+    for y in reversed(range(height)):
+        row = y * width
+        for x in range(width):
+            idx = (row + x) * channels
+            data[i] = int(round(pixels[idx + 0] * 0xFF)) & 0xFF
+            data[i + 1] = int(round(pixels[idx + 1] * 0xFF)) & 0xFF if channels > 1 else data[i]
+            data[i + 2] = int(round(pixels[idx + 2] * 0xFF)) & 0xFF if channels > 2 else data[i]
+            data[i + 3] = int(round(pixels[idx + 3] * 0xFF)) & 0xFF if channels > 3 else 0xFF
+            i += 4
+    fImage.data = bytes(data)
+
+
 class HM64PaletteKey(FPaletteKey):
     def __init__(self, palFormat: str, paletteName: str | None = None):
         self.palFormat = palFormat
@@ -202,6 +221,14 @@ def saveOrGetTextureDefinition(
         fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
         fImage.skip_export = getattr(texProp, "is_vanilla_texture", False)
+    if texProp and not texProp.use_tex_reference and texProp.tex is not None and texProp.tex_format[:2] != "CI":
+        tex_size = tuple(texProp.tex.size)
+        native_size = computeAutoNativeSize(tex_size, texProp.tex_format)
+        if native_size != tex_size:
+            fImage.hd_width, fImage.hd_height = tex_size
+            fImage.hd_byte_scale = tex_size[0] / native_size[0]
+            fImage.hd_pixel_scale = tex_size[1] / native_size[1]
+            fImage.width, fImage.height = native_size
     return imageKey, fImage
 
 
@@ -341,13 +368,13 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                         base.writePaletteData(fPalette, self.pal)
                     base.writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
             else:
-                tex = self.texProp.tex
-                base.writeNonCITextureData(tex, fImage, self.texFormat)
-                native_size = computeAutoNativeSize(tuple(tex.size), self.texFormat)
-                if native_size != tuple(tex.size):
-                    fImage.hd_width, fImage.hd_height = tex.size[0], tex.size[1]
-                    fImage.hd_byte_scale = tex.size[0] / native_size[0]
-                    fImage.hd_pixel_scale = tex.size[1] / native_size[1]
+                isHd = (
+                    getattr(fImage, "hd_byte_scale", 1.0) != 1.0 or getattr(fImage, "hd_pixel_scale", 1.0) != 1.0
+                )
+                if isHd:
+                    writeRawTextureData(self.texProp.tex, fImage)
+                else:
+                    base.writeNonCITextureData(self.texProp.tex, fImage, self.texFormat)
 
 
 def saveTextureLoadOnly(

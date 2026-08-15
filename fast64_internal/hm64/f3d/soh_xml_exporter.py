@@ -463,6 +463,8 @@ def _FModel_save_soh_textures(self, exportPath):
             height = getattr(texture, "hd_height", texture.height)
             h_byte_scale = getattr(texture, "hd_byte_scale", 1.0)
             v_pixel_scale = getattr(texture, "hd_pixel_scale", 1.0)
+            TEX_FLAG_LOAD_AS_RAW = 1
+            flags = TEX_FLAG_LOAD_AS_RAW if (h_byte_scale != 1.0 or v_pixel_scale != 1.0) else 0
             with open(targetPath, "wb") as file:
                 file.write(
                     pack(
@@ -481,7 +483,7 @@ def _FModel_save_soh_textures(self, exportPath):
                         fmt_code,
                         width,
                         height,
-                        0,
+                        flags,
                         h_byte_scale,
                         v_pixel_scale,
                         len(texture.data),
