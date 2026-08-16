@@ -9,15 +9,16 @@ from bpy.utils import register_class, unregister_class
 from ...f3d.f3d_enums import *
 from ...f3d.f3d_material import (
     all_combiner_uses,
-    getMaterialScrollDimensions,
     isTexturePointSampled,
     get_textlut_mode,
     RDPSettings,
+    shift_dimensions,
 )
 from ...f3d.f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingleLargeTextureSetup
 from ...f3d.f3d_gbi import *
 from ..f3d.f3d_gbi_hm64 import make_env_color, make_prim_color
 from ..f3d.f3d_material_hm64 import is_hm64_feature_set
+from ..f3d.f3d_texture_writer_hm64 import resolveNativeSize
 from ..f3d.hm64_bleed import get_geo_cmds
 from ...f3d.f3d_writer import (
     exportF3DtoC as shared_exportF3DtoC,
@@ -1265,23 +1266,30 @@ defaultLighting = [
 def getTexDimensions(material):
     f3dMat = material.f3d_mat
 
+    def addressing_dimensions(tex_prop):
+        """Return the logical dimensions encoded into the N64 display list.
+
+        HD RGBA32 resources retain their real dimensions in the texture resource,
+        but vertices, masks, clamp bounds, mirror periods, and scroll values must
+        all remain in the spoofed native texel space.  This matches Retro's
+        replacement workflow, where the original display list is left unchanged.
+        """
+        if tex_prop.use_tex_reference:
+            return tuple(tex_prop.tex_reference_size)
+        if tex_prop.tex is None:
+            raise PluginError(f'In material "{material.name}", a texture has not been set.')
+        real_size = (tex_prop.tex.size[0], tex_prop.tex.size[1])
+        if tex_prop.tex_format == "RGBA32":
+            return resolveNativeSize(tex_prop, real_size)
+        return real_size
+
     texDimensions0 = None
     texDimensions1 = None
     useDict = all_combiner_uses(f3dMat)
     if useDict["Texture 0"] and f3dMat.tex0.tex_set:
-        if f3dMat.tex0.use_tex_reference:
-            texDimensions0 = f3dMat.tex0.tex_reference_size
-        else:
-            if f3dMat.tex0.tex is None:
-                raise PluginError('In material "' + material.name + '", a texture has not been set.')
-            texDimensions0 = f3dMat.tex0.tex.size[0], f3dMat.tex0.tex.size[1]
+        texDimensions0 = addressing_dimensions(f3dMat.tex0)
     if useDict["Texture 1"] and f3dMat.tex1.tex_set:
-        if f3dMat.tex1.use_tex_reference:
-            texDimensions1 = f3dMat.tex1.tex_reference_size
-        else:
-            if f3dMat.tex1.tex is None:
-                raise PluginError('In material "' + material.name + '", a texture has not been set.')
-            texDimensions1 = f3dMat.tex1.tex.size[0], f3dMat.tex1.tex.size[1]
+        texDimensions1 = addressing_dimensions(f3dMat.tex1)
 
     if texDimensions0 is not None and texDimensions1 is not None:
         texDimensions = texDimensions0 if f3dMat.uv_basis == "TEXEL0" else texDimensions1
@@ -1292,6 +1300,28 @@ def getTexDimensions(material):
     else:
         texDimensions = [32, 32]
     return texDimensions
+
+
+def getHM64MaterialScrollDimensions(f3dMat):
+    """Native-space counterpart of f3d_material.getMaterialScrollDimensions."""
+    dimensions = []
+    useDict = all_combiner_uses(f3dMat)
+    for index in range(2):
+        tex_prop = getattr(f3dMat, f"tex{index}")
+        if not useDict[f"Texture {index}"] or not tex_prop.tex_set:
+            dimensions.append((1, 1))
+            continue
+        if tex_prop.use_tex_reference:
+            tex_dims = tuple(tex_prop.tex_reference_size)
+        elif tex_prop.tex is not None:
+            real_size = (tex_prop.tex.size[0], tex_prop.tex.size[1])
+            tex_dims = (
+                resolveNativeSize(tex_prop, real_size) if tex_prop.tex_format == "RGBA32" else real_size
+            )
+        else:
+            tex_dims = (1, 1)
+        dimensions.append(shift_dimensions(tex_prop, tex_dims))
+    return (max(1, dimensions[0][0], dimensions[1][0]), max(1, dimensions[0][1], dimensions[1][1]))
 
 
 @wrap_func_with_error_message(lambda args: (f"In material '{args['material'].name}': "))
@@ -1347,7 +1377,7 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     if fMaterial.revert is not None:
         fMaterial.revert.commands.append(DPPipeSync())
 
-    fMaterial.getScrollData(material, getMaterialScrollDimensions(f3dMat))
+    fMaterial.getScrollData(material, getHM64MaterialScrollDimensions(f3dMat))
 
     if f3dMat.set_combiner:
         if f3dMat.rdp_settings.g_mdsft_cycletype == "G_CYC_2CYCLE":
