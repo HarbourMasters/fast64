@@ -69,7 +69,7 @@ def processTexRefNonCITextures(self: OOTModel, fMaterial: FMaterial, material: b
             if flipbookProp.exportMode == "Individual":
                 imageName = flipbookTexture.name
 
-            # Spoof this FImage's own size down to native/TMEM-legal, same as regular textures.
+            # Spoof this FImage's own size down to native/TMEM-legal.
             image_size = tuple(flipbookTexture.image.size)
             native_size = resolveNativeSize(texProp, image_size)
             isHd = native_size != image_size

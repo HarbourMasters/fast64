@@ -18,7 +18,7 @@ from ...f3d.f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingle
 from ...f3d.f3d_gbi import *
 from ..f3d.f3d_gbi_hm64 import make_env_color, make_prim_color
 from ..f3d.f3d_material_hm64 import is_hm64_feature_set
-from ..f3d.f3d_texture_writer_hm64 import resolveNativeSize, syncMaterialReferenceSizes
+from ..f3d.f3d_texture_writer_hm64 import resolveAddressingSize, syncMaterialReferenceSizes
 from ..f3d.hm64_bleed import get_geo_cmds
 from ...f3d.f3d_writer import (
     exportF3DtoC as shared_exportF3DtoC,
@@ -1268,21 +1268,11 @@ def getTexDimensions(material):
     syncMaterialReferenceSizes(material)
 
     def addressing_dimensions(tex_prop):
-        """Return the logical dimensions encoded into the N64 display list.
-
-        HD resources (any format) retain their real dimensions in the texture
-        resource, but vertices, masks, clamp bounds, mirror periods, and scroll
-        values must all remain in the spoofed native texel space.  This matches
-        Retro's replacement workflow, where the original display list is left
-        unchanged.  resolveNativeSize is a no-op when the image already fits
-        TMEM at its real size, so this is safe to call unconditionally.
-        """
-        if tex_prop.use_tex_reference:
-            return tuple(tex_prop.tex_reference_size)
-        if tex_prop.tex is None:
+        """Return the logical dimensions encoded into the N64 display list."""
+        size = resolveAddressingSize(tex_prop)
+        if size is None:
             raise PluginError(f'In material "{material.name}", a texture has not been set.')
-        real_size = (tex_prop.tex.size[0], tex_prop.tex.size[1])
-        return resolveNativeSize(tex_prop, real_size)
+        return size
 
     texDimensions0 = None
     texDimensions1 = None
@@ -1312,13 +1302,7 @@ def getHM64MaterialScrollDimensions(f3dMat):
         if not useDict[f"Texture {index}"] or not tex_prop.tex_set:
             dimensions.append((1, 1))
             continue
-        if tex_prop.use_tex_reference:
-            tex_dims = tuple(tex_prop.tex_reference_size)
-        elif tex_prop.tex is not None:
-            real_size = (tex_prop.tex.size[0], tex_prop.tex.size[1])
-            tex_dims = resolveNativeSize(tex_prop, real_size)
-        else:
-            tex_dims = (1, 1)
+        tex_dims = resolveAddressingSize(tex_prop) or (1, 1)
         dimensions.append(shift_dimensions(tex_prop, tex_dims))
     return (max(1, dimensions[0][0], dimensions[1][0]), max(1, dimensions[0][1], dimensions[1][1]))
 

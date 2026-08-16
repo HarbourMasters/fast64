@@ -62,36 +62,48 @@ def resolveNativeSize(texProp: TextureProperty, real_size: tuple[int, int]) -> t
     return getNativeSizeOverride(texProp) or computeAutoNativeSize(real_size, texProp.tex_format)
 
 
+def resolveAddressingSize(texProp: TextureProperty) -> Optional[tuple[int, int]]:
+    """Returns the size used to address texProp in the display list: tex_reference_size for
+    reference-mode, else the native/TMEM-fit size resolved from its assigned image. Returns
+    None when texProp has no reference size and no image assigned."""
+    if texProp.use_tex_reference:
+        return tuple(texProp.tex_reference_size)
+    if texProp.tex is None:
+        return None
+    return resolveNativeSize(texProp, (texProp.tex.size[0], texProp.tex.size[1]))
+
+
 def resolveHdScale(
     real_size: tuple[int, int], native_size: tuple[int, int], native_format: str
 ) -> tuple[float, float]:
-    """H/V scale from native_size to real_size. H also folds in the bpp ratio between the
-    always-RGBA32 raw payload and native_format, since the DL may declare any format."""
+    """H/V scale from native_size to real_size. H includes the bpp ratio between the
+    RGBA32 raw payload and native_format."""
     bpp_ratio = 32 / base.texBitSizeInt[native_format]
     return (real_size[0] / native_size[0]) * bpp_ratio, real_size[1] / native_size[1]
 
 
+def applyReferenceSize(texProp: TextureProperty, size: tuple[int, int]) -> None:
+    """Set tex_reference_size and the S/T tile bounds (mask/shift/low/high) to size."""
+    texProp.tex_reference_size = size
+    setAutoProp(texProp.S, size[0])
+    setAutoProp(texProp.T, size[1])
+
+
 def syncAutoReferenceSize(texProp: TextureProperty, real_size: tuple[int, int]) -> None:
-    """Keep a reference-mode (flipbook) texture slot's tex_reference_size, and its S/T tile
-    bounds, in sync with the current format's TMEM-fit auto size, computed from real_size (an
-    actual backing image's real dimensions). Auto Set Other Properties doesn't track
-    reference-mode textures, so nothing else keeps this in sync across a format change.
-    No-op when the artist has a manual native-size override set (Native Width/Height)."""
+    """Set tex_reference_size and S/T tile bounds to the current format's TMEM-fit auto size
+    computed from real_size. No-op when a manual native-size override (Native Width/Height)
+    is set, or when tex_reference_size already matches the auto size."""
     if getNativeSizeOverride(texProp) is not None:
         return
     auto_size = computeAutoNativeSize(real_size, texProp.tex_format)
     if tuple(texProp.tex_reference_size) == auto_size:
         return
-    texProp.tex_reference_size = auto_size
-    setAutoProp(texProp.S, auto_size[0])
-    setAutoProp(texProp.T, auto_size[1])
+    applyReferenceSize(texProp, auto_size)
 
 
 def syncMaterialReferenceSizes(material: bpy.types.Material) -> None:
     """Call syncAutoReferenceSize for every flipbook-backed reference-mode texture slot on a
-    material. Idempotent and safe to call from multiple points in the export pipeline (mesh UV
-    preprocessing, scroll-dimension calc, DL generation) since each reads tex_reference_size
-    independently and none of them share a guaranteed call order."""
+    material, using the flipbook's first assigned image as the real size."""
     f3dMat = material.f3d_mat
     for index in range(2):
         texProp = getattr(f3dMat, f"tex{index}")
@@ -418,11 +430,7 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
         else:
             if self.isTexCI:
                 assert self.pal is not None
-                if isHdFImage(fImage):
-                    if self.loadPal and not self.isPalRef:
-                        base.writePaletteData(fPalette, self.pal)
-                    writeRawTextureData(self.texProp.tex, fImage)
-                elif shared_tlut_state is not None:
+                if shared_tlut_state is not None and not isHdFImage(fImage):
                     shared_tlut_state.texture_uses[self.texProp.tex] = (
                         self.texProp.tex,
                         fImage,
@@ -433,7 +441,10 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                 else:
                     if self.loadPal and not self.isPalRef:
                         base.writePaletteData(fPalette, self.pal)
-                    base.writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
+                    if isHdFImage(fImage):
+                        writeRawTextureData(self.texProp.tex, fImage)
+                    else:
+                        base.writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
             else:
                 if isHdFImage(fImage):
                     writeRawTextureData(self.texProp.tex, fImage)

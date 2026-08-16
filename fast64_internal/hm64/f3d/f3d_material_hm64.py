@@ -8,7 +8,7 @@ from ...f3d import f3d_material as base
 from ...f3d.f3d_material import F3DMaterialProperty, F3DPanel, TextureProperty, setAutoProp
 
 from ..utility import is_hm64
-from .f3d_texture_writer_hm64 import getNativeSizeOverride, resolveNativeSize
+from .f3d_texture_writer_hm64 import applyReferenceSize, getNativeSizeOverride, resolveNativeSize
 
 
 _ORIGINALS = {}
@@ -57,10 +57,7 @@ def _update_tex_values_field(self: Material, texProperty: TextureProperty, tex_s
 class HM64_OT_ApplyReferenceSize(bpy.types.Operator):
     bl_idname = "material.hm64_apply_reference_size"
     bl_label = "Apply Native Size to Reference"
-    bl_description = (
-        "Fill Texture Size and S/T tile bounds (mask/shift/low/high) from the Native Width/Height selection, "
-        "since Auto Set Other Properties doesn't track reference-mode textures"
-    )
+    bl_description = "Fill Texture Size and S/T tile bounds (mask/shift/low/high) from the Native Width/Height selection"
     bl_options = {"REGISTER", "UNDO"}
 
     combinerTexIndex: bpy.props.IntProperty()
@@ -72,9 +69,7 @@ class HM64_OT_ApplyReferenceSize(bpy.types.Operator):
         if native_size is None:
             self.report({"ERROR"}, "Set Native Width and Native Height first.")
             return {"CANCELLED"}
-        texProp.tex_reference_size = native_size
-        setAutoProp(texProp.S, native_size[0])
-        setAutoProp(texProp.T, native_size[1])
+        applyReferenceSize(texProp, native_size)
         self.report({"INFO"}, f"Set Texture Size and S/T bounds to {native_size}.")
         return {"FINISHED"}
 
