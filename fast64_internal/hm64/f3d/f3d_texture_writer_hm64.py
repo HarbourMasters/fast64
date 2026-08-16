@@ -26,6 +26,7 @@ from ...f3d.f3d_material import (
     TextureProperty,
     getTmemMax,
     getTmemWordUsage,
+    setAutoProp,
     texBitSizeF3D,
     texFormatOf,
 )
@@ -68,6 +69,41 @@ def resolveHdScale(
     always-RGBA32 raw payload and native_format, since the DL may declare any format."""
     bpp_ratio = 32 / base.texBitSizeInt[native_format]
     return (real_size[0] / native_size[0]) * bpp_ratio, real_size[1] / native_size[1]
+
+
+def syncAutoReferenceSize(texProp: TextureProperty, real_size: tuple[int, int]) -> None:
+    """Keep a reference-mode (flipbook) texture slot's tex_reference_size, and its S/T tile
+    bounds, in sync with the current format's TMEM-fit auto size, computed from real_size (an
+    actual backing image's real dimensions). Auto Set Other Properties doesn't track
+    reference-mode textures, so nothing else keeps this in sync across a format change.
+    No-op when the artist has a manual native-size override set (Native Width/Height)."""
+    if getNativeSizeOverride(texProp) is not None:
+        return
+    auto_size = computeAutoNativeSize(real_size, texProp.tex_format)
+    if tuple(texProp.tex_reference_size) == auto_size:
+        return
+    texProp.tex_reference_size = auto_size
+    setAutoProp(texProp.S, auto_size[0])
+    setAutoProp(texProp.T, auto_size[1])
+
+
+def syncMaterialReferenceSizes(material: bpy.types.Material) -> None:
+    """Call syncAutoReferenceSize for every flipbook-backed reference-mode texture slot on a
+    material. Idempotent and safe to call from multiple points in the export pipeline (mesh UV
+    preprocessing, scroll-dimension calc, DL generation) since each reads tex_reference_size
+    independently and none of them share a guaranteed call order."""
+    f3dMat = material.f3d_mat
+    for index in range(2):
+        texProp = getattr(f3dMat, f"tex{index}")
+        if not texProp.use_tex_reference:
+            continue
+        flipbookProp = getattr(material.flipbookGroup, f"flipbook{index}", None)
+        if flipbookProp is None:
+            continue
+        first_image = next((t.image for t in flipbookProp.textures if t.image is not None), None)
+        if first_image is None:
+            continue
+        syncAutoReferenceSize(texProp, tuple(first_image.size))
 
 
 def isHdFImage(fImage: FImage) -> bool:

@@ -15,6 +15,7 @@ from ..f3d.f3d_texture_writer_hm64 import (
     isHdFImage,
     resolveHdScale,
     resolveNativeSize,
+    syncMaterialReferenceSizes,
     writeRawTextureData,
 )
 
@@ -26,6 +27,7 @@ def validateImages(self: OOTModel, material: bpy.types.Material, index: int):
     if not is_hm64():
         return _ORIGINALS["OOTModel.validateImages"](self, material, index)
 
+    syncMaterialReferenceSizes(material)
     flipbookProp = getattr(material.flipbookGroup, f"flipbook{index}")
     texProp = getattr(material.f3d_mat, f"tex{index}")
     allImages = []

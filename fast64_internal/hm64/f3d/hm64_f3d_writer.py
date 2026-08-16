@@ -18,7 +18,7 @@ from ...f3d.f3d_texture_writer import MultitexManager, TileLoad, maybeSaveSingle
 from ...f3d.f3d_gbi import *
 from ..f3d.f3d_gbi_hm64 import make_env_color, make_prim_color
 from ..f3d.f3d_material_hm64 import is_hm64_feature_set
-from ..f3d.f3d_texture_writer_hm64 import resolveNativeSize
+from ..f3d.f3d_texture_writer_hm64 import resolveNativeSize, syncMaterialReferenceSizes
 from ..f3d.hm64_bleed import get_geo_cmds
 from ...f3d.f3d_writer import (
     exportF3DtoC as shared_exportF3DtoC,
@@ -1265,6 +1265,7 @@ defaultLighting = [
 
 def getTexDimensions(material):
     f3dMat = material.f3d_mat
+    syncMaterialReferenceSizes(material)
 
     def addressing_dimensions(tex_prop):
         """Return the logical dimensions encoded into the N64 display list.
@@ -1329,6 +1330,8 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         f3dMat = material.f3d_mat
     else:
         f3dMat = material
+
+    syncMaterialReferenceSizes(material)
 
     areaKey = fModel.global_data.getCurrentAreaKey(f3dMat)
     areaIndex = fModel.global_data.current_area_index
