@@ -53,6 +53,12 @@ def _update_tex_values_field(self: Material, texProperty: TextureProperty, tex_s
     inputs[str_index + " S Mask"].default_value = texProperty.S.mask
     inputs[str_index + " T Mask"].default_value = texProperty.T.mask
 
+    inputs[str_index + " MirrorX"].default_value = 1 if texProperty.S.mirror > 0 else 0
+    inputs[str_index + " MirrorY"].default_value = 1 if texProperty.T.mirror > 0 else 0
+
+    inputs[str_index + " S Shift"].default_value = texProperty.S.shift
+    inputs[str_index + " T Shift"].default_value = texProperty.T.shift
+
 
 class HM64_OT_ApplyReferenceSize(bpy.types.Operator):
     bl_idname = "material.hm64_apply_reference_size"
