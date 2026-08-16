@@ -14,9 +14,9 @@ from .f3d_texture_writer_hm64 import applyReferenceSize, getNativeSizeOverride, 
 _ORIGINALS = {}
 
 _HD_NATIVE_SIZES = (4, 8, 16, 32, 64, 128, 256)
-_HD_NATIVE_SIZE_ITEMS = [("0", "Auto (TMEM-fit)", "Divide down to fit the TMEM budget; may not match the original asset's true resolution")] + [
-    (str(v), str(v), f"{v} texels") for v in _HD_NATIVE_SIZES
-]
+_HD_NATIVE_SIZE_ITEMS = [
+    ("0", "Auto (TMEM-fit)", "Divide down to fit the TMEM budget; may not match the original asset's true resolution")
+] + [(str(v), str(v), f"{v} texels") for v in _HD_NATIVE_SIZES]
 
 
 def is_hm64_feature_set() -> bool:
@@ -63,7 +63,9 @@ def _update_tex_values_field(self: Material, texProperty: TextureProperty, tex_s
 class HM64_OT_ApplyReferenceSize(bpy.types.Operator):
     bl_idname = "material.hm64_apply_reference_size"
     bl_label = "Apply Native Size to Reference"
-    bl_description = "Fill Texture Size and S/T tile bounds (mask/shift/low/high) from the Native Width/Height selection"
+    bl_description = (
+        "Fill Texture Size and S/T tile bounds (mask/shift/low/high) from the Native Width/Height selection"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     combinerTexIndex: bpy.props.IntProperty()

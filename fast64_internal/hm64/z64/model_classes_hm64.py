@@ -83,7 +83,9 @@ def processTexRefNonCITextures(self: OOTModel, fMaterial: FMaterial, material: b
             )
             if isHd:
                 fImage.hd_width, fImage.hd_height = image_size
-                fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(image_size, native_size, texProp.tex_format)
+                fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(
+                    image_size, native_size, texProp.tex_format
+                )
             model.addTexture(imageKey, fImage, fMaterial)
 
         flipbook.textureNames.append(fImage.name)

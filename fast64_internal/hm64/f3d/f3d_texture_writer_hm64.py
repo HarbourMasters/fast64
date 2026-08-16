@@ -73,9 +73,7 @@ def resolveAddressingSize(texProp: TextureProperty) -> Optional[tuple[int, int]]
     return resolveNativeSize(texProp, (texProp.tex.size[0], texProp.tex.size[1]))
 
 
-def resolveHdScale(
-    real_size: tuple[int, int], native_size: tuple[int, int], native_format: str
-) -> tuple[float, float]:
+def resolveHdScale(real_size: tuple[int, int], native_size: tuple[int, int], native_format: str) -> tuple[float, float]:
     """H/V scale from native_size to real_size. H includes the bpp ratio between the
     RGBA32 raw payload and native_format."""
     bpp_ratio = 32 / base.texBitSizeInt[native_format]
