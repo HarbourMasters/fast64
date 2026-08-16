@@ -56,17 +56,18 @@ def getNativeSizeOverride(texProp: TextureProperty) -> Optional[tuple[int, int]]
     return (w, h) if w and h else None
 
 
-HD_EXPORT_FORMAT = "RGBA32"
-
-
 def resolveNativeSize(texProp: TextureProperty, real_size: tuple[int, int]) -> tuple[int, int]:
     """Native/TMEM size to spoof to: artist override, else auto-computed TMEM fit."""
     return getNativeSizeOverride(texProp) or computeAutoNativeSize(real_size, texProp.tex_format)
 
 
-def resolveHdScale(real_size: tuple[int, int], native_size: tuple[int, int]) -> tuple[float, float]:
-    """H/V scale from native_size to real_size."""
-    return real_size[0] / native_size[0], real_size[1] / native_size[1]
+def resolveHdScale(
+    real_size: tuple[int, int], native_size: tuple[int, int], native_format: str
+) -> tuple[float, float]:
+    """H/V scale from native_size to real_size. H also folds in the bpp ratio between the
+    always-RGBA32 raw payload and native_format, since the DL may declare any format."""
+    bpp_ratio = 32 / base.texBitSizeInt[native_format]
+    return (real_size[0] / native_size[0]) * bpp_ratio, real_size[1] / native_size[1]
 
 
 def isHdFImage(fImage: FImage) -> bool:
@@ -246,13 +247,14 @@ def saveOrGetTextureDefinition(
         fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
         fImage.skip_export = getattr(texProp, "is_vanilla_texture", False)
-    if texProp and not texProp.use_tex_reference and texProp.tex is not None and texProp.tex_format == HD_EXPORT_FORMAT:
+    if texProp and not texProp.use_tex_reference and texProp.tex is not None:
         # Spoof FImage's own size down to native/TMEM-legal; real HD size + scale go on the side.
+        # Format-agnostic: works for any declared format, not just RGBA32.
         tex_size = tuple(texProp.tex.size)
         native_size = resolveNativeSize(texProp, tex_size)
         if native_size != tex_size:
             fImage.hd_width, fImage.hd_height = tex_size
-            fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(tex_size, native_size)
+            fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(tex_size, native_size, texProp.tex_format)
             fImage.width, fImage.height = native_size
     return imageKey, fImage
 
@@ -287,10 +289,9 @@ def fromProp(self, texProp: TextureProperty, index: int, ignore_tex_set=False) -
 
     if self.isTexRef:
         width, height = texProp.tex_reference_size
-    elif self.texFormat != HD_EXPORT_FORMAT:
-        width, height = tex.size
     else:
         # Spoof the TMEM/tile size against the native size, not the real HD image size.
+        # A no-op (returns tex.size unchanged) when the image already fits TMEM at its real size.
         width, height = resolveNativeSize(texProp, tuple(tex.size))
     self.imageDims = (width, height)
 
@@ -381,7 +382,11 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
         else:
             if self.isTexCI:
                 assert self.pal is not None
-                if shared_tlut_state is not None:
+                if isHdFImage(fImage):
+                    if self.loadPal and not self.isPalRef:
+                        base.writePaletteData(fPalette, self.pal)
+                    writeRawTextureData(self.texProp.tex, fImage)
+                elif shared_tlut_state is not None:
                     shared_tlut_state.texture_uses[self.texProp.tex] = (
                         self.texProp.tex,
                         fImage,

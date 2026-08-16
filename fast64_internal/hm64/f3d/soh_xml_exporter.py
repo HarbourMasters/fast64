@@ -465,7 +465,12 @@ def _FModel_save_soh_textures(self, exportPath):
             h_byte_scale = getattr(texture, "hd_byte_scale", 1.0)
             v_pixel_scale = getattr(texture, "hd_pixel_scale", 1.0)
             TEX_FLAG_LOAD_AS_RAW = 1
-            flags = TEX_FLAG_LOAD_AS_RAW if (h_byte_scale != 1.0 or v_pixel_scale != 1.0) else 0
+            is_hd = h_byte_scale != 1.0 or v_pixel_scale != 1.0
+            if is_hd:
+                # Raw HD payload is always written as 4-byte RGBA32 texels, independent of
+                # whatever format the DL declares (matches the native-size-spoofed tile).
+                fmt_code = 1
+            flags = TEX_FLAG_LOAD_AS_RAW if is_hd else 0
             with open(targetPath, "wb") as file:
                 file.write(
                     pack(

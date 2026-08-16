@@ -35,10 +35,7 @@ def _update_tex_values_field(self: Material, texProperty: TextureProperty, tex_s
 
     if texProperty.autoprop:
         tex_size = tuple(tex_size)
-        if texProperty.tex_format != "RGBA32":
-            native_size = tex_size
-        else:
-            native_size = resolveNativeSize(texProperty, tex_size)
+        native_size = resolveNativeSize(texProperty, tex_size)
         setAutoProp(texProperty.S, native_size[0])
         setAutoProp(texProperty.T, native_size[1])
 
@@ -71,9 +68,6 @@ class HM64_OT_ApplyReferenceSize(bpy.types.Operator):
     def execute(self, context):
         material = context.material
         texProp = getattr(material.f3d_mat, "tex" + str(self.combinerTexIndex))
-        if texProp.tex_format != "RGBA32":
-            self.report({"ERROR"}, "Set Format to RGBA32 first.")
-            return {"CANCELLED"}
         native_size = getNativeSizeOverride(texProp)
         if native_size is None:
             self.report({"ERROR"}, "Set Native Width and Native Height first.")
@@ -163,11 +157,11 @@ def _ui_image(
         row.prop(textureProp, "is_vanilla_texture", text="Is Vanilla Texture?")
         row = box.row(align=True)
         row.prop(textureProp, "texture_internal_path", text="Internal Path")
-        if is_hm64_feature_set() and textureProp.tex_format == "RGBA32":
+        if is_hm64_feature_set():
             row = box.row(align=True)
             row.prop(textureProp, "hd_native_width", text="Native Width")
             row.prop(textureProp, "hd_native_height", text="Native Height")
-    elif is_hm64_feature_set() and textureProp.tex_format == "RGBA32":
+    elif is_hm64_feature_set():
         row = box.row(align=True)
         row.prop(textureProp, "hd_native_width", text="Native Width")
         row.prop(textureProp, "hd_native_height", text="Native Height")

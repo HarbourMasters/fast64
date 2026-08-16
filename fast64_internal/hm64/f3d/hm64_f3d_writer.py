@@ -1269,19 +1269,19 @@ def getTexDimensions(material):
     def addressing_dimensions(tex_prop):
         """Return the logical dimensions encoded into the N64 display list.
 
-        HD RGBA32 resources retain their real dimensions in the texture resource,
-        but vertices, masks, clamp bounds, mirror periods, and scroll values must
-        all remain in the spoofed native texel space.  This matches Retro's
-        replacement workflow, where the original display list is left unchanged.
+        HD resources (any format) retain their real dimensions in the texture
+        resource, but vertices, masks, clamp bounds, mirror periods, and scroll
+        values must all remain in the spoofed native texel space.  This matches
+        Retro's replacement workflow, where the original display list is left
+        unchanged.  resolveNativeSize is a no-op when the image already fits
+        TMEM at its real size, so this is safe to call unconditionally.
         """
         if tex_prop.use_tex_reference:
             return tuple(tex_prop.tex_reference_size)
         if tex_prop.tex is None:
             raise PluginError(f'In material "{material.name}", a texture has not been set.')
         real_size = (tex_prop.tex.size[0], tex_prop.tex.size[1])
-        if tex_prop.tex_format == "RGBA32":
-            return resolveNativeSize(tex_prop, real_size)
-        return real_size
+        return resolveNativeSize(tex_prop, real_size)
 
     texDimensions0 = None
     texDimensions1 = None
@@ -1315,9 +1315,7 @@ def getHM64MaterialScrollDimensions(f3dMat):
             tex_dims = tuple(tex_prop.tex_reference_size)
         elif tex_prop.tex is not None:
             real_size = (tex_prop.tex.size[0], tex_prop.tex.size[1])
-            tex_dims = (
-                resolveNativeSize(tex_prop, real_size) if tex_prop.tex_format == "RGBA32" else real_size
-            )
+            tex_dims = resolveNativeSize(tex_prop, real_size)
         else:
             tex_dims = (1, 1)
         dimensions.append(shift_dimensions(tex_prop, tex_dims))

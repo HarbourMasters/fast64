@@ -12,8 +12,6 @@ from ...z64.model_classes import OOTModel
 
 from ..utility import is_hm64
 from ..f3d.f3d_texture_writer_hm64 import (
-    HD_EXPORT_FORMAT,
-    computeAutoNativeSize,
     isHdFImage,
     resolveHdScale,
     resolveNativeSize,
@@ -36,9 +34,7 @@ def validateImages(self: OOTModel, material: bpy.types.Material, index: int):
         if flipbookTexture.image is None:
             raise PluginError(f"Flipbook for {material.name} has a texture array item that has not been set.")
         imSize = tuple(flipbookTexture.image.size)
-        if imSize != refSize and (
-            texProp.tex_format != HD_EXPORT_FORMAT or computeAutoNativeSize(imSize, texProp.tex_format) != refSize
-        ):
+        if imSize != refSize and resolveNativeSize(texProp, imSize) != refSize:
             raise PluginError(
                 f"In {material.name}: texture reference size is {refSize}, but flipbook image "
                 f"{flipbookTexture.image.filepath} size is {imSize}, which doesn't match and doesn't divide "
@@ -73,10 +69,7 @@ def processTexRefNonCITextures(self: OOTModel, fMaterial: FMaterial, material: b
 
             # Spoof this FImage's own size down to native/TMEM-legal, same as regular textures.
             image_size = tuple(flipbookTexture.image.size)
-            if texProp.tex_format == HD_EXPORT_FORMAT:
-                native_size = resolveNativeSize(texProp, image_size)
-            else:
-                native_size = image_size
+            native_size = resolveNativeSize(texProp, image_size)
             isHd = native_size != image_size
             fImage = FImage(
                 imageName,
@@ -88,7 +81,7 @@ def processTexRefNonCITextures(self: OOTModel, fMaterial: FMaterial, material: b
             )
             if isHd:
                 fImage.hd_width, fImage.hd_height = image_size
-                fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(image_size, native_size)
+                fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(image_size, native_size, texProp.tex_format)
             model.addTexture(imageKey, fImage, fMaterial)
 
         flipbook.textureNames.append(fImage.name)
