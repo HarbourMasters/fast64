@@ -261,6 +261,17 @@ def getGroupNameFromIndex(obj, index):
     return None
 
 
+def getBoneIndexFromGroupIndex(obj: bpy.types.Object, armature: bpy.types.Armature, index: int) -> int:
+    group = obj.vertex_groups[index]
+    groupName = group.name
+    boneIndex = armature.bones.find(groupName)
+
+    if boneIndex == -1:
+        raise PluginError(f"Bone: {groupName} not found in Armature: {armature.name}")
+    else:
+        return boneIndex
+
+
 def copyPropertyCollection(from_prop, to_prop, do_clear: bool = True):
     if do_clear:
         to_prop.clear()
@@ -1813,10 +1824,21 @@ def ootGetBaseOrCustomLight(prop, idx, toExport: bool, errIfMissing: bool):
     return col, dir
 
 
-def getTextureSuffixFromFormat(texFmt):
-    # if texFmt == "RGBA16":
-    #     return "rgb5a1"
-    return texFmt.lower()
+def getTextureSuffixFromFormat(texFmt: str, ciFmt: str | None, isPalette: bool):
+    if bpy.context.scene.fast64.settings.texture_name_includes_ci_format:
+        if ciFmt:
+            fmtName = f"{texFmt}_{ciFmt}"
+        else:
+            fmtName = texFmt
+    else:
+        if isPalette:
+            if ciFmt is None:
+                raise PluginError("Internal error, getTextureSuffixFromFormat required ciFmt but wasn't specified")
+            fmtName = ciFmt
+        else:
+            fmtName = texFmt
+
+    return fmtName.lower()
 
 
 # https://stackoverflow.com/a/241506
