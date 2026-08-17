@@ -117,7 +117,14 @@ from ...f3d.f3d_gbi import (
 )
 from ...utility import PluginError
 from ..utility import writeXMLData, resolve_internal_export_path
-from ...z64.exporter.skeleton.classes import FlexSkeleton, StandardSkeleton, OOTBaseLimb, StandardLimb, LODLimb, SkinLimb
+from ...z64.exporter.skeleton.classes import (
+    FlexSkeleton,
+    StandardSkeleton,
+    OOTBaseLimb,
+    StandardLimb,
+    LODLimb,
+    SkinLimb,
+)
 from .f3d_gbi_hm64 import format_asset_path, get_image_from_image_key
 
 _REGISTERED = False
