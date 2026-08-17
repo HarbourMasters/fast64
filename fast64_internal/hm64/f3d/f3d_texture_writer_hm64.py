@@ -21,13 +21,123 @@ from ...f3d.f3d_gbi import (
     FTexRect,
     GfxList,
 )
-from ...f3d.f3d_material import F3DMaterialProperty, TextureProperty, texBitSizeF3D, texFormatOf
+from ...f3d.f3d_material import (
+    F3DMaterialProperty,
+    TextureProperty,
+    getTmemMax,
+    getTmemWordUsage,
+    setAutoProp,
+    texBitSizeF3D,
+    texFormatOf,
+)
 from ...utility import PluginError, toAlnum
 from ..utility import is_hm64, sanitize_internal_asset_path
 
 
 _ORIGINALS = {}
 _REGISTERED = False
+
+
+def computeAutoNativeSize(tex_size: tuple[int, int], texFormat: str) -> tuple[int, int]:
+    """Divide an image's size by powers of two until it fits texFormat's TMEM budget."""
+    width, height = tex_size
+    tmemWordBudget = getTmemMax(texFormat) // 8  # bytes -> words, same unit as getTmemWordUsage
+    divisor = 1
+    while True:
+        w, h = max(1, width // divisor), max(1, height // divisor)
+        if getTmemWordUsage(texFormat, w, h) <= tmemWordBudget or (w == 1 and h == 1):
+            return (w, h)
+        divisor *= 2
+
+
+def getNativeSizeOverride(texProp: TextureProperty) -> Optional[tuple[int, int]]:
+    """Returns the artist-selected native size (Native Width/Height dropdowns), or None if unset."""
+    w = int(getattr(texProp, "hd_native_width", "0"))
+    h = int(getattr(texProp, "hd_native_height", "0"))
+    return (w, h) if w and h else None
+
+
+def resolveNativeSize(texProp: TextureProperty, real_size: tuple[int, int]) -> tuple[int, int]:
+    """Native/TMEM size to spoof to: artist override, else auto-computed TMEM fit."""
+    return getNativeSizeOverride(texProp) or computeAutoNativeSize(real_size, texProp.tex_format)
+
+
+def resolveAddressingSize(texProp: TextureProperty) -> Optional[tuple[int, int]]:
+    """Returns the size used to address texProp in the display list: tex_reference_size for
+    reference-mode, else the native/TMEM-fit size resolved from its assigned image. Returns
+    None when texProp has no reference size and no image assigned."""
+    if texProp.use_tex_reference:
+        return tuple(texProp.tex_reference_size)
+    if texProp.tex is None:
+        return None
+    return resolveNativeSize(texProp, (texProp.tex.size[0], texProp.tex.size[1]))
+
+
+def resolveHdScale(real_size: tuple[int, int], native_size: tuple[int, int], native_format: str) -> tuple[float, float]:
+    """H/V scale from native_size to real_size. H includes the bpp ratio between the
+    RGBA32 raw payload and native_format."""
+    bpp_ratio = 32 / base.texBitSizeInt[native_format]
+    return (real_size[0] / native_size[0]) * bpp_ratio, real_size[1] / native_size[1]
+
+
+def applyReferenceSize(texProp: TextureProperty, size: tuple[int, int]) -> None:
+    """Set tex_reference_size and the S/T tile bounds (mask/shift/low/high) to size."""
+    texProp.tex_reference_size = size
+    setAutoProp(texProp.S, size[0])
+    setAutoProp(texProp.T, size[1])
+
+
+def syncAutoReferenceSize(texProp: TextureProperty, real_size: tuple[int, int]) -> None:
+    """Set tex_reference_size and S/T tile bounds to the current format's TMEM-fit auto size
+    computed from real_size. No-op when a manual native-size override (Native Width/Height)
+    is set, or when tex_reference_size already matches the auto size."""
+    if getNativeSizeOverride(texProp) is not None:
+        return
+    auto_size = computeAutoNativeSize(real_size, texProp.tex_format)
+    if tuple(texProp.tex_reference_size) == auto_size:
+        return
+    applyReferenceSize(texProp, auto_size)
+
+
+def syncMaterialReferenceSizes(material: bpy.types.Material) -> None:
+    """Call syncAutoReferenceSize for every flipbook-backed reference-mode texture slot on a
+    material, using the flipbook's first assigned image as the real size."""
+    f3dMat = material.f3d_mat
+    for index in range(2):
+        texProp = getattr(f3dMat, f"tex{index}")
+        if not texProp.use_tex_reference:
+            continue
+        flipbookProp = getattr(material.flipbookGroup, f"flipbook{index}", None)
+        if flipbookProp is None:
+            continue
+        first_image = next((t.image for t in flipbookProp.textures if t.image is not None), None)
+        if first_image is None:
+            continue
+        syncAutoReferenceSize(texProp, tuple(first_image.size))
+
+
+def isHdFImage(fImage: FImage) -> bool:
+    """True when an FImage's addressing was spoofed to a smaller native size than its real content."""
+    return getattr(fImage, "hd_byte_scale", 1.0) != 1.0 or getattr(fImage, "hd_pixel_scale", 1.0) != 1.0
+
+
+def writeRawTextureData(image: bpy.types.Image, fImage: FImage):
+    """Write plain 4-bytes-per-texel RGBA8 pixel data (TEX_FLAG_LOAD_AS_RAW), not N64 bit-packed."""
+    width, height = image.size[0], image.size[1]
+    pixels = image.pixels[:]
+    channels = image.channels
+    data = bytearray(width * height * 4)
+    i = 0
+    for y in reversed(range(height)):
+        row = y * width
+        for x in range(width):
+            idx = (row + x) * channels
+            data[i] = int(round(pixels[idx + 0] * 0xFF)) & 0xFF
+            data[i + 1] = int(round(pixels[idx + 1] * 0xFF)) & 0xFF if channels > 1 else data[i]
+            data[i + 2] = int(round(pixels[idx + 2] * 0xFF)) & 0xFF if channels > 2 else data[i]
+            data[i + 3] = int(round(pixels[idx + 3] * 0xFF)) & 0xFF if channels > 3 else 0xFF
+            i += 4
+    fImage.data = bytes(data)
 
 
 class HM64PaletteKey(FPaletteKey):
@@ -183,7 +293,65 @@ def saveOrGetTextureDefinition(
         fImage.internal_path = sanitize_internal_asset_path(texProp.texture_internal_path)
     if texProp:
         fImage.skip_export = getattr(texProp, "is_vanilla_texture", False)
+    if texProp and not texProp.use_tex_reference and texProp.tex is not None:
+        # Spoof FImage's own size down to native/TMEM-legal; real HD size + scale go on the side.
+        # Format-agnostic: works for any declared format, not just RGBA32.
+        tex_size = tuple(texProp.tex.size)
+        native_size = resolveNativeSize(texProp, tex_size)
+        if native_size != tex_size:
+            fImage.hd_width, fImage.hd_height = tex_size
+            fImage.hd_byte_scale, fImage.hd_pixel_scale = resolveHdScale(tex_size, native_size, texProp.tex_format)
+            fImage.width, fImage.height = native_size
     return imageKey, fImage
+
+
+def fromProp(self, texProp: TextureProperty, index: int, ignore_tex_set=False) -> bool:
+    if not is_hm64():
+        return _ORIGINALS["TexInfo.fromProp"](self, texProp, index, ignore_tex_set)
+
+    self.indexInMat = index
+    self.texProp = texProp
+    if not texProp.tex_set and not ignore_tex_set:
+        return True
+
+    self.useTex = True
+    tex = texProp.tex
+    self.isTexRef = texProp.use_tex_reference
+    self.texFormat = texProp.tex_format
+    self.isTexCI = self.texFormat[:2] == "CI"
+    self.palFormat = texProp.ci_format if self.isTexCI else ""
+
+    if tex is not None and (tex.size[0] == 0 or tex.size[1] == 0):
+        self.errorMsg = f"Image {tex.name} has 0 size; may have been deleted/moved."
+        return False
+
+    if not self.isTexRef:
+        if tex is None:
+            self.errorMsg = "No texture is selected."
+            return False
+        elif len(tex.pixels) == 0:
+            self.errorMsg = f"Image {tex.name} is missing on disk."
+            return False
+
+    if self.isTexRef:
+        width, height = texProp.tex_reference_size
+    else:
+        # Spoof the TMEM/tile size against the native size, not the real HD image size.
+        # A no-op (returns tex.size unchanged) when the image already fits TMEM at its real size.
+        width, height = resolveNativeSize(texProp, tuple(tex.size))
+    self.imageDims = (width, height)
+
+    self.tmemSize = base.getTmemWordUsage(self.texFormat, width, height)
+
+    if width > 1024 or height > 1024:
+        self.errorMsg = "Image size (even large textures) limited to 1024 in each dimension."
+        return False
+
+    if base.texBitSizeInt[self.texFormat] == 4 and (width & 1) != 0:
+        self.errorMsg = "A 4-bit image must have a width which is even."
+        return False
+
+    return True
 
 
 def getPaletteName(self):
@@ -260,7 +428,7 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
         else:
             if self.isTexCI:
                 assert self.pal is not None
-                if shared_tlut_state is not None:
+                if shared_tlut_state is not None and not isHdFImage(fImage):
                     shared_tlut_state.texture_uses[self.texProp.tex] = (
                         self.texProp.tex,
                         fImage,
@@ -271,9 +439,15 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                 else:
                     if self.loadPal and not self.isPalRef:
                         base.writePaletteData(fPalette, self.pal)
-                    base.writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
+                    if isHdFImage(fImage):
+                        writeRawTextureData(self.texProp.tex, fImage)
+                    else:
+                        base.writeCITextureData(self.texProp.tex, fImage, self.pal, self.palFormat, self.texFormat)
             else:
-                base.writeNonCITextureData(self.texProp.tex, fImage, self.texFormat)
+                if isHdFImage(fImage):
+                    writeRawTextureData(self.texProp.tex, fImage)
+                else:
+                    base.writeNonCITextureData(self.texProp.tex, fImage, self.texFormat)
 
 
 def saveTextureLoadOnly(
@@ -444,6 +618,7 @@ def register():
     _ORIGINALS["saveTextureTile"] = base.saveTextureTile
     _ORIGINALS["TexInfo.getPaletteName"] = base.TexInfo.getPaletteName
     _ORIGINALS["TexInfo.writeAll"] = base.TexInfo.writeAll
+    _ORIGINALS["TexInfo.fromProp"] = base.TexInfo.fromProp
     base.getTextureNamesFromBasename = getTextureNamesFromBasename
     base.saveOrGetPaletteDefinition = saveOrGetPaletteDefinition
     base.saveOrGetTextureDefinition = saveOrGetTextureDefinition
@@ -452,6 +627,7 @@ def register():
     base.saveTextureTile = saveTextureTile
     base.TexInfo.getPaletteName = getPaletteName
     base.TexInfo.writeAll = writeAll
+    base.TexInfo.fromProp = fromProp
     base.TexInfo.custom_palette_requested = False
     _REGISTERED = True
 
@@ -469,4 +645,5 @@ def unregister():
     base.saveTextureTile = _ORIGINALS["saveTextureTile"]
     base.TexInfo.getPaletteName = _ORIGINALS["TexInfo.getPaletteName"]
     base.TexInfo.writeAll = _ORIGINALS["TexInfo.writeAll"]
+    base.TexInfo.fromProp = _ORIGINALS["TexInfo.fromProp"]
     _REGISTERED = False
