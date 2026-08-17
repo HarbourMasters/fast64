@@ -87,9 +87,9 @@ def get_original_name(obj: bpy.types.Object):
     return getattr(obj, "original_name", obj.name)
 
 
-def getInfoDict(obj: bpy.types.Object):
+def getInfoDict(obj: bpy.types.Object, groupInfo=None):
     try:
-        return getInfoDict_impl(obj)
+        return getInfoDict_impl(obj, groupInfo)
     except:
         print(f"Error in getInfoDict_impl(obj name = {get_original_name(obj)!r})")
         raise
@@ -133,7 +133,7 @@ def check_face_materials(
             )
 
 
-def getInfoDict_impl(obj: bpy.types.Object):
+def getInfoDict_impl(obj: bpy.types.Object, groupInfo=None):
     mesh: bpy.types.Mesh = obj.data
     material_slots = obj.material_slots
     if len(mesh.materials) == 0 or len(material_slots) == 0:
@@ -152,6 +152,7 @@ def getInfoDict_impl(obj: bpy.types.Object):
         mesh.calc_normals_split()
 
     infoDict = MeshInfo()
+    infoDict.vertexGroupInfo = groupInfo
 
     vertDict = infoDict.vert
     edgeDict = infoDict.edge

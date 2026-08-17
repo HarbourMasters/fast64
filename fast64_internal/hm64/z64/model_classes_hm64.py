@@ -65,7 +65,9 @@ def processTexRefNonCITextures(self: OOTModel, fMaterial: FMaterial, material: b
         imageKey = FImageKey(flipbookTexture.image, texProp.tex_format, texProp.ci_format, [flipbookTexture.image])
         fImage = model.getTextureAndHandleShared(imageKey)
         if fImage is None:
-            imageName, filename = getTextureNamesFromImage(flipbookTexture.image, texProp.tex_format, model)
+            imageName, filename = getTextureNamesFromImage(
+                flipbookTexture.image, texProp.tex_format, texProp.ci_format if texProp.is_ci else None, model
+            )
             if flipbookProp.exportMode == "Individual":
                 imageName = flipbookTexture.name
 

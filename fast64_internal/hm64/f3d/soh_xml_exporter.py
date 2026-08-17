@@ -117,7 +117,7 @@ from ...f3d.f3d_gbi import (
 )
 from ...utility import PluginError
 from ..utility import writeXMLData, resolve_internal_export_path
-from ...z64.exporter.skeleton.classes import OOTSkeleton, OOTLimb
+from ...z64.exporter.skeleton.classes import FlexSkeleton, StandardSkeleton, OOTBaseLimb, StandardLimb, LODLimb, SkinLimb
 from .f3d_gbi_hm64 import format_asset_path, get_image_from_image_key
 
 _REGISTERED = False
@@ -943,7 +943,7 @@ def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
         return data
 
     limbList = self.createLimbList()
-    isFlex = self.isFlexSkeleton()
+    isFlex = isinstance(self, FlexSkeleton)
 
     limbData += '<Skeleton Version="0" Type="'
 
@@ -954,13 +954,14 @@ def _OOTSkeleton_toSohXML(self, modelDirPath, objectPath):
     else:
         limbData += 'Normal" LimbCount="{lc}">\n'.format(lc=self.getNumLimbs())
 
+    hasLOD = getattr(self, "hasLOD", False)
     for limb in limbList:
-        indLimbData = limb.toSohXML(self.hasLOD, objectPath)
+        indLimbData = limb.toSohXML(hasLOD, objectPath)
 
-        writeXMLData(indLimbData, os.path.join(modelDirPath, limb.name()))
+        writeXMLData(indLimbData, os.path.join(modelDirPath, limb.name))
 
         limbData += '\t<SkeletonLimb Path="{path}/{name}"/>\n'.format(
-            path=objectPath if len(objectPath) > 0 else ">", name=limb.name()
+            path=objectPath if len(objectPath) > 0 else ">", name=limb.name
         )
 
     limbData += "</Skeleton>"
@@ -976,7 +977,12 @@ def _OOTLimb_toSohXML(self, isLOD, objectPath):
     else:
         data += 'Lod" '
 
-    DLName = self.DL.name if self.DL is not None else "gEmptyDL"
+    display_list = getattr(self, "DL", None)
+    if isinstance(self, SkinLimb):
+        segment = getattr(self, "segment", None)
+        display_list = segment if hasattr(segment, "name") else None
+
+    DLName = display_list.name if display_list is not None else "gEmptyDL"
 
     if DLName != "gEmptyDL":
         DLName = (objectPath + "/" if len(objectPath) > 0 else ">") + DLName
@@ -1615,10 +1621,13 @@ _PATCHES = {
     DPLoadSync: {
         "to_soh_xml": _DPLoadSync_to_soh_xml,
     },
-    OOTSkeleton: {
+    StandardSkeleton: {
         "toSohXML": _OOTSkeleton_toSohXML,
     },
-    OOTLimb: {
+    FlexSkeleton: {
+        "toSohXML": _OOTSkeleton_toSohXML,
+    },
+    OOTBaseLimb: {
         "toSohXML": _OOTLimb_toSohXML,
     },
     FTexRect: {

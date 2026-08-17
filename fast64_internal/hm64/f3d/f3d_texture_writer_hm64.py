@@ -168,10 +168,15 @@ class SharedTLUTState:
 
 
 def getTextureNamesFromBasename(
-    baseName: str, texOrPalFormat: str, parent: Union[FModel, FTexRect], isPalette: bool, skip_pal_suffix: bool = False
+    baseName: str,
+    texFmt: str,
+    ciFmt: Optional[str],
+    parent: Union[FModel, FTexRect],
+    isPalette: bool,
+    skip_pal_suffix: bool = False,
 ):
     if not is_hm64():
-        return _ORIGINALS["getTextureNamesFromBasename"](baseName, texOrPalFormat, parent, isPalette)
+        return _ORIGINALS["getTextureNamesFromBasename"](baseName, texFmt, ciFmt, parent, isPalette)
     sanitizedName = toAlnum(baseName)
     imageName = sanitizedName
     if isPalette and not skip_pal_suffix:
@@ -269,7 +274,9 @@ def saveOrGetPaletteDefinition(
         fPalette.skip_export = texProp.is_vanilla_texture
         return paletteKey, fPalette
 
-    paletteName, filename = getTextureNamesFromBasename(palBaseName, palFmt, parent, True, custom_requested)
+    paletteName, filename = getTextureNamesFromBasename(
+        palBaseName, texProp.tex_format, palFmt, parent, True, custom_requested
+    )
     fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", 1, palLen, filename)
     fPalette.internal_path = (
         sanitize_internal_asset_path(texProp.texture_internal_path) if texProp.texture_internal_path else ""
