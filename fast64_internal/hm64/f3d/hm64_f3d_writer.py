@@ -1347,6 +1347,10 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
 
     defaults = create_or_get_world(bpy.context.scene).rdp_defaults
     fMaterial.mat_only_DL.commands.append(DPPipeSync())
+    textures = [f3dMat.tex0] if useDict["Texture 0"] and f3dMat.tex0.tex_set else []
+    textures += [f3dMat.tex1] if useDict["Texture 1"] and f3dMat.tex1.tex_set else []
+    tlut_mode = "G_TT_RGBA16" if any(tex.is_ci for tex in textures) else "G_TT_NONE"
+    fMaterial.mat_only_DL.commands.append(DPSetTextureLUT(tlut_mode))
 
     # Checking for f3dMat.rdp_settings.g_lighting here will prevent accidental exports,
     # There may be some edge case where this isn't desired.
@@ -1364,50 +1368,6 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         fMaterial.revert.commands.append(DPPipeSync())
 
     fMaterial.getScrollData(material, getHM64MaterialScrollDimensions(f3dMat))
-
-    if f3dMat.set_combiner:
-        if f3dMat.rdp_settings.g_mdsft_cycletype == "G_CYC_2CYCLE":
-            fMaterial.mat_only_DL.commands.append(
-                DPSetCombineMode(
-                    f3dMat.combiner1.A,
-                    f3dMat.combiner1.B,
-                    f3dMat.combiner1.C,
-                    f3dMat.combiner1.D,
-                    f3dMat.combiner1.A_alpha,
-                    f3dMat.combiner1.B_alpha,
-                    f3dMat.combiner1.C_alpha,
-                    f3dMat.combiner1.D_alpha,
-                    f3dMat.combiner2.A,
-                    f3dMat.combiner2.B,
-                    f3dMat.combiner2.C,
-                    f3dMat.combiner2.D,
-                    f3dMat.combiner2.A_alpha,
-                    f3dMat.combiner2.B_alpha,
-                    f3dMat.combiner2.C_alpha,
-                    f3dMat.combiner2.D_alpha,
-                )
-            )
-        else:
-            fMaterial.mat_only_DL.commands.append(
-                DPSetCombineMode(
-                    f3dMat.combiner1.A,
-                    f3dMat.combiner1.B,
-                    f3dMat.combiner1.C,
-                    f3dMat.combiner1.D,
-                    f3dMat.combiner1.A_alpha,
-                    f3dMat.combiner1.B_alpha,
-                    f3dMat.combiner1.C_alpha,
-                    f3dMat.combiner1.D_alpha,
-                    f3dMat.combiner1.A,
-                    f3dMat.combiner1.B,
-                    f3dMat.combiner1.C,
-                    f3dMat.combiner1.D,
-                    f3dMat.combiner1.A_alpha,
-                    f3dMat.combiner1.B_alpha,
-                    f3dMat.combiner1.C_alpha,
-                    f3dMat.combiner1.D_alpha,
-                )
-            )
 
     saveGeoModeDefinition(fMaterial, f3dMat.rdp_settings, defaults, fModel.matWriteMethod, fModel.f3d.F3DEX_GBI_2)
 
@@ -1485,6 +1445,51 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
 
     # Write textures
     multitexManager.writeAll(material, fMaterial, fModel, convertTextureData)
+
+    # SetCombineLERP
+    if f3dMat.set_combiner:
+        if f3dMat.rdp_settings.g_mdsft_cycletype == "G_CYC_2CYCLE":
+            fMaterial.mat_only_DL.commands.append(
+                DPSetCombineMode(
+                    f3dMat.combiner1.A,
+                    f3dMat.combiner1.B,
+                    f3dMat.combiner1.C,
+                    f3dMat.combiner1.D,
+                    f3dMat.combiner1.A_alpha,
+                    f3dMat.combiner1.B_alpha,
+                    f3dMat.combiner1.C_alpha,
+                    f3dMat.combiner1.D_alpha,
+                    f3dMat.combiner2.A,
+                    f3dMat.combiner2.B,
+                    f3dMat.combiner2.C,
+                    f3dMat.combiner2.D,
+                    f3dMat.combiner2.A_alpha,
+                    f3dMat.combiner2.B_alpha,
+                    f3dMat.combiner2.C_alpha,
+                    f3dMat.combiner2.D_alpha,
+                )
+            )
+        else:
+            fMaterial.mat_only_DL.commands.append(
+                DPSetCombineMode(
+                    f3dMat.combiner1.A,
+                    f3dMat.combiner1.B,
+                    f3dMat.combiner1.C,
+                    f3dMat.combiner1.D,
+                    f3dMat.combiner1.A_alpha,
+                    f3dMat.combiner1.B_alpha,
+                    f3dMat.combiner1.C_alpha,
+                    f3dMat.combiner1.D_alpha,
+                    f3dMat.combiner1.A,
+                    f3dMat.combiner1.B,
+                    f3dMat.combiner1.C,
+                    f3dMat.combiner1.D,
+                    f3dMat.combiner1.A_alpha,
+                    f3dMat.combiner1.B_alpha,
+                    f3dMat.combiner1.C_alpha,
+                    f3dMat.combiner1.D_alpha,
+                )
+            )
 
     # Write colors
     nodes = material.node_tree.nodes
@@ -1661,7 +1666,6 @@ def saveGeoModeCommon(saveFunc: Callable, settings: RDPSettings, defaults: RDPSe
     saveFunc(settings.g_lighting, defaults.g_lighting, "G_LIGHTING", *args)
     saveFunc(settings.g_tex_gen, defaults.g_tex_gen, "G_TEXTURE_GEN", *args)
     saveFunc(settings.g_tex_gen_linear, defaults.g_tex_gen_linear, "G_TEXTURE_GEN_LINEAR", *args)
-    saveFunc(settings.g_lod, defaults.g_lod, "G_LOD", *args)
     saveFunc(settings.g_shade_smooth, defaults.g_shade_smooth, "G_SHADING_SMOOTH", *args)
     if isUcodeF3DEX1(bpy.context.scene.f3d_type):
         saveFunc(settings.g_clipping, defaults.g_clipping, "G_CLIPPING", *args)
@@ -1670,13 +1674,20 @@ def saveGeoModeCommon(saveFunc: Callable, settings: RDPSettings, defaults: RDPSe
 def saveGeoModeDefinition(fMaterial, settings, defaults, matWriteMethod, is_ex2: bool):
     set_modes = []
     clear_modes = []
+    geo_collect_method = GfxMatWriteMethod.WriteAll
 
-    saveGeoModeCommon(saveBitGeo, settings, defaults, (set_modes, clear_modes, matWriteMethod))
+    saveGeoModeCommon(saveBitGeo, settings, defaults, (set_modes, clear_modes, geo_collect_method))
 
-    material, revert = get_geo_cmds(clear_modes, set_modes, is_ex2, matWriteMethod)
-    fMaterial.mat_only_DL.commands.extend(material)
+    if set_modes:
+        fMaterial.mat_only_DL.commands.append(SPSetGeometryMode(set(set_modes)))
+    if clear_modes:
+        fMaterial.mat_only_DL.commands.append(SPClearGeometryMode(set(clear_modes)))
+
     if fMaterial.revert is not None:
-        fMaterial.revert.commands.extend(revert)
+        if set_modes:
+            fMaterial.revert.commands.append(SPClearGeometryMode(set(set_modes)))
+        if clear_modes:
+            fMaterial.revert.commands.append(SPSetGeometryMode(set(clear_modes)))
 
 
 def saveModeSetting(fMaterial, value, defaultValue, cmdClass):

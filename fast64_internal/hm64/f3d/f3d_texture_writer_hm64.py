@@ -401,6 +401,12 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
 
     loadGfx = fMaterial.texture_DL
     f3d = fModel.f3d
+    if self.doTexLoad:
+        base.saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
+    if self.doTexTile:
+        base.saveTextureTile(
+            fImage, fMaterial, loadGfx, self.texProp, None, self.indexInMat, self.texAddr, self.palIndex, f3d
+        )
     if self.loadPal:
         load_tlut_cmd = base.savePaletteLoad(
             loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d
@@ -413,12 +419,6 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                 shared_pair = (load_tlut_cmd, override)
                 if shared_pair not in shared_tlut_state.load_commands:
                     shared_tlut_state.load_commands.append(shared_pair)
-    if self.doTexLoad:
-        base.saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
-    if self.doTexTile:
-        base.saveTextureTile(
-            fImage, fMaterial, loadGfx, self.texProp, None, self.indexInMat, self.texAddr, self.palIndex, f3d
-        )
 
     texProp = self.texProp
     should_write_data = convertTextureData and not (texProp and getattr(texProp, "is_vanilla_texture", False))
@@ -507,10 +507,7 @@ def saveTextureLoadOnly(
             loadCommand = base.DPLoadTile(loadtile, sl, tl, sh, th)
 
     if not omitSetTextureImage:
-        gfxOut.commands.append(DPTileSync())
         gfxOut.commands.append(DPSetTextureImage(fmt, siz, wid, fImage))
-    elif not omitSetTile:
-        gfxOut.commands.append(DPTileSync())
     if not omitSetTile:
         gfxOut.commands.append(DPSetTile(fmt, siz, line, tmem, loadtile, 0, nocm, 0, 0, nocm, 0, 0))
     gfxOut.commands.append(DPLoadSync())
@@ -596,11 +593,9 @@ def savePaletteLoad(
     palFmt = texFormatOf[palFormat]
     loadTileIndex = f3d.G_TX_LOADTILE
     nocm = ("G_TX_WRAP", "G_TX_NOMIRROR")
-    lutMode = "G_TT_RGBA16" if palFmt == "G_IM_FMT_RGBA" else "G_TT_IA16"
     load_tlut_cmd = DPLoadTLUTCmd(loadTileIndex, max(0, min(palLen - 1, 255)))
     gfxOut.commands.extend(
         [
-            DPSetTextureLUT(lutMode),
             DPSetTextureImage(palFmt, "G_IM_SIZ_16b", 1, fPalette),
             DPTileSync(),
             DPSetTile("0", "0", 0, 256 + palAddr, loadTileIndex, 0, nocm, 0, 0, nocm, 0, 0),

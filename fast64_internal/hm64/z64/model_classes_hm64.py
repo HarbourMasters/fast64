@@ -7,8 +7,28 @@ from ...utility import PluginError
 from ...f3d.f3d_material import texFormatOf, texBitSizeF3D
 from ...f3d.flipbook import TextureFlipbook, usesFlipbook, ootFlipbookReferenceIsValid
 from ...f3d.f3d_texture_writer import getTextureNamesFromImage, writeNonCITextureData
-from ...f3d.f3d_gbi import FModel, FMaterial, FImage, FImageKey
-from ...z64.model_classes import OOTModel
+from ...f3d.f3d_gbi import (
+    FModel,
+    FMaterial,
+    FImage,
+    FImageKey,
+    DPPipeSync,
+    DPSetTextureLUT,
+    SPTexture,
+    DPSetCombineMode,
+    SPSetOtherMode,
+    DPSetRenderMode,
+    SPClearGeometryMode,
+    SPSetGeometryMode,
+    SPGeometryMode,
+    DPSetEnvColor,
+    DPSetPrimColor,
+    GfxList,
+    GfxListTag,
+    DLFormat,
+    SPDisplayList,
+)
+from ...z64.model_classes import OOTModel, DynamicMaterialDL
 
 from ..utility import is_hm64
 from ..f3d.f3d_texture_writer_hm64 import (
@@ -110,16 +130,99 @@ def writeTexRefNonCITextures(self: OOTModel, flipbook: Union[TextureFlipbook, No
             writeNonCITextureData(image, fImage, texFmt)
 
 
+def onMaterialCommandsBuilt(self: OOTModel, fMaterial: FMaterial, material: bpy.types.Material, drawLayer):
+    if not is_hm64():
+        return _ORIGINALS["OOTModel.onMaterialCommandsBuilt"](self, fMaterial, material, drawLayer)
+
+    mat_commands = list(fMaterial.mat_only_DL.commands)
+    tex_commands = list(fMaterial.texture_DL.commands)
+    f3dMat = material.f3d_mat if material.mat_ver > 3 else material
+
+    head_pipe = [cmd for cmd in mat_commands[:1] if isinstance(cmd, DPPipeSync)]
+    remaining_mat = mat_commands[1:] if head_pipe else mat_commands[:]
+
+    tlut_mode_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, DPSetTextureLUT)]
+    texture_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, SPTexture)]
+    combiner_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, DPSetCombineMode)]
+    render_mode_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, DPSetRenderMode)]
+    other_mode_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, SPSetOtherMode)]
+    clear_geo_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, SPClearGeometryMode)]
+    set_geo_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, SPSetGeometryMode)]
+    combined_geo_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, SPGeometryMode)]
+    env_cmds = [cmd for cmd in remaining_mat if isinstance(cmd, DPSetEnvColor)]
+    prim_cmds = [cmd for cmd in tex_commands if isinstance(cmd, DPSetPrimColor)]
+    tex_block_cmds = [cmd for cmd in tex_commands if not isinstance(cmd, DPSetPrimColor)]
+
+    if not render_mode_cmds and getattr(f3dMat.rdp_settings, "set_rendermode", False):
+        from ..f3d.hm64_f3d_writer import getRenderModeFlagList
+
+        flagList, blender = getRenderModeFlagList(f3dMat.rdp_settings, fMaterial)
+        render_mode_cmds = [DPSetRenderMode(flagList, blender)]
+
+    extracted_ids = {id(cmd) for cmd in (
+        tlut_mode_cmds
+        + texture_cmds
+        + combiner_cmds
+        + render_mode_cmds
+        + other_mode_cmds
+        + clear_geo_cmds
+        + set_geo_cmds
+        + combined_geo_cmds
+        + env_cmds
+    )}
+    other_mat_cmds = [cmd for cmd in remaining_mat if id(cmd) not in extracted_ids]
+
+    segment_cmds = []
+    matDrawLayer = getattr(material.ootMaterial, drawLayer.lower())
+
+    for i in range(8, 14):
+        if getattr(matDrawLayer, f"segment{i:X}"):
+            is_animated_material = False
+            if self.draw_config is not None and "mat_anim" in self.draw_config:
+                is_animated_material = True
+            segment_cmds.append(
+                DynamicMaterialDL(
+                    GfxList(f"0x0{i:X}000000", GfxListTag.Material, DLFormat.Static), is_animated_material
+                )
+            )
+
+    for i in range(0, 2):
+        p = f"customCall{i}"
+        if getattr(matDrawLayer, p):
+            segment_cmds.append(
+                SPDisplayList(GfxList(getattr(matDrawLayer, f"{p}_seg"), GfxListTag.Material, DLFormat.Static))
+            )
+
+    fMaterial.material.commands = (
+        head_pipe
+        + tlut_mode_cmds
+        + texture_cmds
+        + tex_block_cmds
+        + combiner_cmds
+        + render_mode_cmds
+        + set_geo_cmds
+        + clear_geo_cmds
+        + combined_geo_cmds
+        + other_mat_cmds
+        + segment_cmds
+        + env_cmds
+        + prim_cmds
+    )
+
+
 def register():
     _ORIGINALS["OOTModel.validateImages"] = OOTModel.validateImages
     _ORIGINALS["OOTModel.processTexRefNonCITextures"] = OOTModel.processTexRefNonCITextures
     _ORIGINALS["OOTModel.writeTexRefNonCITextures"] = OOTModel.writeTexRefNonCITextures
+    _ORIGINALS["OOTModel.onMaterialCommandsBuilt"] = OOTModel.onMaterialCommandsBuilt
     OOTModel.validateImages = validateImages
     OOTModel.processTexRefNonCITextures = processTexRefNonCITextures
     OOTModel.writeTexRefNonCITextures = writeTexRefNonCITextures
+    OOTModel.onMaterialCommandsBuilt = onMaterialCommandsBuilt
 
 
 def unregister():
     OOTModel.validateImages = _ORIGINALS["OOTModel.validateImages"]
     OOTModel.processTexRefNonCITextures = _ORIGINALS["OOTModel.processTexRefNonCITextures"]
     OOTModel.writeTexRefNonCITextures = _ORIGINALS["OOTModel.writeTexRefNonCITextures"]
+    OOTModel.onMaterialCommandsBuilt = _ORIGINALS["OOTModel.onMaterialCommandsBuilt"]
