@@ -33,8 +33,10 @@ class OOTDLExportSettings(PropertyGroup):
         description="Used in #include for including image files",
     )
     hm64_optimize_material_writes: BoolProperty(
-        name="Optimize Material Writes",
-        description="Removes repeated redundant material commands in that can be carried over from the previous material. Reducing size of the materials without changing the result.",
+        name="Optimize + Inline Materials",
+        description="Removes repeated redundant material commands in that can be carried over from the previous material.\n"
+        "Reducing size of the materials without changing the result.\n"
+        "Also inlines every material file into the displaylist itself.",
         default=False,
     )
 

@@ -325,6 +325,35 @@ def _GfxList_to_soh_xml(self, modelDirPath, objectPath):
     return data
 
 
+def _serialize_inline_gfx_list(gfx_list, objectPath):
+    lines = []
+    for command in gfx_list.commands:
+        if isinstance(command, SPEndDisplayList):
+            continue
+        command_xml = _call_to_soh_xml(command, None, objectPath)
+        if not command_xml:
+            continue
+        for line in command_xml.splitlines():
+            stripped = line.lstrip("	")
+            if stripped:
+                lines.append(stripped)
+    return "\n\t".join(lines)
+
+
+def _mark_inline_tri_lists(mesh):
+    for triGroup in mesh.triangleGroups:
+        triGroup.triList.hm64_inline_xml = True
+    for drawOverride in mesh.draw_overrides:
+        _mark_inline_tri_lists(drawOverride)
+
+
+def _mark_inline_model_tri_lists(model):
+    for mesh in model.meshes.values():
+        _mark_inline_tri_lists(mesh)
+    for subModel in model.subModels:
+        _mark_inline_model_tri_lists(subModel)
+
+
 def _call_to_soh_xml(command, modelDirPath=None, objectPath=""):
     command_to_soh_xml = getattr(command, "to_soh_xml", None)
     if callable(command_to_soh_xml):
@@ -354,6 +383,11 @@ def _call_to_soh_xml(command, modelDirPath=None, objectPath=""):
 # FModel.to_soh_xml
 def _FModel_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True, combine_root_meshes=False):
     data = ""
+
+    _mark_inline_model_tri_lists(self)
+    if getattr(self, "hm64_optimize_material_writes", False):
+        for fMaterial, _ in self.getAllMaterials().values():
+            fMaterial.material.hm64_inline_xml = True
 
     if combine_root_meshes:
         combined_call_lines = []
@@ -671,7 +705,8 @@ def _FTriGroup_to_soh_xml(self, modelDirPath, objectPath):
         if callable(tri_list_to_soh_xml)
         else _GfxList_to_soh_xml(self.triList, modelDirPath, objectPath)
     )
-    writeXMLData(triListData, os.path.join(modelDirPath, self.triList.name))
+    if not getattr(self.triList, "hm64_inline_xml", False):
+        writeXMLData(triListData, os.path.join(modelDirPath, self.triList.name))
     return ""
 
 
@@ -734,7 +769,8 @@ def _FMaterial_to_soh_xml(self, modelDirPath, objectPath):
                 scroll_to_soh_xml() if callable(scroll_to_soh_xml) else _FScrollData_to_soh_xml(self.scrollData)
             )
             matData = matData.replace("</DisplayList>", scrollData + "</DisplayList>")
-        writeXMLData(matData, os.path.join(modelDirPath, self.material.name))
+        if not getattr(self.material, "hm64_inline_xml", False):
+            writeXMLData(matData, os.path.join(modelDirPath, self.material.name))
         _write_custom_cosmetics_manifest(
             modelDirPath,
             objectPath,
@@ -1083,6 +1119,8 @@ def _SPViewport_to_soh_xml(self):
 
 # SPDisplayList.to_soh_xml
 def _SPDisplayList_to_soh_xml(self, objectPath):
+    if getattr(self.displayList, "hm64_inline_xml", False):
+        return _serialize_inline_gfx_list(self.displayList, objectPath)
     name = self.displayList.name
     baseStr = '<CallDisplayList Path="{path}"/>'
     data = baseStr.format(path=">" + name if "0x" in name else (objectPath + "/" + name))
