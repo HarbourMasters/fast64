@@ -225,7 +225,6 @@ def get_shared_tlut_state(parent: Union[FModel, FTexRect], tex_info: "base.TexIn
     return state
 
 
-
 def _get_tlut_dimensions(tex_format: str, palette_len: int) -> tuple[int, int]:
     width = 4 if tex_format == "CI4" else 16
     height = max(1, (palette_len + width - 1) // width)
@@ -247,7 +246,9 @@ def _write_hm64_palette_data(fPalette: FImage, palette: list[int], tex_format: s
 def apply_shared_tlut_state(state: SharedTLUTState):
     if state.palette_image is not None:
         state.palette_image.data = bytearray()
-        state.palette_image.width, state.palette_image.height = _get_tlut_dimensions(state.tex_format, len(state.palette))
+        state.palette_image.width, state.palette_image.height = _get_tlut_dimensions(
+            state.tex_format, len(state.palette)
+        )
         state.palette_image.converted = False
         _write_hm64_palette_data(state.palette_image, state.palette, state.tex_format)
 
