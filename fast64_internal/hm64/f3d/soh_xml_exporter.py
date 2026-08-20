@@ -786,14 +786,15 @@ def _SPEndDisplayList_to_soh_xml(self):
 
 # SP1Triangle.to_soh_xml
 def _SP1Triangle_to_soh_xml(self, objectPath=""):
-    return f'<Triangle1 V00="{self.v0}" V01="{self.v1}" V02="{self.v2}"/>'
+    return f'<Triangle1 V00="{self.v0}" V01="{self.v1}" V02="{self.v2}" Flag0="{self.flag}"/>'
 
 
 # SP2Triangles.to_soh_xml
 def _SP2Triangles_to_soh_xml(self, objectPath=""):
-    first = f'<Triangle1 V00="{self.v00}" V01="{self.v01}" V02="{self.v02}"/>'
-    second = f'<Triangle1 V00="{self.v10}" V01="{self.v11}" V02="{self.v12}"/>'
-    return first + "\n\t" + second
+    return (
+        f'<Triangles2 V00="{self.v00}" V01="{self.v01}" V02="{self.v02}" Flag0="{self.flag0}" '
+        f'V10="{self.v10}" V11="{self.v11}" V12="{self.v12}" Flag1="{self.flag1}"/>'
+    )
 
 
 # SPCullDisplayList.to_soh_xml
