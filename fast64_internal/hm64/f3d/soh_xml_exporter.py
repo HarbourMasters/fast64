@@ -340,6 +340,39 @@ def _serialize_inline_gfx_list(gfx_list, objectPath):
     return "\n\t".join(lines)
 
 
+def _prepare_combined_mesh_vertex_lists(mesh, modelDirPath):
+    if getattr(mesh, "hm64_combined_vertex_name", None):
+        return
+
+    if len(mesh.triangleGroups) == 0:
+        return
+
+    combined_vertices = []
+    combined_name = f"{mesh.name[:-2]}Vtx" if mesh.name.endswith("DL") else f"{mesh.name}_vtx"
+
+    for triGroup in mesh.triangleGroups:
+        vertex_list = triGroup.vertexList
+        base_offset = len(combined_vertices)
+        combined_vertices.extend(vertex_list.vertices)
+        vertex_list.hm64_combined_xml = True
+
+        tri_lists = [triGroup.triList, *getattr(triGroup, "celTriLists", [])]
+        for tri_list in tri_lists:
+            for command in tri_list.commands:
+                if isinstance(command, SPVertex) and command.vertList is vertex_list:
+                    command.hm64_vertex_path = combined_name
+                    command.hm64_vertex_offset = base_offset + command.offset
+
+    if not combined_vertices:
+        return
+
+    combined_list = VtxList(combined_name)
+    combined_list.vertices = combined_vertices
+    combined_data = _VtxList_to_soh_xml(combined_list)
+    writeXMLData(combined_data, os.path.join(modelDirPath, combined_name))
+    mesh.hm64_combined_vertex_name = combined_name
+
+
 def _mark_inline_tri_lists(mesh):
     for triGroup in mesh.triangleGroups:
         triGroup.triList.hm64_inline_xml = True
@@ -664,6 +697,8 @@ def _FMesh_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True
         cullData = cull_to_soh_xml() if callable(cull_to_soh_xml) else _VtxList_to_soh_xml(self.cullVertexList)
         writeXMLData(cullData, os.path.join(modelDirPath, self.cullVertexList.name))
 
+    _prepare_combined_mesh_vertex_lists(self, modelDirPath)
+
     for triGroup in self.triangleGroups:
         tri_group_to_soh_xml = getattr(triGroup, "to_soh_xml", None)
         if callable(tri_group_to_soh_xml):
@@ -697,7 +732,8 @@ def _FMesh_to_soh_xml(self, modelDirPath, objectPath, include_cull_vertices=True
 def _FTriGroup_to_soh_xml(self, modelDirPath, objectPath):
     vertex_list_to_soh_xml = getattr(self.vertexList, "to_soh_xml", None)
     vtxData = vertex_list_to_soh_xml() if callable(vertex_list_to_soh_xml) else _VtxList_to_soh_xml(self.vertexList)
-    writeXMLData(vtxData, os.path.join(modelDirPath, self.vertexList.name))
+    if not getattr(self.vertexList, "hm64_combined_xml", False):
+        writeXMLData(vtxData, os.path.join(modelDirPath, self.vertexList.name))
 
     tri_list_to_soh_xml = getattr(self.triList, "to_soh_xml", None)
     triListData = (
@@ -801,9 +837,9 @@ def _SPVertex_to_soh_xml(self, objectPath=""):
     baseStr = '<LoadVertices Path="{parent}/{vertexPath}" VertexBufferIndex="{bufferIndex}" VertexOffset="{vertexOffset}" Count="{count}"/>'
     return baseStr.format(
         parent=objectPath,
-        vertexPath=self.vertList.name,
+        vertexPath=getattr(self, "hm64_vertex_path", self.vertList.name),
         bufferIndex=self.index,
-        vertexOffset=self.offset,
+        vertexOffset=getattr(self, "hm64_vertex_offset", self.offset),
         count=self.count,
     )
 
