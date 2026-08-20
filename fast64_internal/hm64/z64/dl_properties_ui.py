@@ -13,6 +13,7 @@ def draw_hm64_dl_export_props(settings, layout: UILayout):
     prop_split(layout, settings, "folder", "Internal Path")
     prop_split(layout, settings, "customPath", "Path")
     prop_split(layout, settings, "actorOverlayName", "Overlay (Optional)")
+    layout.prop(settings, "hm64_optimize_material_writes")
 
     obj = getattr(bpy.context, "object", None)
     if obj is None or not isinstance(obj.data, Mesh) or not hasattr(obj, "oot_matrix_calls"):

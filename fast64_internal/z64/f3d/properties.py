@@ -32,6 +32,11 @@ class OOTDLExportSettings(PropertyGroup):
         default="assets/objects/gameplay_keep",
         description="Used in #include for including image files",
     )
+    hm64_optimize_material_writes: BoolProperty(
+        name="Optimize Material Writes",
+        description="Removes repeated redundant material commands in that can be carried over from the previous material. Reducing size of the materials without changing the result.",
+        default=False,
+    )
 
     def draw_props(self, layout: UILayout):
         if is_hm64():

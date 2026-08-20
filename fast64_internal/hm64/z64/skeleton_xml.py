@@ -13,6 +13,7 @@ from ..f3d.hm64_f3d_writer import getInfoDict as hm64_getInfoDict
 from . import hm64_z64_f3d_writer
 from ..f3d.soh_xml_exporter import register as ensure_hm64_soh_xml
 from ..f3d.f3d_texture_writer_hm64 import register as ensure_hm64_texture_writer
+from .model_classes_hm64 import clear_hm64_material_state_cache
 
 from ...utility import PluginError, toAlnum
 from ..utility import get_internal_asset_path, sanitize_internal_asset_path, writeXMLData
@@ -83,6 +84,7 @@ def ootConvertArmatureToXML(
         os.makedirs(exportPath, exist_ok=True)
     isCustomExport = True
 
+    fModel = None
     with _use_hm64_skeleton_material_writer() as shared_skeleton_functions:
         ootConvertArmatureToSkeletonWithMesh = shared_skeleton_functions.ootConvertArmatureToSkeletonWithMesh
 
@@ -90,22 +92,26 @@ def ootConvertArmatureToXML(
         ensure_hm64_texture_writer()
 
         fModel = OOTModel(skeletonName, DLFormat, drawLayer)
-        skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-            originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
-        )
-
-        if originalArmatureObj.ootSkeleton.LOD is not None:
-            lodSkeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-                originalArmatureObj.ootSkeleton.LOD,
-                convertTransformMatrix,
-                fModel,
-                skeletonName + "_lod",
-                not savePNG,
-                drawLayer,
-                False,
+        try:
+            skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
+                originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
             )
-        else:
-            lodSkeleton = None
+
+            if originalArmatureObj.ootSkeleton.LOD is not None:
+                lodSkeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
+                    originalArmatureObj.ootSkeleton.LOD,
+                    convertTransformMatrix,
+                    fModel,
+                    skeletonName + "_lod",
+                    not savePNG,
+                    drawLayer,
+                    False,
+                )
+            else:
+                lodSkeleton = None
+        finally:
+            if fModel is not None:
+                clear_hm64_material_state_cache(fModel)
 
     if lodSkeleton is not None:
         skeleton.hasLOD = True

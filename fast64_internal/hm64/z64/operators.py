@@ -14,6 +14,7 @@ from ...z64.utility import getOOTScale, checkEmptyName
 from ...z64.model_classes import OOTModel
 from ...z64.f3d_writer import writeTextureArraysExisting
 from .properties import LIMB_MATRIX_PATHS
+from .model_classes_hm64 import clear_hm64_material_state_cache
 
 from ...z64.utility import (
     OOTObjectCategorizer,
@@ -112,6 +113,7 @@ def ootConvertMeshToXML(
         obj, allObjs = ootDuplicateHierarchy(originalObj, None, False, OOTObjectCategorizer())
 
         fModel = OOTModel(name, DLFormat, None)
+        fModel.hm64_optimize_material_writes = bool(getattr(settings, "hm64_optimize_material_writes", False))
         triConverterInfo = TriangleConverterInfo(obj, None, fModel.f3d, finalTransform, getInfoDict(obj))
         original_get_fmesh_name = f3d_gbi.getFMeshName
         f3d_gbi.getFMeshName = lambda vertexGroup, namePrefix, drawLayer, isSkinned: (
@@ -134,22 +136,27 @@ def ootConvertMeshToXML(
         ootCleanupScene(originalObj, allObjs)
         raise Exception(str(e))
 
-    path = resolve_custom_export_folder(exportPath, folderName)
-    includeDir = get_internal_asset_path(settings, folderName)
-    ensure_hm64_soh_xml()
-    ensure_hm64_texture_writer()
-    exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False, combine_root_meshes=True)
-    extra_entries = matrix_entries
-    extra_xml = build_extra_xml_entries(extra_entries)
-    if extra_xml:
-        display_start = exportData.find("\n")
-        if display_start != -1:
-            insert_point = display_start + 1
-            exportData = exportData[:insert_point] + extra_xml + exportData[insert_point:]
-        else:
-            exportData = extra_xml + exportData
+    try:
+        path = resolve_custom_export_folder(exportPath, folderName)
+        includeDir = get_internal_asset_path(settings, folderName)
+        ensure_hm64_soh_xml()
+        ensure_hm64_texture_writer()
+        exportData = fModel.to_soh_xml(path, includeDir, include_cull_vertices=False, combine_root_meshes=True)
+        extra_entries = matrix_entries
+        extra_xml = build_extra_xml_entries(extra_entries)
+        if extra_xml:
+            display_start = exportData.find("\n")
+            if display_start != -1:
+                insert_point = display_start + 1
+                exportData = exportData[:insert_point] + extra_xml + exportData[insert_point:]
+            else:
+                exportData = extra_xml + exportData
 
-    writeXMLData(exportData, os.path.join(path, name))
+        writeXMLData(exportData, os.path.join(path, name))
 
-    if not isCustomExport:
-        writeTextureArraysExisting(bpy.context.scene.ootDecompPath, overlayName, False, flipbookArrayIndex2D, fModel)
+        if not isCustomExport:
+            writeTextureArraysExisting(
+                bpy.context.scene.ootDecompPath, overlayName, False, flipbookArrayIndex2D, fModel
+            )
+    finally:
+        clear_hm64_material_state_cache(fModel)
