@@ -159,17 +159,20 @@ def onMaterialCommandsBuilt(self: OOTModel, fMaterial: FMaterial, material: bpy.
         flagList, blender = getRenderModeFlagList(f3dMat.rdp_settings, fMaterial)
         render_mode_cmds = [DPSetRenderMode(flagList, blender)]
 
-    extracted_ids = {id(cmd) for cmd in (
-        tlut_mode_cmds
-        + texture_cmds
-        + combiner_cmds
-        + render_mode_cmds
-        + other_mode_cmds
-        + clear_geo_cmds
-        + set_geo_cmds
-        + combined_geo_cmds
-        + env_cmds
-    )}
+    extracted_ids = {
+        id(cmd)
+        for cmd in (
+            tlut_mode_cmds
+            + texture_cmds
+            + combiner_cmds
+            + render_mode_cmds
+            + other_mode_cmds
+            + clear_geo_cmds
+            + set_geo_cmds
+            + combined_geo_cmds
+            + env_cmds
+        )
+    }
     other_mat_cmds = [cmd for cmd in remaining_mat if id(cmd) not in extracted_ids]
 
     segment_cmds = []
