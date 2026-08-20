@@ -376,6 +376,7 @@ def onMaterialCommandsBuilt(self: OOTModel, fMaterial: FMaterial, material: bpy.
 
     fMaterial.material.commands = emitted_commands
 
+
 def register():
     _ORIGINALS["OOTModel.validateImages"] = OOTModel.validateImages
     _ORIGINALS["OOTModel.processTexRefNonCITextures"] = OOTModel.processTexRefNonCITextures
