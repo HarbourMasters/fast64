@@ -225,12 +225,31 @@ def get_shared_tlut_state(parent: Union[FModel, FTexRect], tex_info: "base.TexIn
     return state
 
 
+
+def _get_tlut_dimensions(tex_format: str, palette_len: int) -> tuple[int, int]:
+    width = 4 if tex_format == "CI4" else 16
+    height = max(1, (palette_len + width - 1) // width)
+    return width, height
+
+
+def _write_hm64_palette_data(fPalette: FImage, palette: list[int], tex_format: str):
+    width, height = _get_tlut_dimensions(tex_format, len(palette))
+    padded_len = width * height
+    padded_palette = list(palette)
+    if len(padded_palette) < padded_len:
+        fill_color = padded_palette[-1] if padded_palette else 0
+        padded_palette.extend([fill_color] * (padded_len - len(padded_palette)))
+    fPalette.width = width
+    fPalette.height = height
+    base.writePaletteData(fPalette, padded_palette)
+
+
 def apply_shared_tlut_state(state: SharedTLUTState):
     if state.palette_image is not None:
         state.palette_image.data = bytearray()
-        state.palette_image.height = len(state.palette)
+        state.palette_image.width, state.palette_image.height = _get_tlut_dimensions(state.tex_format, len(state.palette))
         state.palette_image.converted = False
-        base.writePaletteData(state.palette_image, state.palette)
+        _write_hm64_palette_data(state.palette_image, state.palette, state.tex_format)
 
     for image, fImage, tex_format, pal_format in state.texture_uses.values():
         fImage.data = bytearray()
@@ -277,7 +296,8 @@ def saveOrGetPaletteDefinition(
     paletteName, filename = getTextureNamesFromBasename(
         palBaseName, texProp.tex_format, palFmt, parent, True, custom_requested
     )
-    fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", 1, palLen, filename)
+    tlut_width, tlut_height = _get_tlut_dimensions(texProp.tex_format, palLen)
+    fPalette = FImage(paletteName, palFormat, "G_IM_SIZ_16b", tlut_width, tlut_height, filename)
     fPalette.internal_path = (
         sanitize_internal_asset_path(texProp.texture_internal_path) if texProp.texture_internal_path else ""
     )
@@ -425,7 +445,7 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
     if should_write_data:
         if self.isTexRef:
             if self.loadPal and not self.isPalRef:
-                base.writePaletteData(fPalette, self.pal)
+                _write_hm64_palette_data(fPalette, self.pal, self.texFormat)
             if self.isTexCI:
                 fModel.writeTexRefCITextures(
                     self.flipbook, fMaterial, self.imDependencies, self.pal, self.texFormat, self.palFormat
@@ -445,7 +465,7 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                     apply_shared_tlut_state(shared_tlut_state)
                 else:
                     if self.loadPal and not self.isPalRef:
-                        base.writePaletteData(fPalette, self.pal)
+                        _write_hm64_palette_data(fPalette, self.pal, self.texFormat)
                     if isHdFImage(fImage):
                         writeRawTextureData(self.texProp.tex, fImage)
                     else:
