@@ -30,7 +30,7 @@ def binangToRadians(value):
 
 
 def getFrameData(filepath: str, animData: str, frameDataName: str):
-    matchResult = re.search(re.escape(frameDataName) + "\s*\[.*?\]\s*=\s*\{([^\}]*)\}", animData, re.DOTALL)
+    matchResult = re.search(re.escape(frameDataName) + r"\s*\[[^\;]*?\]\s*=\s*\{([^\}]*)\}", animData, re.DOTALL)
     if matchResult is None:
         raise PluginError("Cannot find animation frame data named " + frameDataName + " in " + filepath)
     data = matchResult.group(1)
@@ -325,6 +325,12 @@ def ootImportLinkAnimationC(
                 for propertyIndex in range(3)
             ]
         )
+
+        # Make the pose bones rotation mode "XYZ Euler",
+        # this is set initially on import by ootBuildSkeleton so usually
+        # this is redundant but ensure it here.
+        assert armatureObj.pose is not None, armatureObj.type
+        armatureObj.pose.bones[bone.name].rotation_mode = "XYZ"
 
     # vec3 = 3x s16 values
     # padding = u8, tex anim = u8
