@@ -463,7 +463,16 @@ def saveStaticModel(
             fMesh = fMeshes[drawLayer]
 
         checkForF3dMaterialInFaces(obj, material)
-        fMaterial, texDimensions = saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData)
+        previous_manifest_owner = getattr(fModel, "hm64_material_manifest_owner_name", None)
+        fModel.hm64_material_manifest_owner_name = fMesh.draw.name
+        try:
+            fMaterial, texDimensions = saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData)
+        finally:
+            if previous_manifest_owner is None:
+                if hasattr(fModel, "hm64_material_manifest_owner_name"):
+                    delattr(fModel, "hm64_material_manifest_owner_name")
+            else:
+                fModel.hm64_material_manifest_owner_name = previous_manifest_owner
 
         if fMaterial.isTexLarge[0] or fMaterial.isTexLarge[1]:
             saveMeshWithLargeTexturesByFaces(
@@ -1333,19 +1342,23 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
 
     if len(obj.data.materials) == 0:
         raise PluginError("Mesh must have at least one material.")
-    materialName = (
+    materialBaseName = (
         fModel.name
         + "_"
         + toAlnum(material.name)
         + (("_layer" + str(drawLayer)) if f3dMat.rdp_settings.set_rendermode and drawLayer is not None else "")
         + (("_area" + str(areaIndex)) if f3dMat.set_fog and f3dMat.use_global_fog and areaKey is not None else "")
-        + (("_scope_" + toAlnum(str(materialScopeKey))) if materialScopeKey is not None else "")
+    )
+    materialName = materialBaseName + (
+        ("_scope_" + toAlnum(str(materialScopeKey))) if materialScopeKey is not None else ""
     )
 
     if not material.is_f3d:
         raise PluginError("Not an F3D material.")
     fMaterial = fModel.addMaterial(materialName)
     fMaterial.hm64_optimize_scope = materialScopeKey
+    fMaterial.hm64_manifest_material_name = f"mat_{materialBaseName}"
+    fMaterial.hm64_manifest_owner_name = getattr(fModel, "hm64_material_manifest_owner_name", None)
     useDict = all_combiner_uses(f3dMat)
 
     defaults = create_or_get_world(bpy.context.scene).rdp_defaults

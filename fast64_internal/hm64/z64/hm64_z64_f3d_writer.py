@@ -169,7 +169,9 @@ def ootProcessVertexGroup(
     )
 
     previous_scope_key = getattr(fModel, "hm64_material_scope_key", None)
+    previous_manifest_owner = getattr(fModel, "hm64_material_manifest_owner_name", None)
     fModel.hm64_material_scope_key = f"{namePrefix}:{vertexGroup}"
+    fModel.hm64_material_manifest_owner_name = fMesh.draw.name
     try:
         for material_index, faces in groupFaces.items():
             material = meshObj.material_slots[material_index].material
@@ -216,6 +218,12 @@ def ootProcessVertexGroup(
                 delattr(fModel, "hm64_material_scope_key")
         else:
             fModel.hm64_material_scope_key = previous_scope_key
+
+        if previous_manifest_owner is None:
+            if hasattr(fModel, "hm64_material_manifest_owner_name"):
+                delattr(fModel, "hm64_material_manifest_owner_name")
+        else:
+            fModel.hm64_material_manifest_owner_name = previous_manifest_owner
 
     fModel.endDraw(fMesh, bone)
 

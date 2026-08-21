@@ -206,7 +206,11 @@ def _serialize_cosmetic_manifest(entries: list[dict[str, str]]) -> str:
 
 
 def _collect_material_cosmetic_manifest_entries(fMaterial, objectPath: str) -> list[dict[str, str]]:
-    materialPath = format_asset_path(objectPath, fMaterial.material.name)
+    if getattr(fMaterial.material, "hm64_inline_xml", False):
+        material_name = getattr(fMaterial, "hm64_manifest_owner_name", None) or fMaterial.material.name
+    else:
+        material_name = getattr(fMaterial, "hm64_manifest_material_name", fMaterial.material.name)
+    materialPath = format_asset_path(objectPath, material_name)
     entries: list[dict[str, str]] = []
 
     for command in fMaterial.material.commands:
