@@ -65,8 +65,7 @@ def ootProcessVertexGroup(
     lastMaterialName,
     optimize: bool,
 ):
-    if not optimize:
-        lastMaterialName = None
+    lastMaterialName = None
 
     mesh = meshObj.data
     currentGroupIndex = getGroupIndexFromname(meshObj, vertexGroup)
