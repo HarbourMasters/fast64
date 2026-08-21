@@ -92,9 +92,18 @@ def ootConvertArmatureToXML(
         ensure_hm64_texture_writer()
 
         fModel = OOTModel(skeletonName, DLFormat, drawLayer)
+        hm64_optimize = bool(getattr(settings, "hm64_optimize_skeleton_material_writes", False))
+        fModel.hm64_optimize_skeleton_material_writes = hm64_optimize
+        fModel.hm64_optimize_material_writes = hm64_optimize
         try:
             skeleton, fModel = ootConvertArmatureToSkeletonWithMesh(
-                originalArmatureObj, convertTransformMatrix, fModel, skeletonName, not savePNG, drawLayer, False
+                originalArmatureObj,
+                convertTransformMatrix,
+                fModel,
+                skeletonName,
+                not savePNG,
+                drawLayer,
+                hm64_optimize,
             )
 
             if originalArmatureObj.ootSkeleton.LOD is not None:
@@ -105,7 +114,7 @@ def ootConvertArmatureToXML(
                     skeletonName + "_lod",
                     not savePNG,
                     drawLayer,
-                    False,
+                    hm64_optimize,
                 )
             else:
                 lodSkeleton = None

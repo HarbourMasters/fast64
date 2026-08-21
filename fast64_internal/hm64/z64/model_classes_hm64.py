@@ -309,8 +309,10 @@ def onMaterialCommandsBuilt(self: OOTModel, fMaterial: FMaterial, material: bpy.
     if cache_by_layer is None:
         cache_by_layer = {}
         self._hm64_material_state_cache_by_layer = cache_by_layer
+    optimize_scope = getattr(fMaterial, "hm64_optimize_scope", None)
+    cache_key = (drawLayer, optimize_scope)
     layer_cache = cache_by_layer.setdefault(
-        drawLayer, {"commands": {}, "tex_block": None, "tlut_block": None, "geo_flags": set()}
+        cache_key, {"commands": {}, "tex_block": None, "tlut_block": None, "geo_flags": set()}
     )
     first_material_for_layer = (
         not layer_cache["geo_flags"]

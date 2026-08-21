@@ -16,6 +16,7 @@ def _draw_mode_prop(layout: UILayout, mode_prop_owner, mode_prop_name: str, fall
 def draw_hm64_skeleton_export_props(settings, layout: UILayout):
     prop_split(layout, settings, "folder", "Internal Path")
     prop_split(layout, settings, "customPath", "Path")
+    layout.prop(settings, "hm64_optimize_skeleton_material_writes")
 
 
 def _draw_mode_menu(layout: UILayout, current_mode: str):
@@ -27,8 +28,8 @@ def _draw_mode_menu(layout: UILayout, current_mode: str):
 
 def draw_hm64_mm_skeleton_export_props(settings, layout: UILayout, current_mode: str):
     layout.prop(settings, "removeVanillaData")
-    layout.prop(settings, "optimize")
-    if settings.optimize:
+    layout.prop(settings, "hm64_optimize_skeleton_material_writes", text="Optimize + Inline Skeleton Materials")
+    if settings.hm64_optimize_skeleton_material_writes:
         box = layout.box().column()
         box.label(icon="LIBRARY_DATA_BROKEN", text="Do not draw anything in SkelAnime")
         box.label(text="callbacks or cull limbs, will be corrupted.")

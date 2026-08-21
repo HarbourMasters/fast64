@@ -168,45 +168,54 @@ def ootProcessVertexGroup(
         bone,
     )
 
-    for material_index, faces in groupFaces.items():
-        material = meshObj.material_slots[material_index].material
-        checkForF3dMaterialInFaces(meshObj, material)
-        fMaterial, texDimensions = saveOrGetF3DMaterial(
-            material, fModel, meshObj, drawLayerOverride, convertTextureData
-        )
-
-        if fMaterial.isTexLarge[0] or fMaterial.isTexLarge[1]:
-            currentGroupIndex = saveMeshWithLargeTexturesByFaces(
-                material,
-                faces,
-                fModel,
-                fMesh,
-                meshObj,
-                drawLayerOverride,
-                convertTextureData,
-                currentGroupIndex,
-                triConverterInfo,
-                None,
-                None,
-                lastMaterialName,
+    previous_scope_key = getattr(fModel, "hm64_material_scope_key", None)
+    fModel.hm64_material_scope_key = f"{namePrefix}:{vertexGroup}"
+    try:
+        for material_index, faces in groupFaces.items():
+            material = meshObj.material_slots[material_index].material
+            checkForF3dMaterialInFaces(meshObj, material)
+            fMaterial, texDimensions = saveOrGetF3DMaterial(
+                material, fModel, meshObj, drawLayerOverride, convertTextureData
             )
+
+            if fMaterial.isTexLarge[0] or fMaterial.isTexLarge[1]:
+                currentGroupIndex = saveMeshWithLargeTexturesByFaces(
+                    material,
+                    faces,
+                    fModel,
+                    fMesh,
+                    meshObj,
+                    drawLayerOverride,
+                    convertTextureData,
+                    currentGroupIndex,
+                    triConverterInfo,
+                    None,
+                    None,
+                    lastMaterialName,
+                )
+            else:
+                currentGroupIndex = saveMeshByFaces(
+                    material,
+                    faces,
+                    fModel,
+                    fMesh,
+                    meshObj,
+                    drawLayerOverride,
+                    convertTextureData,
+                    currentGroupIndex,
+                    triConverterInfo,
+                    None,
+                    None,
+                    lastMaterialName,
+                )
+
+            lastMaterialName = material.name if optimize else None
+    finally:
+        if previous_scope_key is None:
+            if hasattr(fModel, "hm64_material_scope_key"):
+                delattr(fModel, "hm64_material_scope_key")
         else:
-            currentGroupIndex = saveMeshByFaces(
-                material,
-                faces,
-                fModel,
-                fMesh,
-                meshObj,
-                drawLayerOverride,
-                convertTextureData,
-                currentGroupIndex,
-                triConverterInfo,
-                None,
-                None,
-                lastMaterialName,
-            )
-
-        lastMaterialName = material.name if optimize else None
+            fModel.hm64_material_scope_key = previous_scope_key
 
     fModel.endDraw(fMesh, bone)
 

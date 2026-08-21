@@ -95,6 +95,13 @@ class OOTSkeletonExportSettings(PropertyGroup):
         + "If enabled, the skeleton limbs must be drawn in their normal order, "
         + "with nothing in between and no culling, otherwise the mesh will be corrupted.",
     )
+    hm64_optimize_skeleton_material_writes: BoolProperty(
+        name="Optimize + Inline Materials",
+        description="Removes repeated redundant material commands in that can be carried over from the previous material.\n"
+        "Reducing size of the materials without changing the result.\n"
+        "Also inlines every material file into the displaylist itself.",
+        default=False,
+    )
 
     def draw_props(self, layout: UILayout):
         if is_hm64():

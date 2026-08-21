@@ -1321,10 +1321,11 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
     areaKey = fModel.global_data.getCurrentAreaKey(f3dMat)
     areaIndex = fModel.global_data.current_area_index
 
+    materialScopeKey = getattr(fModel, "hm64_material_scope_key", None)
     if f3dMat.rdp_settings.set_rendermode:
-        materialKey = (material, drawLayer, areaKey)
+        materialKey = (material, drawLayer, areaKey, materialScopeKey)
     else:
-        materialKey = (material, None, areaKey)
+        materialKey = (material, None, areaKey, materialScopeKey)
 
     materialItem = fModel.getMaterialAndHandleShared(materialKey)
     if materialItem is not None:
@@ -1338,11 +1339,13 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         + toAlnum(material.name)
         + (("_layer" + str(drawLayer)) if f3dMat.rdp_settings.set_rendermode and drawLayer is not None else "")
         + (("_area" + str(areaIndex)) if f3dMat.set_fog and f3dMat.use_global_fog and areaKey is not None else "")
+        + (("_scope_" + toAlnum(str(materialScopeKey))) if materialScopeKey is not None else "")
     )
 
     if not material.is_f3d:
         raise PluginError("Not an F3D material.")
     fMaterial = fModel.addMaterial(materialName)
+    fMaterial.hm64_optimize_scope = materialScopeKey
     useDict = all_combiner_uses(f3dMat)
 
     defaults = create_or_get_world(bpy.context.scene).rdp_defaults
@@ -1591,6 +1594,7 @@ def saveOrGetF3DMaterial(material, fModel, obj, drawLayer, convertTextureData):
         material,
         (drawLayer if f3dMat.rdp_settings.set_rendermode else None),
         fModel.global_data.getCurrentAreaKey(f3dMat),
+        materialScopeKey,
     )
     fModel.materials[materialKey] = (fMaterial, texDimensions)
 
