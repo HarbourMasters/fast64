@@ -71,7 +71,7 @@ from .fast64_internal.gltf_extension import (
 bl_info = {
     "name": "Fast64 (HM64)",
     "version": (2, 5, 4),
-    "author": "kurethedead (Fast64), Jameriquiah (HM64), PurpleHato (HM64)",
+    "author": "kurethedead (Fast64), Jameriquiah (HM64)",
     "location": "3DView",
     "description": "Plugin for exporting F3D display lists and other game data related to Nintendo 64 games to Harbour Masters 64 PC Ports.",
     "category": "Import-Export",
