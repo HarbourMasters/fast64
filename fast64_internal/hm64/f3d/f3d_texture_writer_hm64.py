@@ -31,7 +31,7 @@ from ...f3d.f3d_material import (
     texFormatOf,
 )
 from ...utility import PluginError, toAlnum
-from ..utility import is_hm64, sanitize_internal_asset_path
+from ..utility import is_bk64, is_hm64, sanitize_internal_asset_path
 
 
 _ORIGINALS = {}
@@ -138,6 +138,7 @@ def writeRawTextureData(image: bpy.types.Image, fImage: FImage):
             data[i + 3] = int(round(pixels[idx + 3] * 0xFF)) & 0xFF if channels > 3 else 0xFF
             i += 4
     fImage.data = bytes(data)
+    fImage.converted = True  # raw rather than bit packed, but written all the same
 
 
 class HM64PaletteKey(FPaletteKey):
@@ -422,9 +423,10 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
 
     loadGfx = fMaterial.texture_DL
     f3d = fModel.f3d
-    # the palette goes first, the way base Fast64 and every vanilla display list
-    # send it. A reader pairs a TLUT with the image that follows it.
-    if self.loadPal:
+
+    def write_palette_load():
+        if not self.loadPal:
+            return
         load_tlut_cmd = base.savePaletteLoad(
             loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d
         )
@@ -436,12 +438,22 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                 shared_pair = (load_tlut_cmd, override)
                 if shared_pair not in shared_tlut_state.load_commands:
                     shared_tlut_state.load_commands.append(shared_pair)
-    if self.doTexLoad:
-        base.saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
-    if self.doTexTile:
-        base.saveTextureTile(
-            fImage, fMaterial, loadGfx, self.texProp, None, self.indexInMat, self.texAddr, self.palIndex, f3d
-        )
+
+    def write_texture_load():
+        if self.doTexLoad:
+            base.saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
+        if self.doTexTile:
+            base.saveTextureTile(
+                fImage, fMaterial, loadGfx, self.texProp, None, self.indexInMat, self.texAddr, self.palIndex, f3d
+            )
+
+    # every paletted load in BK's own display lists sends the TLUT first
+    if is_bk64():
+        write_palette_load()
+        write_texture_load()
+    else:
+        write_texture_load()
+        write_palette_load()
 
     texProp = self.texProp
     should_write_data = convertTextureData and not (texProp and getattr(texProp, "is_vanilla_texture", False))
