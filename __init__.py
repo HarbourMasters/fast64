@@ -424,21 +424,21 @@ def after_load_impl():
 
 
 def set_game_defaults(scene: bpy.types.Scene, set_ucode=True):
-    world_defaults = None
-    if scene.gameEditorMode == "SM64":
-        f3d_type = "F3D"
-        world_defaults = sm64_world_defaults
-    elif scene.gameEditorMode in {"OOT", "MM"}:
-        f3d_type = "F3DEX2/LX2"
-        world_defaults = oot_world_defaults
-    elif scene.gameEditorMode == "MK64":
-        f3d_type = "F3DEX/LX"
-    elif scene.gameEditorMode == "Homebrew":
-        f3d_type = "F3D"
-        world_defaults = {}  # This will set some pretty bad defaults, but trust the user
+    match scene.gameEditorMode:
+        case "SM64":
+            f3d_type, world_defaults = "F3D", sm64_world_defaults
+        case "OOT" | "MM":
+            f3d_type, world_defaults = "F3DEX2/LX2", oot_world_defaults
+        case "MK64":
+            f3d_type, world_defaults = "F3DEX/LX", mk64_world_defaults
+        case "Homebrew":
+            # This will set some pretty bad defaults, but trust the user
+            f3d_type, world_defaults = "F3D", {}
+        case _:
+            f3d_type, world_defaults = "F3D", None
     if set_ucode:
         scene.f3d_type = f3d_type
-    if scene.world is not None:
+    if scene.world is not None and world_defaults is not None:
         scene.world.rdp_defaults.from_dict(world_defaults)
 
 
