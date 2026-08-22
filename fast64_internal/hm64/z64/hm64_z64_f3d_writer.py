@@ -4,8 +4,9 @@ import bpy
 
 from typing import Optional
 
-from ...utility import CData, getGroupIndexFromname, readFile, writeFile
+from ...utility import CData, getGroupIndexFromname, getGroupNameFromIndex, readFile, writeFile
 from ...f3d.flipbook import flipbook_to_c, flipbook_2d_to_c, flipbook_data_to_c
+from ...f3d.f3d_gbi import MTX_SIZE
 from ...f3d.f3d_material import createF3DMat, F3DMaterial_UpdateLock, update_preset_manual
 from ...z64.utility import replaceMatchContent, getOOTScale
 from ...z64.texture_array import TextureFlipbook
@@ -18,11 +19,66 @@ from ..f3d.hm64_f3d_writer import (
 )
 
 from ...z64.model_classes import (
+    OOTTriangleConverter,
     OOTTriangleConverterInfo,
     OOTModel,
     ootGetActorData,
     ootGetLinkData,
 )
+
+
+_HM64_LINK_SKELETONS = {
+    "gLinkChildSkel",
+    "gLinkAdultSkel",
+    "gDarkLinkSkel",
+    "gLinkHumanSkel",
+    "gLinkDekuSkel",
+    "gLinkGoronSkel",
+    "gLinkZoraSkel",
+    "gLinkFierceDeitySkel",
+    "gLinkChildKokiriTunicSkel",
+    "gLinkChildGoronTunicSkel",
+    "gLinkChildZoraTunicSkel",
+    "gLinkAdultKokiriTunicSkel",
+    "gLinkAdultGoronTunicSkel",
+    "gLinkAdultZoraTunicSkel",
+}
+_HM64_LINK_PRIORITY_LIMBS = {10, 13, 16}
+_HM64_LINK_TORSO_LIMB = 20
+_HM64_LINK_TORSO_MATRIX_INDEX = 17
+
+
+def _is_hm64_link_torso_exception(namePrefix: str, currentGroupIndex: int, vertGroupIndex: int, meshObj, armatureObj, meshInfo):
+    if namePrefix not in _HM64_LINK_SKELETONS:
+        return False
+
+    current_bone_name = getGroupNameFromIndex(meshObj, currentGroupIndex)
+    other_bone_name = getGroupNameFromIndex(meshObj, vertGroupIndex)
+    if current_bone_name is None or other_bone_name is None:
+        return False
+
+    current_bone_index = armatureObj.data.bones.find(current_bone_name)
+    other_bone_index = armatureObj.data.bones.find(other_bone_name)
+    if current_bone_index < 0 or other_bone_index < 0:
+        return False
+
+    current_limb_index = meshInfo.vertexGroupInfo.boneIndexToLimbIndex.get(current_bone_index)
+    other_limb_index = meshInfo.vertexGroupInfo.boneIndexToLimbIndex.get(other_bone_index)
+    return current_limb_index in _HM64_LINK_PRIORITY_LIMBS and other_limb_index == _HM64_LINK_TORSO_LIMB
+
+
+class HM64OOTTriangleConverterInfo(OOTTriangleConverterInfo):
+    def __init__(self, obj, armature, f3d, transformMatrix, infoDict, allowed_missing_matrix_groups):
+        super().__init__(obj, armature, f3d, transformMatrix, infoDict)
+        self.hm64_allowed_missing_matrix_groups = allowed_missing_matrix_groups
+
+    def getMatrixAddrFromGroup(self, groupIndex):
+        if (
+            groupIndex not in self.vertexGroupInfo.vertexGroupToMatrixIndex
+            and groupIndex in self.hm64_allowed_missing_matrix_groups
+        ):
+            return format((0x0D << 24) + MTX_SIZE * _HM64_LINK_TORSO_MATRIX_INDEX, "#010x")
+        return super().getMatrixAddrFromGroup(groupIndex)
 
 
 # Creates a semi-transparent solid color material (cached)
@@ -66,6 +122,10 @@ def ootProcessVertexGroup(
     optimize: bool,
 ):
     lastMaterialName = None
+    claimed_exception_faces = getattr(meshInfo, "hm64_claimed_exception_faces", None)
+    if claimed_exception_faces is None:
+        claimed_exception_faces = set()
+        meshInfo.hm64_claimed_exception_faces = claimed_exception_faces
 
     mesh = meshObj.data
     currentGroupIndex = getGroupIndexFromname(meshObj, vertexGroup)
@@ -89,15 +149,17 @@ def ootProcessVertexGroup(
 
     handledFaces = []
     anyConnectedToUnhandledBone = False
+    exceptionMatrixGroups = set()
     for vertIndex in vertIndices:
         if vertIndex not in meshInfo.vert:
             continue
         for face in meshInfo.vert[vertIndex]:
             # Ignore repeat faces
-            if face in handledFaces:
+            if face in handledFaces or face in claimed_exception_faces:
                 continue
 
             connectedToUnhandledBone = False
+            uses_exception_face = False
 
             # A Blender loop is interpreted as face + loop index
             for i in range(3):
@@ -106,6 +168,17 @@ def ootProcessVertexGroup(
                 if vertGroupIndex != currentGroupIndex:
                     hasSkinnedFaces = True
                 if vertGroupIndex not in meshInfo.vertexGroupInfo.vertexGroupToLimb:
+                    if _is_hm64_link_torso_exception(
+                        namePrefix,
+                        currentGroupIndex,
+                        vertGroupIndex,
+                        meshObj,
+                        armatureObj,
+                        meshInfo,
+                    ):
+                        exceptionMatrixGroups.add(vertGroupIndex)
+                        uses_exception_face = True
+                        continue
                     # Connected to a bone not processed yet
                     # These skinned faces will be handled by that limb
                     connectedToUnhandledBone = True
@@ -120,6 +193,8 @@ def ootProcessVertexGroup(
             groupFaces[face.material_index].append(face)
 
             handledFaces.append(face)
+            if uses_exception_face:
+                claimed_exception_faces.add(face)
 
     if len(groupFaces) == 0:
         print("No faces in " + vertexGroup)
@@ -142,7 +217,14 @@ def ootProcessVertexGroup(
             return None, False, lastMaterialName
 
     meshInfo.vertexGroupInfo.vertexGroupToMatrixIndex[currentGroupIndex] = nextDLIndex
-    triConverterInfo = OOTTriangleConverterInfo(meshObj, armatureObj.data, fModel.f3d, convertTransformMatrix, meshInfo)
+    triConverterInfo = HM64OOTTriangleConverterInfo(
+        meshObj,
+        armatureObj.data,
+        fModel.f3d,
+        convertTransformMatrix,
+        meshInfo,
+        exceptionMatrixGroups,
+    )
 
     if optimize:
         # If one of the materials we need to draw is the currently loaded material,
@@ -193,6 +275,7 @@ def ootProcessVertexGroup(
                     None,
                     None,
                     lastMaterialName,
+                    OOTTriangleConverter,
                 )
             else:
                 currentGroupIndex = saveMeshByFaces(
@@ -208,6 +291,7 @@ def ootProcessVertexGroup(
                     None,
                     None,
                     lastMaterialName,
+                    OOTTriangleConverter,
                 )
 
             lastMaterialName = material.name if optimize else None

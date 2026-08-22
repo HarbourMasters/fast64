@@ -322,6 +322,7 @@ def saveMeshWithLargeTexturesByFaces(
     existingVertData,
     matRegionDict,
     lastMaterialName,
+    converterOverride=None,
 ):
     """
     lastMaterialName is for optimization; set it to None to disable optimization.
@@ -360,6 +361,9 @@ def saveMeshWithLargeTexturesByFaces(
     triGroup = fMesh.tri_group_new(fMaterial)
     fMesh.draw.commands.append(SPDisplayList(triGroup.triList))
 
+    if converterOverride is None:
+        converterOverride = TriangleConverter
+
     currentGroupIndex = None
     curImgSet = None
     curTileLines = [0 for _ in range(8)]
@@ -394,7 +398,7 @@ def saveMeshWithLargeTexturesByFaces(
             curTileLines,
         )
 
-        triConverter = TriangleConverter(
+        triConverter = converterOverride(
             triConverterInfo,
             texDimensions,
             material,
@@ -705,7 +709,8 @@ def saveTriangleStrip(triConverter, faces, faceSTOffsets, mesh, terminateDL):
         if neighborFace in possibleFaces:
             possibleFaces.remove(neighborFace)
         for otherFace in infoDict.validNeighbors[neighborFace]:
-            infoDict.validNeighbors[otherFace].remove(neighborFace)
+            if neighborFace in infoDict.validNeighbors[otherFace]:
+                infoDict.validNeighbors[otherFace].remove(neighborFace)
 
         neighborFace, lastEdgeKey = getNextNeighborFace(
             faces, neighborFace, lastEdgeKey, visitedFaces, possibleFaces, infoDict
@@ -728,6 +733,7 @@ def saveMeshByFaces(
     existingVertData,
     matRegionDict,
     lastMaterialName,
+    converterOverride=None,
 ):
     """
     lastMaterialName is for optimization; set it to None to disable optimization.
@@ -743,7 +749,10 @@ def saveMeshByFaces(
     triGroup = fMesh.tri_group_new(fMaterial)
     fMesh.draw.commands.append(SPDisplayList(triGroup.triList))
 
-    triConverter = TriangleConverter(
+    if converterOverride is None:
+        converterOverride = TriangleConverter
+
+    triConverter = converterOverride(
         triConverterInfo,
         texDimensions,
         material,
@@ -875,6 +884,7 @@ class TriangleConverterInfo:
         self.mesh = obj.data
         self.f3d = f3d
         self.transformMatrix = transformMatrix
+        self.hm64_group_index_override = None
 
         # Caching names
         self.groupNames = {}
@@ -954,6 +964,11 @@ class TriangleConverter:
             limbVerts[bufferVert.groupIndex].append(bufferVert)
 
         return limbVerts
+
+    def getBufferVert(self, loop, face, groupIndex):
+        return BufferVertex(
+            getF3DVert(loop, face, self.convertInfo, self.triConverterInfo.mesh), groupIndex, face.material_index
+        )
 
     def processGeometry(self):
         # Sort verts by limb index, then load current limb verts
@@ -1156,9 +1171,15 @@ class TriangleConverter:
                 if self.triConverterInfo.vertexGroupInfo is not None
                 else None
             )
-            bufferVert = BufferVertex(
-                getF3DVert(loop, face, self.convertInfo, self.triConverterInfo.mesh), vertexGroup, face.material_index
-            )
+            group_index_override = getattr(self.triConverterInfo, "hm64_group_index_override", None)
+            if group_index_override is not None:
+                vertexGroup = group_index_override(
+                    face,
+                    loop.vertex_index,
+                    self.currentGroupIndex,
+                    vertexGroup,
+                )
+            bufferVert = self.getBufferVert(loop, face, vertexGroup)
             bufferVert.f3dVert.stOffset = stOffset
             triIndices.append(bufferVert)
             if not self.vertInBuffer(bufferVert, face.material_index):
