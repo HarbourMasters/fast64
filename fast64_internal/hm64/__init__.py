@@ -3,6 +3,7 @@
 
 
 def hm64_register():
+    from .bk64 import register as register_bk64
     from .f3d.f3d_gbi_hm64 import register as register_f3d_gbi_hm64
     from .f3d.f3d_material_hm64 import register as register_f3d_material_hm64
     from .f3d.f3d_texture_writer_hm64 import register as register_f3d_texture_writer_hm64
@@ -17,12 +18,14 @@ def hm64_register():
     register_f3d_texture_writer_hm64()
     register_soh_xml()
     register_mk64()
+    register_bk64()
     register_z64_skeleton()
     register_z64_panels()
     register_z64_model_classes_hm64()
 
 
 def hm64_unregister():
+    from .bk64 import unregister as unregister_bk64
     from .f3d.f3d_gbi_hm64 import unregister as unregister_f3d_gbi_hm64
     from .f3d.f3d_material_hm64 import unregister as unregister_f3d_material_hm64
     from .f3d.f3d_texture_writer_hm64 import unregister as unregister_f3d_texture_writer_hm64
@@ -35,6 +38,7 @@ def hm64_unregister():
     unregister_z64_model_classes_hm64()
     unregister_z64_panels()
     unregister_z64_skeleton()
+    unregister_bk64()
     unregister_mk64()
     unregister_soh_xml()
     unregister_f3d_texture_writer_hm64()

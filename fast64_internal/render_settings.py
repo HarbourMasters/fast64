@@ -259,7 +259,9 @@ def on_update_render_settings(self, context: bpy.types.Context):
 
     sceneOutputs = getSceneOutputs()
     if sceneOutputs is not None:
-        update_scene_props_from_render_settings(sceneOutputs, self)
+        # not self: scale properties share this callback, and self is then
+        # their owner rather than the render settings
+        update_scene_props_from_render_settings(sceneOutputs, context.scene.fast64.renderSettings)
 
 
 def poll_sm64_area(self, object):
