@@ -29,6 +29,7 @@ from .fast64_internal.utility_anim import utility_anim_register, utility_anim_un
 
 from .fast64_internal.mk64 import MK64_Properties, mk64_register, mk64_unregister
 from .fast64_internal.mk64.mk64_constants import mk64_world_defaults
+from .fast64_internal.hm64.bk64.bk64_constants import bk64_world_defaults
 
 from .fast64_internal.f3d.f3d_gbi import get_F3D_GBI
 from .fast64_internal.f3d.f3d_material import (
@@ -83,6 +84,7 @@ gameEditorEnum = (
     ("OOT", "OOT", "Ocarina Of Time", 1),
     # ("MM", "MM", "Majora's Mask", 4),
     ("MK64", "MK64", "Mario Kart 64", 3),
+    ("BK64", "BK64", "Banjo-Kazooie", 5),
     ("Homebrew", "Homebrew", "Homebrew", 2),
 )
 
@@ -431,6 +433,8 @@ def set_game_defaults(scene: bpy.types.Scene, set_ucode=True):
             f3d_type, world_defaults = "F3DEX2/LX2", oot_world_defaults
         case "MK64":
             f3d_type, world_defaults = "F3DEX/LX", mk64_world_defaults
+        case "BK64":
+            f3d_type, world_defaults = "F3DEX/LX", bk64_world_defaults
         case "Homebrew":
             # This will set some pretty bad defaults, but trust the user
             f3d_type, world_defaults = "F3D", {}

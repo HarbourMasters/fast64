@@ -149,8 +149,8 @@ enumF3DSource = [
 ]
 
 defaultMaterialPresets = {
-    "Shaded Solid": {"SM64": "Shaded Solid", "OOT": "oot_shaded_solid"},
-    "Shaded Texture": {"SM64": "Shaded Texture", "OOT": "oot_shaded_texture"},
+    "Shaded Solid": {"SM64": "Shaded Solid", "OOT": "oot_shaded_solid", "BK64": "bk64_shaded_solid"},
+    "Shaded Texture": {"SM64": "Shaded Texture", "OOT": "oot_shaded_texture", "BK64": "bk64_shaded_texture"},
 }
 
 F3D_GEO_MODES = {
