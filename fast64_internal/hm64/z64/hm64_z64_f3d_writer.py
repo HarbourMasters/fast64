@@ -48,7 +48,9 @@ _HM64_LINK_TORSO_LIMB = 20
 _HM64_LINK_TORSO_MATRIX_INDEX = 17
 
 
-def _is_hm64_link_torso_exception(namePrefix: str, currentGroupIndex: int, vertGroupIndex: int, meshObj, armatureObj, meshInfo):
+def _is_hm64_link_torso_exception(
+    namePrefix: str, currentGroupIndex: int, vertGroupIndex: int, meshObj, armatureObj, meshInfo
+):
     if namePrefix not in _HM64_LINK_SKELETONS:
         return False
 
