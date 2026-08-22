@@ -12,6 +12,11 @@ def hm64_mm_features_enabled(scene=None) -> bool:
     return is_hm64() and scene.fast64.oot.mm_features
 
 
+def is_bk64(scene=None) -> bool:
+    scene = scene or bpy.context.scene
+    return getattr(scene, "gameEditorMode", None) == "BK64"
+
+
 def sanitize_internal_asset_path(path: str) -> str:
     cleaned = (path or "").replace("\\", "/").strip("/")
     if not cleaned:
