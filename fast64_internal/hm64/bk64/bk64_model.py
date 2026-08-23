@@ -1013,7 +1013,7 @@ def _count_triangles(words):
 
 
 def _collect_textures(
-    fModel: FModel, embed_images: bool, image_folds=None, opaque: bool = True, mip_images=None, animated=None
+    fModel: FModel, embed_images: bool, image_folds=None, opaque_images=None, mip_images=None, animated=None
 ):
     # a resource puts images in _tex_<i> siblings behind segment 0xFF, a ROM
     # puts everything in the blob behind segment 2
@@ -1052,6 +1052,7 @@ def _collect_textures(
         shared_key = key.imagesSharingPalette
         padded = bytes(fImage.data) + bytes(palette_size.get(shared_key, 0) - len(fImage.data))
         if embed_images:
+            opaque = all((opaque_images or {}).get(image, True) for image in shared_key or ())
             padded = _flatten_shade(
                 padded, "RGBA16", (image_folds or {}).get(shared_key[0] if shared_key else None), opaque
             )
@@ -1126,6 +1127,7 @@ def _collect_textures(
             image_offset = len(blob)
             pixels = bytes(fImage.data)
             if not paletted:  # a paletted image is recolored through its palette
+                opaque = (opaque_images or {}).get(key.image, True)
                 pixels = _flatten_shade(pixels, otex_format, (image_folds or {}).get(key.image), opaque)
             blob.extend(pixels)
             fImage.startAddress = (SEG_TEX_BLOB << 24) | image_offset
@@ -1307,6 +1309,18 @@ def _image_folds(mesh_objects, shade_by_material):
                 continue
             folds.setdefault(tex_slot.tex, set()).add((shade, fold))
     return {image: next(iter(ways)) for image, ways in folds.items() if len(ways) == 1}
+
+
+def _image_opacity(mesh_objects, scene_layer: str):
+    """Whether each image is only ever drawn on the opaque layer, keyed by the image"""
+    opaque = {}
+    for material, f3d_mat in _f3d_materials(mesh_objects):
+        layer = _draw_layer_of(material, scene_layer)
+        for tex_slot in (f3d_mat.tex0, f3d_mat.tex1):
+            if tex_slot.tex is None or not tex_slot.tex_set:
+                continue
+            opaque[tex_slot.tex] = opaque.get(tex_slot.tex, True) and layer == "OPAQUE"
+    return opaque
 
 
 def _flatten_shade(data: bytes, otex_format: str, fold, opaque: bool):
@@ -1830,7 +1844,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         shade_colors = _material_lights(fModel)
         shade_by_material = _material_base_colors(fModel)
         image_folds = _image_folds(mesh_objects, shade_by_material) if rom_format else None
-        opaque = all(key[0] == "OPAQUE" for _bone, key, _fMeshes in chunk_fMeshes)
+        opaque_images = _image_opacity(mesh_objects, settings.draw_layer) if rom_format else None
 
         # a TEXEL1 combiner blends between the wrap DL's tiles, so it renders
         # from tile 2 at level 2 and its sibling carries the pyramid
@@ -1872,7 +1886,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
 
         animated = _animated_slots(fModel)
         texture_resources, tex_infos, tex_blob, white_offset, animated_offsets = _collect_textures(
-            fModel, rom_format, image_folds, opaque, mip_images, animated
+            fModel, rom_format, image_folds, opaque_images, mip_images, animated
         )
         animated_slots = [(0, 0, 0.0)] * ANIM_TEX_SLOT_COUNT
         for image, (slot, frames, rate) in animated.items():
