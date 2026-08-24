@@ -37,11 +37,14 @@ def draw_hm64_dl_export_props(settings, layout: UILayout):
     ops.operator("fast64.oot_add_object_matrix_call", icon="ADD", text="")
     ops.operator("fast64.oot_remove_object_matrix_call", icon="REMOVE", text="")
 
-    if len(obj.oot_matrix_calls) == 0:
-        return
+    if len(obj.oot_matrix_calls) > 0:
+        index = max(0, min(obj.oot_matrix_calls_index, len(obj.oot_matrix_calls) - 1))
+        active = obj.oot_matrix_calls[index]
+        matrix_box.prop(active, "limb")
+        matrix_box.prop(active, "internal_path", text="Internal Path")
+        matrix_box.prop(active, "call_dl", text="Call Display List")
 
-    index = max(0, min(obj.oot_matrix_calls_index, len(obj.oot_matrix_calls) - 1))
-    active = obj.oot_matrix_calls[index]
-    matrix_box.prop(active, "limb")
-    matrix_box.prop(active, "internal_path", text="Internal Path")
-    matrix_box.prop(active, "call_dl", text="Call Display List")
+    matrix_box.prop(obj, "hm64_dl_jumper_enabled")
+    if obj.hm64_dl_jumper_enabled:
+        matrix_box.prop(obj, "hm64_dl_jumper_internal_path", text="Internal Path")
+        matrix_box.prop(obj, "hm64_dl_jumper_dl_name", text="DL Name")

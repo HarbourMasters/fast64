@@ -1,7 +1,7 @@
 """HM64 MM panels and matrix-call support classes extracted from z64/f3d/panels.py."""
 
 import bpy
-from bpy.props import CollectionProperty, IntProperty
+from bpy.props import BoolProperty, CollectionProperty, IntProperty, StringProperty
 from bpy.types import Object, Mesh, Operator, UIList
 
 from ..utility import is_hm64
@@ -73,6 +73,21 @@ def register():
         register_class(cls)
     Object.oot_matrix_calls = CollectionProperty(type=OOTDLMatrixCallPair)
     Object.oot_matrix_calls_index = IntProperty(default=0)
+    Object.hm64_dl_jumper_enabled = BoolProperty(
+        name="DL Jumper",
+        description="Replaces EndDisplayList with JumpToDisplayList branching off to another displaylist of your choice",
+        default=False,
+    )
+    Object.hm64_dl_jumper_internal_path = StringProperty(
+        name="Internal Path",
+        default="",
+        description="Location of the target displaylist",
+    )
+    Object.hm64_dl_jumper_dl_name = StringProperty(
+        name="DL Name",
+        default="",
+        description="Name of the target displaylist",
+    )
 
 
 def unregister():
@@ -80,5 +95,8 @@ def unregister():
 
     del Object.oot_matrix_calls
     del Object.oot_matrix_calls_index
+    del Object.hm64_dl_jumper_enabled
+    del Object.hm64_dl_jumper_internal_path
+    del Object.hm64_dl_jumper_dl_name
     for cls in reversed((*hm64_panel_classes, *hm64_support_classes)):
         unregister_class(cls)

@@ -21,7 +21,7 @@ from ...z64.utility import (
     ootDuplicateHierarchy,
     ootCleanupScene,
 )
-from ..utility import get_internal_asset_path
+from ..utility import get_internal_asset_path, sanitize_internal_asset_path
 
 
 def build_extra_xml_entries(entries) -> str:
@@ -43,6 +43,29 @@ def build_extra_xml_entries(entries) -> str:
     if not xml_lines:
         return ""
     return "\n".join(xml_lines) + "\n"
+
+
+def build_dl_jumper_path(obj: bpy.types.Object) -> str:
+    dl_name = (getattr(obj, "hm64_dl_jumper_dl_name", "") or "").strip()
+    if not dl_name:
+        raise PluginError("DL Jumper is enabled, but no DL Name was provided.")
+
+    internal_path = sanitize_internal_asset_path(getattr(obj, "hm64_dl_jumper_internal_path", "") or "")
+    if internal_path:
+        return f"{internal_path}/{dl_name.lstrip('/')}"
+    return dl_name
+
+
+def apply_dl_jumper(export_data: str, obj: bpy.types.Object) -> str:
+    if not bool(getattr(obj, "hm64_dl_jumper_enabled", False)):
+        return export_data
+
+    jump_path = build_dl_jumper_path(obj)
+    replacement = f'\t<JumpToDisplaylist Path="{jump_path}"/>'
+    for target in ("\t<EndDisplayList/>", "<EndDisplayList/>"):
+        if target in export_data:
+            return export_data[::-1].replace(target[::-1], replacement[::-1], 1)[::-1]
+    return export_data
 
 
 def get_active_matrix_entries(obj: bpy.types.Object, settings: "OOTDLExportSettings"):
@@ -151,6 +174,8 @@ def ootConvertMeshToXML(
                 exportData = exportData[:insert_point] + extra_xml + exportData[insert_point:]
             else:
                 exportData = extra_xml + exportData
+
+        exportData = apply_dl_jumper(exportData, originalObj)
 
         writeXMLData(exportData, os.path.join(path, name))
 
