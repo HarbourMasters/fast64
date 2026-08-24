@@ -27,6 +27,7 @@ from .bk64_constants import (
     BK_SOUND_TYPE,
     GEO_CMD_BONE,
     GEO_CMD_CALL,
+    GEO_CMD_CAMERA,
     GEO_CMD_CULL,
     GEO_CMD_DRAWDIST,
     GEO_CMD_LOADDL,
@@ -36,6 +37,7 @@ from .bk64_constants import (
     GEO_CMD_SELECTOR,
     GEO_CMD_SKINNING,
     GEO_CMD_SORT,
+    GEO_CMD_TEXWRAP,
     GEO_CMD_UNK0,
     GEO_LAYOUT_PROP,
     BK64_DRAW_LAYER_ENTRY,
@@ -441,6 +443,7 @@ GEO_KIND_NAMES = {
     "lod": "Level Of Detail",
     "selector": "Selector",
     "drawdist": "Draw Distance",
+    "camera": "Camera Area",
 }
 
 
@@ -513,6 +516,14 @@ def read_geo_body(body: bytes, endian: str = "<"):
                 index, matrix = struct.unpack_from(endian + "hh", body, pos + 8)
                 point = struct.unpack_from(endian + "3f", body, pos + 12)
                 records.append(("refpoint", index, matrix, point))
+            elif cmd == GEO_CMD_CAMERA:
+                # a level hangs most of its geometry off these. Missing the
+                # branch costs nearly the whole model, not just the culling.
+                offset, count, flags = struct.unpack_from(endian + "hBB", body, pos + 8)
+                ids = list(struct.unpack_from(endian + f"{count}B", body, pos + 12)) if count else []
+                records.append(("camera", ids, flags, branch(pos, offset)))
+            elif cmd == GEO_CMD_TEXWRAP:
+                records.append(("texwrap", struct.unpack_from(endian + "i", body, pos + 8)[0]))
             elif cmd in (GEO_CMD_UNK0, GEO_CMD_CALL):
                 offset_field = endian + ("h" if cmd == GEO_CMD_UNK0 else "i")
                 records += branch(pos, struct.unpack_from(offset_field, body, pos + 8)[0])

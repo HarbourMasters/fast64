@@ -20,7 +20,7 @@ Set the game to BK64. This also sets the microcode to F3DEX/LX, which Banjo's di
 
 The defaults are stored on the scene's world, and the scene needs one. A file started from Blender's General template has one, but an empty file or an imported scene may not, in which case setting the game mode has nowhere to write them. The export will stop with a message if the world is missing or its defaults have been changed. Pick BK64 again in the game dropdown to refill them.
 
-Your model should be upright with +Z up, facing -Y. The exporter converts to the N64's Y up on the way out. SM64 rigs in particular are often authored lying along +X, since SM64's geolayout root applies the rotation for them. Make sure to rotate those upright and apply the rotation before exporting.
+Your model should be upright with +Z up, facing -Y. The exporter converts to the N64's Y up on the way out. A static model takes its own rotation and scale with it. An armature doesn't, since a rig goes out in armature space, so apply what you turn on one. SM64 rigs in particular are often authored lying along +X, since SM64's geolayout root applies the rotation for them. Rotate those upright before exporting.
 
 Blender To BK Scale converts Blender units to BK units, and defaults to 100 as it does for SM64 and MK64. Banjo is about 138 units tall and a Jinjo about 104.
 
@@ -222,7 +222,7 @@ Two parts of the format are read past and not kept. A model carrying one exports
 
 ### Common Issues
 - The model renders black: a material still has lighting enabled and Force Unlit Shade is off.
-- The model lies on its side: it wasn't authored with +Z up. Rotate it upright in Blender and apply the rotation.
+- The model lies on its side: it wasn't authored with +Z up. Rotate it upright in Blender, and apply the rotation if it's an armature.
 - It animates, but some limbs hold their rest pose: those bones' IDs aren't the ones the animation addresses. Import the original model's skeleton and match its IDs.
 - An exported animation moves the model too far or not far enough: Animation Scale doesn't match the model it's playing on.
 - Streaks or smears across flat surfaces: the tiles are set to wrap and some UVs reach past the tile edge. Set Clamp on S and T.

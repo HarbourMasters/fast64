@@ -105,7 +105,15 @@ class BK64_Settings:
         if self.env_map:
             bits |= GEO_TYPE_ENV_MAP
         if self.mipmap:
-            bits |= GEO_TYPE_MIPMAP_TRILINEAR
+            # only the resource path builds the tile pyramid, and the bit alone
+            # has the game sample tiles TMEM never got
+            if self.file_format == "BIN":
+                self.warnings.append(
+                    "Trilinear Mipmap needs an o2r export, so the .bin went out without it and its "
+                    "textures draw from level 0."
+                )
+            else:
+                bits |= GEO_TYPE_MIPMAP_TRILINEAR
         return bits
 
 

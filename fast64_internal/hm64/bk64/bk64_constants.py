@@ -80,6 +80,8 @@ GEO_CMD_REFPOINT = 0x0A
 GEO_CMD_SELECTOR = 0x0C
 GEO_CMD_DRAWDIST = 0x0D
 GEO_CMD_CULL = 0x0E  # a sphere the game tests before drawing what hangs off it
+GEO_CMD_CAMERA = 0x0F  # the areas what hangs off it draws inside, or outside with flag 2
+GEO_CMD_TEXWRAP = 0x10  # 1 clamps the mipmap tiles that follow, 2 wraps them
 
 GEO_CMD_SIZE = 12  # every geo command is padded to 12 bytes
 GEO_BONE_BRANCH_OFFSET = 12  # BONE to its own LOADDL

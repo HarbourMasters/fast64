@@ -684,12 +684,14 @@ def _geo_records(bones, chunks, armature_obj, rigged: bool, chunk_bounds=None):
 
 
 def _to_bk_space(root_obj, scale: float):
-    """Root local Blender space to BK model space, Y up and in BK units"""
-    return (
-        BLENDER_TO_BK
-        @ mathutils.Matrix.Diagonal(mathutils.Vector((scale, scale, scale))).to_4x4()
-        @ root_obj.matrix_world.inverted()
+    """Blender space to BK model space, Y up and in BK units, with the root at the origin"""
+    # a rig cancels whole on top of that, its bone table sits in armature space
+    origin = (
+        mathutils.Matrix.Translation(-root_obj.matrix_world.translation)
+        if root_obj.type == "MESH"
+        else root_obj.matrix_world.inverted()
     )
+    return BLENDER_TO_BK @ mathutils.Matrix.Diagonal(mathutils.Vector((scale, scale, scale))).to_4x4() @ origin
 
 
 def read_collision_shapes(root_obj, scale: float):
@@ -1983,6 +1985,10 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for key, value in fModel.materials.items():
                 material = key[0]
                 f3d_mat = _f3d_settings(material)
+                if not getattr(f3d_mat.rdp_settings, "g_lighting", False):
+                    # only a lit material had a tint to fold. An unlit one folded
+                    # against white and keeps its shading in the vertex colors
+                    continue
                 used = [slot.tex for slot in (f3d_mat.tex0, f3d_mat.tex1) if slot.tex is not None and slot.tex_set]
                 if used and all((image_folds.get(image) or (None, None))[1] for image in used):
                     shade_colors[id(value[0])] = ((255, 255, 255), [])

@@ -11,6 +11,7 @@ from .bk64_constants import (
     GEO_BONE_BRANCH_OFFSET,
     GEO_BONE_PAIR_SIZE,
     GEO_CMD_BONE,
+    GEO_CMD_CAMERA,
     GEO_CMD_LOADDL,
     GEO_CMD_NOP,
     GEO_CMD_REFPOINT,
@@ -19,6 +20,7 @@ from .bk64_constants import (
     GEO_CMD_SELECTOR,
     GEO_CMD_SIZE,
     GEO_CMD_SORT,
+    GEO_CMD_TEXWRAP,
     GEO_DRAWDIST_SIZE,
     GEO_LOD_SIZE,
     GEO_REFPOINT_SIZE,
@@ -76,6 +78,11 @@ def _record_size(record):
 def _skinning_size(indices):
     """cmd, next, then the gfx indices and a zero to stop on, padded to 4"""
     return GEO_CMD_SIZE - 4 + (len(indices) + 1) * 2 + (len(indices) + 1) % 2 * 2
+
+
+def _camera_size(id_count):
+    """cmd, next, the branch, a count and flags, then a byte an area id, padded to 8"""
+    return -(-(15 + id_count) // 8) * 8
 
 
 def _layout_bone(index: int) -> int:
@@ -144,6 +151,20 @@ def geo_body(records, endian: str = "<"):
             body.extend(branch)
             continue
 
+        if kind == "camera":
+            branch = geo_body(record[3], endian)
+            ids = bytes(record[1])
+            header = _camera_size(len(ids))
+            body.extend(
+                struct.pack(
+                    endian + "IihBB", GEO_CMD_CAMERA, 0 if last else header + len(branch), header, len(ids), record[2]
+                )
+            )
+            body.extend(ids)
+            body.extend(bytes(header - GEO_CMD_SIZE - len(ids)))
+            body.extend(branch)
+            continue
+
         if kind == "sort":
             first_branch = geo_body(record[3], endian)
             second_branch = geo_body(record[4], endian)
@@ -192,6 +213,8 @@ def geo_body(records, endian: str = "<"):
             body.extend(_loaddl(record[2], 0, endian))
         elif kind == "loaddl":
             body.extend(_loaddl(record[1], next_offset, endian))
+        elif kind == "texwrap":
+            body.extend(struct.pack(endian + "Iii", GEO_CMD_TEXWRAP, next_offset, record[1]))
         elif kind == "refpoint":
             body.extend(
                 struct.pack(endian + "Iihhfff", GEO_CMD_REFPOINT, next_offset, record[1], record[2], *record[3])
@@ -343,7 +366,7 @@ def layout_records(records, matrix_id=None, parent_id=None):
             yield kind, [], matrix_id, parent_id, record
             yield from layout_records(record[3], matrix_id, parent_id)
             yield from layout_records(record[4], matrix_id, parent_id)
-        elif kind in ("lod", "drawdist"):
+        elif kind in ("lod", "drawdist", "camera"):
             yield kind, [], matrix_id, parent_id, record
             yield from layout_records(record[-1], matrix_id, parent_id)
         else:
