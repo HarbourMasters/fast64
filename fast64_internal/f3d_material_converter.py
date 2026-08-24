@@ -183,15 +183,35 @@ def convertAllBSDFtoF3D(objs, renameUV):
                     convertBSDFtoF3D(obj, index, material, materialDict)
 
 
+def getPrincipledNode(material):
+    if not material.use_nodes or material.node_tree is None:
+        return None
+    nodes = material.node_tree.nodes
+    outputNode = next((node for node in nodes if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
+    if outputNode is not None:
+        links = outputNode.inputs["Surface"].links
+        if links and links[0].from_node.type == "BSDF_PRINCIPLED":
+            return links[0].from_node
+    return next((node for node in nodes if node.type == "BSDF_PRINCIPLED"), None)
+
+
+def isKnownMaterialPreset(presetName):
+    if presetName in {enumValue[0] for enumValue in enumMaterialPresets}:
+        return True
+    return any(presetName in gamePresets for gamePresets in material_presets.values())
+
+
 def convertBSDFtoF3D(obj, index, material, materialDict):
+    principledNode = getPrincipledNode(material)
+
     if not material.use_nodes:
         newMaterial = createF3DMat(obj, preset="Shaded Solid", index=index)
         with bpy.context.temp_override(material=newMaterial):
             newMaterial.f3d_mat.default_light_color = material.diffuse_color
         updateMatWithName(newMaterial, material, materialDict)
 
-    elif "Principled BSDF" in material.node_tree.nodes:
-        tex0Node = material.node_tree.nodes["Principled BSDF"].inputs["Base Color"]
+    elif principledNode is not None:
+        tex0Node = principledNode.inputs["Base Color"]
         if len(tex0Node.links) == 0:
             newMaterial = createF3DMat(obj, preset=getDefaultMaterialPreset("Shaded Solid"), index=index)
             with bpy.context.temp_override(material=newMaterial):
@@ -201,7 +221,7 @@ def convertBSDFtoF3D(obj, index, material, materialDict):
             if isinstance(tex0Node.links[0].from_node, bpy.types.ShaderNodeTexImage):
                 if "convert_preset" in material:
                     presetName = material["convert_preset"]
-                    if presetName not in [enumValue[0] for enumValue in enumMaterialPresets]:
+                    if not isKnownMaterialPreset(presetName):
                         raise PluginError(
                             "During BSDF to F3D conversion, for material '"
                             + material.name

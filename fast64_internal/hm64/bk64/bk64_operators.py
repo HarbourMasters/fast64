@@ -16,6 +16,7 @@ from .bk64_model import (
     promote_materials_to_2_cycle,
     read_collision_only,
     read_collision_shapes,
+    select_loose_vertices,
     split_mesh_at_bones,
 )
 from .bk64_properties import BK64_Settings
@@ -98,6 +99,8 @@ class BK64_ExportModel(Operator):
                     with open(path, "wb") as file:
                         file.write(data)
 
+                for warning in settings.warnings:
+                    self.report({"WARNING"}, warning)
                 self.report(
                     {"INFO"},
                     (
@@ -250,6 +253,40 @@ class BK64_SplitMeshAtBones(Operator):
                         else "Nothing to cut, every triangle already belongs to one bone."
                     ),
                 )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_SelectLooseVertices(Operator):
+    bl_idname = "object.hm64_bk64_select_loose_vertices"
+    bl_label = "Select Loose Vertices"
+    bl_description = (
+        "Select the vertices no bone weights, which hold their rest pose while the rest of the model animates"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            with object_mode(context):
+                meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+                if not meshes:
+                    raise PluginError("Select the mesh to check.")
+                found = sum(select_loose_vertices(mesh_obj) for mesh_obj in meshes)
+
+            if found:
+                context.tool_settings.mesh_select_mode = (True, False, False)
+                bpy.ops.object.mode_set(mode="EDIT")
+            self.report(
+                {"INFO"},
+                (
+                    f"Selected {found} vertices. Weight them to a bone, or they stay behind when the model moves."
+                    if found
+                    else "Every vertex is weighted. If the export still warned, a modifier is making the loose ones."
+                ),
+            )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -435,6 +472,7 @@ bk64_operator_classes = (
     BK64_ExportAllAnimations,
     BK64_PromoteMaterials,
     BK64_SplitMeshAtBones,
+    BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
     BK64_ImportSkeleton,
     BK64_ImportModel,

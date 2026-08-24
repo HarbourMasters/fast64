@@ -251,6 +251,8 @@ def update_draw_layer(self, context):
 
 def get_world_layer_defaults(scene, game_mode: str, layer: str):
     world = scene.world
+    if layer is None:  # a game mode with no draw layer of its own, BK64 and MK64 among them
+        return "", ""
     if world is None:
         return default_draw_layers.get(game_mode, {}).get(layer, ("", ""))
     if game_mode == "SM64":
@@ -285,10 +287,9 @@ def rendermode_preset_to_advanced(material: bpy.types.Material):
     cycle_1, cycle_2 = settings.rendermode_preset_cycle_1, settings.rendermode_preset_cycle_2
     if not settings.set_rendermode:
         game_mode = scene.gameEditorMode
+        # no early return on a missing layer, the settings below still derive from
+        # whatever presets the material carries
         layer = getattr(f3d_mat.draw_layer, game_mode.lower(), None)
-        if layer is None:  # Game mode has no layer, don´t change anything
-            return
-
         possible_cycle_1, possible_cycle_2 = get_world_layer_defaults(scene, game_mode, layer)
         if getattr(f3d, possible_cycle_1, None) is not None and getattr(f3d, possible_cycle_2, None) is not None:
             cycle_1, cycle_2 = possible_cycle_1, possible_cycle_2

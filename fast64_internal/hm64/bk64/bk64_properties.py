@@ -82,6 +82,7 @@ class BK64_Settings:
     """Snapshot of the scene's BK64 properties, for the exporters and importers"""
 
     def __init__(self, scene: bpy.types.Scene):
+        self.warnings: list[str] = []
         self.name = scene.hm64_bk64_resource_name
         self.scale = scene.hm64_bk64_scale
         self.anim_scale = scene.hm64_bk64_anim_scale

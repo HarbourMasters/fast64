@@ -14,6 +14,7 @@ from .bk64_operators import (
     BK64_ImportSkeleton,
     BK64_PromoteMaterials,
     BK64_MarkCollisionOnly,
+    BK64_SelectLooseVertices,
     BK64_SplitMeshAtBones,
 )
 
@@ -41,6 +42,7 @@ class BK64_ExportModelPanel(BK64_Panel):
 
         col.operator(BK64_PromoteMaterials.bl_idname)
         col.operator(BK64_SplitMeshAtBones.bl_idname)
+        col.operator(BK64_SelectLooseVertices.bl_idname)
         col.operator(BK64_MarkCollisionOnly.bl_idname)
         col.operator(BK64_ExportModel.bl_idname)
 
