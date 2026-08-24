@@ -11,7 +11,11 @@ import mathutils
 
 from ...f3d.f3d_enums import combiner_enums
 from ...f3d.f3d_gbi import VTX_SIZE
-from ...f3d.f3d_material import createF3DMat, update_node_values_of_material, update_tex_values_manual
+from ...f3d.f3d_material import (
+    createF3DMat,
+    update_node_values_of_material,
+    update_tex_values_manual,
+)
 from ...utility import PluginError, gammaInverse, gammaInverseValue
 from .bk64_constants import (
     BK_COLLISION_FLAG_BASE,
@@ -863,6 +867,24 @@ def _walk_display_list(words, start: int, state):
     return faces
 
 
+def _material_from_preset(mesh_obj, preset: str, prototypes: dict):
+    """A material on the preset, copied from the first one built on it"""
+    # createF3DMat reopens the node library and re-runs the preset script every
+    # call, and a model can carry hundreds of draw states
+    proto = prototypes.get(preset)
+    if proto is None:
+        material = createF3DMat(mesh_obj, preset=preset)
+        keeper = material.copy()  # before the caller writes a draw state onto it
+        keeper.use_fake_user = True
+        prototypes[preset] = keeper
+        return material
+
+    material = proto.copy()
+    # the first material through brought the color attributes with it
+    mesh_obj.data.materials.append(material)
+    return material
+
+
 def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=None):
     """One material per distinct draw state, and the image each slot samples"""
     # texture, tile, combiner and collision, all four read back off materials
@@ -872,9 +894,11 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
         for indices, draw in faces
     }
     materials, slot_image, slot_scale = {}, {}, {}
+    prototypes = {}
     for key in sorted(keys, key=repr):
         (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface, source = key
-        material = createF3DMat(mesh_obj, preset="bk64_shaded_texture" if texture is not None else "bk64_shaded_solid")
+        preset = "bk64_shaded_texture" if texture is not None else "bk64_shaded_solid"
+        material = _material_from_preset(mesh_obj, preset, prototypes)
         if isinstance(texture, tuple):
             material.name = f"{base}_anim{texture[1]}"
         else:
@@ -955,6 +979,10 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
         update_node_values_of_material(material, bpy.context)
         update_tex_values_manual(material, bpy.context)
         materials[key] = len(materials)
+
+    for proto in prototypes.values():
+        proto.use_fake_user = False
+        bpy.data.materials.remove(proto)
     return materials, slot_image, slot_scale
 
 

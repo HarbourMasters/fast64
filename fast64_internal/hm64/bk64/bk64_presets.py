@@ -2,6 +2,8 @@
 
 All 2 cycle and none set a render mode, since a BK model jumps into the game's
 table instead. Lighting stays on, the export bakes it into the vertices.
+
+Cycle 1 still passes, though. Nothing writes it, but the preview reads it.
 """
 
 from ...f3d.f3d_material import getF3DPresetPath, material_presets
@@ -109,7 +111,7 @@ f3d_mat.rdp_settings.g_mdsft_zsrcsel = 'G_ZS_PIXEL'
 f3d_mat.rdp_settings.clip_ratio = 1
 f3d_mat.rdp_settings.set_rendermode = False
 f3d_mat.rdp_settings.rendermode_advanced_enabled = False
-f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_FOG_SHADE_A'
+f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_PASS'
 f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_OPA_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
@@ -222,7 +224,7 @@ f3d_mat.rdp_settings.g_mdsft_zsrcsel = 'G_ZS_PIXEL'
 f3d_mat.rdp_settings.clip_ratio = 1
 f3d_mat.rdp_settings.set_rendermode = False
 f3d_mat.rdp_settings.rendermode_advanced_enabled = False
-f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_FOG_SHADE_A'
+f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_PASS'
 f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_OPA_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
@@ -335,7 +337,7 @@ f3d_mat.rdp_settings.g_mdsft_zsrcsel = 'G_ZS_PIXEL'
 f3d_mat.rdp_settings.clip_ratio = 1
 f3d_mat.rdp_settings.set_rendermode = False
 f3d_mat.rdp_settings.rendermode_advanced_enabled = False
-f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_FOG_SHADE_A'
+f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_PASS'
 f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_TEX_EDGE2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
@@ -448,7 +450,7 @@ f3d_mat.rdp_settings.g_mdsft_zsrcsel = 'G_ZS_PIXEL'
 f3d_mat.rdp_settings.clip_ratio = 1
 f3d_mat.rdp_settings.set_rendermode = False
 f3d_mat.rdp_settings.rendermode_advanced_enabled = False
-f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_FOG_SHADE_A'
+f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_PASS'
 f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_XLU_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '5'
@@ -561,7 +563,7 @@ f3d_mat.rdp_settings.g_mdsft_zsrcsel = 'G_ZS_PIXEL'
 f3d_mat.rdp_settings.clip_ratio = 1
 f3d_mat.rdp_settings.set_rendermode = False
 f3d_mat.rdp_settings.rendermode_advanced_enabled = False
-f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_FOG_SHADE_A'
+f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_PASS'
 f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_OPA_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
@@ -644,7 +646,7 @@ f3d_mat.rdp_settings.g_ambocclusion = False
 f3d_mat.rdp_settings.g_attroffset_z_enable = False
 f3d_mat.rdp_settings.g_attroffset_st_enable = False
 f3d_mat.rdp_settings.g_cull_front = False
-f3d_mat.rdp_settings.g_cull_back = True
+f3d_mat.rdp_settings.g_cull_back = False
 f3d_mat.rdp_settings.g_packed_normals = False
 f3d_mat.rdp_settings.g_lighttoalpha = False
 f3d_mat.rdp_settings.g_lighting_specular = False
@@ -674,7 +676,7 @@ f3d_mat.rdp_settings.g_mdsft_zsrcsel = 'G_ZS_PIXEL'
 f3d_mat.rdp_settings.clip_ratio = 1
 f3d_mat.rdp_settings.set_rendermode = False
 f3d_mat.rdp_settings.rendermode_advanced_enabled = False
-f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_FOG_SHADE_A'
+f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_PASS'
 f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_TEX_EDGE2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
@@ -757,7 +759,7 @@ f3d_mat.rdp_settings.g_ambocclusion = False
 f3d_mat.rdp_settings.g_attroffset_z_enable = False
 f3d_mat.rdp_settings.g_attroffset_st_enable = False
 f3d_mat.rdp_settings.g_cull_front = False
-f3d_mat.rdp_settings.g_cull_back = True
+f3d_mat.rdp_settings.g_cull_back = False
 f3d_mat.rdp_settings.g_packed_normals = False
 f3d_mat.rdp_settings.g_lighttoalpha = False
 f3d_mat.rdp_settings.g_lighting_specular = False
@@ -787,7 +789,7 @@ f3d_mat.rdp_settings.g_mdsft_zsrcsel = 'G_ZS_PIXEL'
 f3d_mat.rdp_settings.clip_ratio = 1
 f3d_mat.rdp_settings.set_rendermode = False
 f3d_mat.rdp_settings.rendermode_advanced_enabled = False
-f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_FOG_SHADE_A'
+f3d_mat.rdp_settings.rendermode_preset_cycle_1 = 'G_RM_PASS'
 f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_XLU_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '5'
