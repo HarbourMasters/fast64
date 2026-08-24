@@ -351,6 +351,31 @@ def promote_materials_to_2_cycle(mesh_obj):
     return changed
 
 
+def select_loose_vertices(mesh_obj):
+    """Selects the vertices no bone weights, returning how many"""
+    # Select All by Trait finds only the vertices in no group at all, and a
+    # weight of 0 or a group no bone is named after reads as loose here too
+    armature_obj = mesh_obj.find_armature()
+    if armature_obj is None:
+        raise PluginError(f"'{mesh_obj.name}' is not attached to an armature.")
+
+    bone_names = {bone.name for bone in armature_obj.data.bones}
+    groups = {group.index for group in mesh_obj.vertex_groups if group.name in bone_names}
+    mesh = mesh_obj.data
+
+    # Edit mode flushes from these, and a selected face would bring its corners with it
+    for edge in mesh.edges:
+        edge.select = False
+    for polygon in mesh.polygons:
+        polygon.select = False
+
+    found = 0
+    for vertex in mesh.vertices:
+        vertex.select = not any(entry.group in groups and entry.weight > 0.0 for entry in vertex.groups)
+        found += vertex.select
+    return found
+
+
 def split_mesh_at_bones(mesh_obj):
     """Cuts a mesh so every triangle belongs to one bone, returning the cut count"""
     # the export needs the mesh this way, but cutting it there would leave the
@@ -403,7 +428,7 @@ def _face_bone_group(face, deform_layer, group_index_to_bone):
     return max(totals.items(), key=lambda item: (item[1], -item[0]))[0]
 
 
-def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name: str, source_bones=None):
+def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name: str, source_bones=None, warnings=None):
     bone_names = {bone.name for bone in armature_obj.data.bones}
     group_index_to_bone = {group.index: group.name for group in mesh_obj.vertex_groups if group.name in bone_names}
     if not group_index_to_bone:
@@ -420,13 +445,23 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
 
     deform_layer = bm.verts.layers.deform.active
     bone_of_face, faces_by_bone = {}, {}
+    unweighted = 0
     for face in bm.faces:
         bone_name = bone_of_slot.get(face.material_index)
         if bone_name is None:
             group_index = _face_bone_group(face, deform_layer, group_index_to_bone)
+            if group_index is None:
+                unweighted += 1
             bone_name = group_index_to_bone[group_index] if group_index is not None else fallback_bone_name
         bone_of_face[face] = bone_name
         faces_by_bone.setdefault(bone_name, []).append(face.index)
+
+    # a face with nothing to vote on lands on the root, right for scenery and wrong for a limb
+    if unweighted and warnings is not None:
+        warnings.append(
+            f"{unweighted} faces on '{mesh_obj.name}' carry no weight to a bone's vertex group "
+            f"and went onto '{fallback_bone_name}'."
+        )
 
     # a chunk carries one bone. A weld across a joint gets torn, except at
     # a bone and its parent, the one seam skinning blends.
@@ -532,11 +567,25 @@ def _layout_refpoints(records):
     ]
 
 
+def _bound_refpoints(bones, armature_obj):
+    """Every REFPOINT bone of a model that draws under no bone of its own"""
+    # a selector has nothing to choose without per bone geometry, a refpoint only reports a joint
+    if armature_obj is None:
+        return []
+    records = []
+    for index, entry in enumerate(bones):
+        bone = armature_obj.data.bones[entry.name]
+        if getattr(bone, "hm64_bk64_geo_type", "NONE") == "REFPOINT":
+            records.append(("refpoint", getattr(bone, "hm64_bk64_geo_index", 0), index, tuple(entry.position)))
+    return records
+
+
 def _geo_records(bones, chunks, armature_obj, rigged: bool, chunk_bounds=None):
     # depth first matches the order the chunks were built in. A selector pulls
     # its child bones' subtrees out of that run.
     if not rigged:
-        return [("loaddl", gfx_index) for _bone_index, gfx_index in chunks]
+        records = [("loaddl", gfx_index) for _bone_index, gfx_index in chunks]
+        return records + _bound_refpoints(bones, armature_obj)
 
     chunks_by_bone = {}
     for bone_index, gfx_index in chunks:
@@ -1553,7 +1602,16 @@ def _shade_from_normal(packed, ambient, sources):
     return tuple(min(255, int(round(channel))) for channel in shade) + (255,)
 
 
-def _grouped_vertices(context, mesh_objects, space_matrix, value_of):
+def _written_key(position, scale_matrix=None):
+    """The Vtx coordinate a point is written at, which binding and mesh lists key by"""
+    # scale then round, the order F3DVert.convertPosition uses. Rounding first
+    # keys a point on a half unit to a coordinate no vertex was written at.
+    if scale_matrix is not None:
+        position = scale_matrix @ position
+    return tuple(s16(value) for value in position)
+
+
+def _grouped_vertices(context, mesh_objects, space_matrix, scale_matrix, value_of):
     """(written position, [(value, weight)]) for every vertex in a group value_of names.
 
     Keyed by coordinate, since that's what both sections using it bind by. Read
@@ -1579,16 +1637,18 @@ def _grouped_vertices(context, mesh_objects, space_matrix, value_of):
                     if index in groups and weight > 0.0
                 ]
                 if held:
-                    yield tuple(s16(vertex.co[axis]) for axis in range(3)), held
+                    yield _written_key(vertex.co, scale_matrix), held
         finally:
             bm.free()
 
 
-def _vertex_bones(context, mesh_objects, bones, space_matrix):
+def _vertex_bones(context, mesh_objects, bones, space_matrix, scale_matrix):
     """{written position: bone table index} from the meshes' own vertex groups"""
     index_of_bone = {bone.name: index for index, bone in enumerate(bones)}
     bound = {}
-    for key, held in _grouped_vertices(context, mesh_objects, space_matrix, lambda g: index_of_bone.get(g.name)):
+    for key, held in _grouped_vertices(
+        context, mesh_objects, space_matrix, scale_matrix, lambda g: index_of_bone.get(g.name)
+    ):
         weights = {}
         for bone_index, weight in held:
             weights[bone_index] = weights.get(bone_index, 0.0) + weight
@@ -1596,13 +1656,30 @@ def _vertex_bones(context, mesh_objects, bones, space_matrix):
     return bound
 
 
-def _vertex_bone_entries(vertices, bound):
+def _vertex_bone_entries(vertices, bound, warnings, space_matrix):
     """One entry per bound coordinate, listing every vertex written at it"""
     at_position = {}
+    loose = set()
     for index, vertex in enumerate(vertices):
-        key = tuple(s16(vertex[0][axis]) for axis in range(3))
+        key = _written_key(vertex[0])
         if key in bound:
             at_position.setdefault(key, []).append(index)
+        else:
+            loose.add(key)
+
+    # the game only moves vertices an entry lists, so one left out tears its triangle.
+    # Three vanilla models do that on parts that never move, so warn, don't refuse.
+    if loose:
+        # in world space, since BK units mean nothing in the N panel
+        to_blender = space_matrix.inverted()
+        listed = "; ".join(
+            "({:.3f}, {:.3f}, {:.3f})".format(*(to_blender @ mathutils.Vector(position)))
+            for position in sorted(loose)[:3]
+        )
+        warnings.append(
+            f"{len(loose)} vertex positions carry no weight to a bone's vertex group, at {listed} "
+            "in world space. Bind Vertices leaves those at rest while the rest of the model animates."
+        )
 
     entries = []
     for position, indices in at_position.items():
@@ -1627,10 +1704,10 @@ def _checked_mesh_uid(group):
     return uid
 
 
-def _mesh_list_positions(context, mesh_objects, space_matrix):
+def _mesh_list_positions(context, mesh_objects, space_matrix, scale_matrix):
     """{written position: {mesh uid}} from the meshes' own mesh list groups"""
     at_position = {}
-    for key, held in _grouped_vertices(context, mesh_objects, space_matrix, _checked_mesh_uid):
+    for key, held in _grouped_vertices(context, mesh_objects, space_matrix, scale_matrix, _checked_mesh_uid):
         at_position.setdefault(key, set()).update(uid for uid, _weight in held)
     return at_position
 
@@ -1639,7 +1716,7 @@ def _mesh_list_entries(vertices, uids_at_position):
     """One mesh per uid, listing every vertex written at its coordinates"""
     order, holding = [], {}
     for index, vertex in enumerate(vertices):
-        key = tuple(s16(vertex[0][axis]) for axis in range(3))
+        key = _written_key(vertex[0])
         for uid in sorted(uids_at_position.get(key, ())):
             if uid not in holding:
                 order.append(uid)
@@ -1702,6 +1779,7 @@ def _gather_parts(
     temp_objects,
     bind: bool = False,
     source_bones=None,
+    warnings=None,
 ):
     """Groups the geometry by bone name, building the temporary meshes"""
     # bind rigging skips the grouping, its vertices carry the rig instead
@@ -1736,7 +1814,7 @@ def _gather_parts(
                     temp_objects.append(part)
                     meshes_by_bone.setdefault(mesh_obj.parent_bone, []).append(part)
                 continue
-            split = _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, root_bone_name, source_bones)
+            split = _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, root_bone_name, source_bones, warnings)
             for bone_name, parts in split.items():
                 temp_objects += parts
                 meshes_by_bone.setdefault(bone_name, []).extend(parts)
@@ -1802,6 +1880,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             temp_objects,
             bind,
             source_bones,
+            settings.warnings,
         )
 
         # bone table order, keeping chunk order and bone order in step
@@ -1937,7 +2016,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         for _bone_index, (_layer, chunk_source), _fMeshes in chunk_fMeshes:
             source_counts[chunk_source] = source_counts.get(chunk_source, 0) + 1
         owner_of_pos = (
-            _vertex_bones(context, mesh_objects, bones, transform_matrix @ to_bk_space)
+            _vertex_bones(context, mesh_objects, bones, to_bk_space, transform_matrix)
             if armature_obj is not None
             else {}
         )
@@ -1976,12 +2055,16 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # both of these match on position. Take them before the collision only
         # vertices land, or one sitting on a drawn vertex joins its binding
         # entry and its mesh.
-        bound_vertices = _vertex_bone_entries(vertices, owner_of_pos) if bind else []
+        bound_vertices = (
+            _vertex_bone_entries(vertices, owner_of_pos, settings.warnings, transform_matrix @ to_bk_space)
+            if bind
+            else []
+        )
         if bind and not bound_vertices:
             raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
 
         meshes = _mesh_list_entries(
-            vertices, _mesh_list_positions(context, mesh_objects, transform_matrix @ to_bk_space)
+            vertices, _mesh_list_positions(context, mesh_objects, to_bk_space, transform_matrix)
         )
 
         if collision_only is not None:

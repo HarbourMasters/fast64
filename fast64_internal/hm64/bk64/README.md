@@ -35,6 +35,12 @@ Meshes must use F3D materials, as they do everywhere else in Fast64. If you have
 
 Shading comes from vertex color. The game loads no lights for a model. A vanilla model carries its shading baked into its vertices instead, and Banjo himself uses 61 different shades that way.
 
+The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha in the first cycle and scales it by the primitive color's alpha in the second, giving one fade control over the whole material. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded.
+
+No preset sets a render mode, and none should. A chunk jumps into the render mode table the game builds instead, picked by its Draw Layer. Ticking Set Render Mode writes a mode into the display list after that jump, which overrides it and takes the actor's depth behavior away from the game.
+
+The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below, and the two are set independently: a translucent preset on the opaque layer previews blended and ships solid.
+
 Force Unlit Shade, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal, then writes the result to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
 
 Reflective materials need the Reflective (Env Map) option, the way a Jiggy shines. It sets up the reflection matrix that G_TEXTURE_GEN environment mapping needs. Reflection is the one place the lighting flag earns its keep despite no lights being loaded, since that flag transforms the normal the reflection samples. A reflective material therefore keeps both the flag and its vertex normals through the export, where every other material has its shading baked down into vertex color.
@@ -77,9 +83,13 @@ The export refuses an illegal weld instead of cutting it for you. Use "Split Mes
 
 **Bind Vertices** keeps the mesh whole and writes a table beside it naming the bone each vertex follows. Before drawing, the game walks that table, takes each entry's rest position, puts it through that bone's matrix, and writes the result into the vertices the entry lists. One triangle can then reach across a joint with its corners on different bones, closing the seam without modeling around it. 116 vanilla models are built this way, including Gruntilda, Boggy and Gobi.
 
+A vertex no bone weights is left out of that table and holds its rest pose while the model moves. The export warns and names the coordinate, and "Select Loose Vertices" picks them out in the scene.
+
 No vanilla model mixes the two, and neither does the exporter. Pick one per model. Everything else is the same: the bone table goes out unchanged and animations play on either.
 
-Setting a Geo Type on a bone only takes effect with Split At Bones. The nodes pick between the geometry of different bones, and a bound model draws under none of them. A bound model imported from the game does keep the selectors, sorts and reference points it arrived with, and round trips with them intact. With either method, only the first 128 bones in the table can own a display list, though bones past that still animate.
+Setting a Geo Type on a bone only takes effect with Split At Bones, apart from Reference Point. The other nodes pick between the geometry of different bones and a bound model draws under none of them, but a reference point draws nothing at all and only reports where a joint landed. A bound model imported from the game does keep the selectors, sorts and reference points it arrived with, and round trips with them intact. With either method, only the first 128 bones in the table can own a display list, though bones past that still animate.
+
+A model standing in for one of Banjo's transformations has to carry a Reference Point in slot 1 and another in slot 2. The game reads those two back to place the player's collision spheres, and every transformation model carries them. Without them both spheres collapse onto the player's own position and enemies pass through untouched. Put slot 1 around two thirds of the way up the model and slot 2 near the bottom, matching whichever model you replace.
 
 Bound entries are keyed by rest position. Two vertices at exactly the same position go to the same bone regardless of their vertex groups. Move one of them if a joint needs them apart.
 
@@ -217,3 +227,5 @@ Two parts of the format are read past and not kept. A model carrying one exports
 - An exported animation moves the model too far or not far enough: Animation Scale doesn't match the model it's playing on.
 - Streaks or smears across flat surfaces: the tiles are set to wrap and some UVs reach past the tile edge. Set Clamp on S and T.
 - Limbs tear at the joints: the seam faces are cut, or welded across bones that aren't parent and child. Weld the seam to the joint's own bone pair, overlap the limbs, or switch to Bind Vertices.
+- A single vertex stretches away from the model as it animates: it carries no weight to a bone's vertex group, so Bind Vertices leaves it behind at rest. Run Select Loose Vertices and weight what it finds.
+- Select Loose Vertices finds nothing but the export still warned: a modifier is making that geometry. The export reads the mesh with its modifiers applied, and Boolean, Remesh, Skin and Geometry Nodes drop vertex groups.
