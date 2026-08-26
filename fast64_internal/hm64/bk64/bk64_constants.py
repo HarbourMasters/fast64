@@ -1,3 +1,5 @@
+import struct
+
 # Torch ResourceType fourccs, little endian
 RT_BK_MODEL = 0x424B4D4F
 RT_BK_ANIM = 0x424B414E
@@ -271,6 +273,13 @@ def bk64_surface_encode(fields: dict) -> int:
 
 
 NO_PARENT = 0xFFFF
+
+
+def otr_header(resource_type: int, version: int = 0):
+    # byte order, is custom, 2 unused, type, version, id
+    data = bytearray(struct.pack("<BBBBIIQ", 0, 1, 0, 0, resource_type, version, OTR_ID))
+    data.extend(b"\x00" * (OTR_HEADER_SIZE - len(data)))
+    return data
 
 
 def s16(value):
