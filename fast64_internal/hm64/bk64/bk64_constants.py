@@ -106,8 +106,11 @@ GEO_TYPE_MIPMAP_TRILINEAR = 0x02
 MIP_TEXTURE_DIM = 32
 MIP_SPTEXTURE_LEVEL = 2
 MIP_SPTEXTURE_TILE = 2
-MIP_LOAD_TILE = (0xF5100000, 0x07014050)  # load tile 7, the way every vanilla mip chunk sets it
-MIP_LOAD_BLOCK = (0xF3000000, 0x075FF100)  # 0x600 texels, base and pyramid together
+MIP_LOAD_TILE_INDEX = 7
+MIP_LOAD_TILE = (0xF5100000, 0x07014050)  # load tile 7
+MIP_LOAD_BLOCK = (0xF3000000, 0x075FF100)  # 0x600 texels
+MIP_ROW_BYTES = MIP_TEXTURE_DIM * 2
+MIP_PYRAMID_SIZE = (0x600 - MIP_TEXTURE_DIM * MIP_TEXTURE_DIM) * 2
 GEO_TYPE_ENV_MAP = 0x04
 
 # BK is F3DEX 1
@@ -262,6 +265,11 @@ GEO_LAYOUT_PROP = "hm64_bk64_geo_layout"
 
 # an HD image carries the N64 size its tiles address, for the slot to read back
 NATIVE_SIZE_PROP = "hm64_bk64_native_size"
+
+# the mip levels a texture arrived with, and
+# a fingerprint of the base they were drawn from.
+MIP_PYRAMID_PROP = "hm64_bk64_mip_pyramid"
+MIP_BASE_PROP = "hm64_bk64_mip_base"
 
 # markers on helper objects, found by walking the root's children on export
 SHAPE_KIND = "hm64_bk64_shape"

@@ -17,7 +17,7 @@ bk64_collision_type_enum = (
     ("NONE", "No Collision", "Not written into the collision list"),
     ("GROUND", "Ground", "Solid, walked on from above"),
     ("WATER", "Water", "Swimmable"),
-    ("WATER2", "Water 2", "The second water type"),
+    ("WATER2", "Water (alt)", "Swimmable. The game tests it exactly like Water"),
 )
 
 bk64_sound_type_enum = (

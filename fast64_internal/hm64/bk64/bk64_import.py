@@ -4,6 +4,7 @@ import json
 import math
 import os
 import struct
+import zlib
 
 import bmesh
 import bpy
@@ -40,6 +41,10 @@ from .bk64_constants import (
     GEO_CMD_TEXWRAP,
     GEO_CMD_UNK0,
     GEO_LAYOUT_PROP,
+    MIP_BASE_PROP,
+    MIP_LOAD_TILE_INDEX,
+    MIP_PYRAMID_PROP,
+    MIP_PYRAMID_SIZE,
     BK64_DRAW_LAYER_ENTRY,
     OP_DL,
     OP_CLEARGEOMETRYMODE,
@@ -614,7 +619,16 @@ def _decode_raw(pixels: bytes, width: int, height: int):
     return flat
 
 
-def _load_textures(folder: str, base: str, blob: bytes, palettes, used):
+def _keep_pyramid(image, data: bytes, at: int, size: int):
+    """Stash the mip levels a texture arrived with, for export to write back."""
+    pyramid = data[at + size : at + size + MIP_PYRAMID_SIZE]
+    if len(pyramid) < MIP_PYRAMID_SIZE:
+        return
+    image[MIP_PYRAMID_PROP] = pyramid.hex()
+    image[MIP_BASE_PROP] = f"{zlib.crc32(data[at : at + size]):08x}"
+
+
+def _load_textures(folder: str, base: str, blob: bytes, palettes, used, mip_used=()):
     images = {}
     index = 0
     while True:
@@ -660,7 +674,10 @@ def _load_textures(folder: str, base: str, blob: bytes, palettes, used):
             image[NATIVE_SIZE_PROP] = (width, height)
         else:
             image = bpy.data.images.new(f"{base}_tex_{index}", width, height, alpha=True)
-            image.pixels = _decode(data[pixels_at : pixels_at + size], otex_format, width, height, palette)
+            base_size = width * height * BK_TEX_BITS[otex_format] // 8
+            image.pixels = _decode(data[pixels_at : pixels_at + base_size], otex_format, width, height, palette)
+            if index in mip_used:
+                _keep_pyramid(image, data, pixels_at, base_size)
         image.pack()
         images[index] = (image, otex_format)
         index += 1
@@ -692,7 +709,7 @@ def _blob_textures(tex_infos):
     return textures
 
 
-def _load_blob_textures(base: str, blob: bytes, textures):
+def _load_blob_textures(base: str, blob: bytes, textures, mip_used=()):
     images = {}
     for index, texture in enumerate(textures):
         otex_format, width, height = texture["format"], texture["width"], texture["height"]
@@ -701,6 +718,8 @@ def _load_blob_textures(base: str, blob: bytes, textures):
 
         image = bpy.data.images.new(f"{base}_tex_{index}", width, height, alpha=True)
         image.pixels = _decode(blob[at : at + texture["size"]], otex_format, width, height, palette)
+        if index in mip_used:
+            _keep_pyramid(image, blob, at, texture["size"])
         image.pack()
         images[index] = (image, otex_format)
     return images
@@ -760,6 +779,8 @@ def new_walk_state():
         "env": None,
         "geomode": GEO_MODE_START,
         "texlevel": None,
+        "mip_tile": None,
+        "mip_textures": set(),
         "vertex_owner": {},
         "chunk_owner": None,
         "chunk_parent": None,
@@ -784,12 +805,15 @@ def _walk_display_list(words, start: int, state):
         if indices is None:
             state["dropped"] += 1  # a slot nothing has loaded yet
             return
+        mipmapped = state["texlevel"] is not None and state["texlevel"][0] > 0
+        if mipmapped and isinstance(state["texture"], int):
+            state["mip_textures"].add(state["texture"])
         faces.append(
             (
                 indices,
                 (
                     state["texture"],
-                    state["tile"],
+                    state["mip_tile"] if mipmapped and state["mip_tile"] else state["tile"],
                     state["combine"],
                     state["rendermode"],
                     state["prim"],
@@ -815,6 +839,7 @@ def _walk_display_list(words, start: int, state):
                 state["vertex_owner"][base + step] = current_owner
         elif opcode == OP_SETTIMG:
             segment, value = w1 >> 24, w1 & 0x00FFFFFF
+            state["mip_tile"] = None
             if segment == SEG_TEX:
                 state["texture"] = value
                 if state["palette"] is not None:
@@ -838,8 +863,11 @@ def _walk_display_list(words, start: int, state):
                         palettes.setdefault(state["texture"], value)
                 else:
                     state["texture"] = index
-        elif opcode == OP_SETTILE and (w1 >> 24) == 0:  # the tile triangles render from
-            state["tile"] = w1
+        elif opcode == OP_SETTILE:
+            if (w1 >> 24) == 0:
+                state["tile"] = w1
+            elif (w1 >> 24) == MIP_LOAD_TILE_INDEX:
+                state["mip_tile"] = w1
         elif opcode == OP_SETCOMBINE:
             state["combine"] = (w0 & 0xFFFFFF, w1)
         elif opcode == OP_SETGEOMETRYMODE:
@@ -889,7 +917,18 @@ def _material_from_preset(mesh_obj, preset: str, prototypes: dict):
     return material
 
 
-def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=None):
+def _report_progress(window, status, base: str):
+    """A callable that moves the cursor progress and names what it is on"""
+
+    def report(fraction, label):
+        window.progress_update(fraction)
+        if status is not None:
+            status(f"Importing {base}: {label}")
+
+    return report
+
+
+def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=None, progress=None):
     """One material per distinct draw state, and the image each slot samples"""
     # texture, tile, combiner and collision, all four read back off materials
     keys = {
@@ -899,7 +938,10 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     }
     materials, slot_image, slot_scale = {}, {}, {}
     prototypes = {}
-    for key in sorted(keys, key=repr):
+    ordered = sorted(keys, key=repr)
+    for index, key in enumerate(ordered):
+        if progress is not None:
+            progress(index / len(ordered), f"material {index + 1} of {len(ordered)}")
         (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface, source = key
         preset = "bk64_shaded_texture" if texture is not None else "bk64_shaded_solid"
         material = _material_from_preset(mesh_obj, preset, prototypes)
@@ -958,7 +1000,10 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
             material.f3d_mat.env_color = tuple(gammaInverse([c / 255.0 for c in (red, green, blue)])) + (alpha / 255.0,)
             material.f3d_mat.set_env = True
         # INHERIT for a chunk that ran before any jump. It exports without one.
-        material.hm64_bk64_draw_layer = DRAW_LAYER_OF_ENTRY.get(rendermode, "INHERIT")
+        layer = DRAW_LAYER_OF_ENTRY.get(rendermode, "INHERIT")
+        material.hm64_bk64_draw_layer = layer
+        if layer.startswith("TRANSLUCENT"):
+            material.f3d_mat.rdp_settings.rendermode_preset_cycle_2 = "G_RM_AA_ZB_XLU_SURF2"
         material.hm64_bk64_source_chunk = source  # so the export can rebuild the layout
         for bit, flag in GEO_MODE_FLAGS.items():
             setattr(material.f3d_mat.rdp_settings, flag, bool(geomode & bit))
@@ -1226,9 +1271,9 @@ def import_bk64_model(context, path: str, settings):
 
     if textures is None:
         drawn = {draw[0] for _matrix, _source, faces in geometry for _indices, draw in faces}
-        images = _load_textures(folder, base, model["blob"], state["palettes"], drawn)
+        images = _load_textures(folder, base, model["blob"], state["palettes"], drawn, state["mip_textures"])
     else:
-        images = _load_blob_textures(base, model["blob"], textures)
+        images = _load_blob_textures(base, model["blob"], textures, state["mip_textures"])
 
     model["animated_frames"] = _load_animated_frames(base, model, state["anim_binds"], images)
 
@@ -1264,9 +1309,24 @@ def import_bk64_model(context, path: str, settings):
         )
 
     surfaces = model["collision"]
-    materials, slot_image, slot_scale = _build_materials(
-        mesh_obj, base, geometry, surfaces, images, model["animated_frames"]
-    )
+    window = context.window_manager
+    workspace = getattr(context, "workspace", None)
+    status = getattr(workspace, "status_text_set", None) or getattr(window, "status_text_set", None)
+    window.progress_begin(0, 1)
+    try:
+        materials, slot_image, slot_scale = _build_materials(
+            mesh_obj,
+            base,
+            geometry,
+            surfaces,
+            images,
+            model["animated_frames"],
+            progress=_report_progress(window, status, base),
+        )
+    finally:
+        window.progress_end()
+        if status is not None:
+            status(None)
     face_data, positions, remap = _build_faces(geometry, surfaces, vertices, materials, to_blender)
     _fill_mesh(mesh, positions, face_data, slot_image, slot_scale)
 
