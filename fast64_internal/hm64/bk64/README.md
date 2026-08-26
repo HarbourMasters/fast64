@@ -18,7 +18,7 @@ Don't rename these or split them across folders. The port finds them by appendin
 ### Scene Setup
 Set the game to BK64. This also sets the microcode to F3DEX/LX, which Banjo's display lists use, and fills in the world defaults. The defaults describe the RDP state the game has already set before a model's display list runs. Because a material only writes the settings that differ from them, a vanilla model's display list is nearly empty.
 
-The defaults are stored on the scene's world, and the scene needs one. A file started from Blender's General template has one, but an empty file or an imported scene may not, in which case setting the game mode has nowhere to write them. The export will stop with a message if the world is missing or its defaults have been changed. Pick BK64 again in the game dropdown to refill them.
+The defaults are stored on the scene's world, and the scene needs one. A file started from Blender's General template has one. An empty file or an imported scene may not, and setting the game mode then has nowhere to write them. The export will stop with a message if the world is missing or its defaults have been changed. Pick BK64 again in the game dropdown to refill them.
 
 Your model should be upright with +Z up, facing -Y. The exporter converts to the N64's Y up on the way out. A static model takes its own rotation and scale with it. An armature doesn't, since a rig goes out in armature space, so apply what you turn on one. SM64 rigs in particular are often authored lying along +X, since SM64's geolayout root applies the rotation for them. Rotate those upright before exporting.
 
@@ -41,11 +41,11 @@ No preset sets a render mode, and none should. A chunk jumps into the render mod
 
 The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below, and the two are set independently: a translucent preset on the opaque layer previews blended and ships solid.
 
-Force Unlit Shade, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal, then writes the result to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
+Force Unlit Shade, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal. The result goes to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
 
-Reflective materials need the Reflective (Env Map) option, the way a Jiggy shines. It sets up the reflection matrix that G_TEXTURE_GEN environment mapping needs. Reflection is the one place the lighting flag earns its keep despite no lights being loaded, since that flag transforms the normal the reflection samples. A reflective material therefore keeps both the flag and its vertex normals through the export, where every other material has its shading baked down into vertex color.
+Reflective materials need the Reflective (Env Map) option. It sets up the reflection matrix that G_TEXTURE_GEN environment mapping needs. Reflection is the one place the lighting flag earns its keep despite no lights being loaded, since that flag transforms the normal the reflection samples. A reflective material therefore keeps both the flag and its vertex normals through the export, where every other material has its shading baked down into vertex color.
 
-Trilinear Mipmap is the other geo type flag and is off by default. With it on, any 32x32 RGBA16 material whose combiner blends two texels will have its mip pyramid generated and written.
+Trilinear Mipmap is the other geo type flag and is off by default. With it on, any 32x32 RGBA16 material whose combiner blends two texels gets a mip pyramid written. A texture imported from the game writes back the levels it came in with, which Rare drew by hand. Edit the base and the levels are filtered from it instead.
 
 Draw Layer is Opaque for solid geometry and Translucent for blended. A model does not set a render mode directly. The game builds a table of render modes from whether the actor wants depth writing, depth compare or neither, and the model picks an entry from that table. Depth behavior stays with the game. If a model overrides it, other things in the world will lose their depth test against that model.
 
@@ -87,7 +87,7 @@ A vertex no bone weights is left out of that table and holds its rest pose while
 
 No vanilla model mixes the two, and neither does the exporter. Pick one per model. Everything else is the same: the bone table goes out unchanged and animations play on either.
 
-Setting a Geo Type on a bone only takes effect with Split At Bones, apart from Reference Point. The other nodes pick between the geometry of different bones and a bound model draws under none of them, but a reference point draws nothing at all and only reports where a joint landed. A bound model imported from the game does keep the selectors, sorts and reference points it arrived with, and round trips with them intact. With either method, only the first 128 bones in the table can own a display list, though bones past that still animate.
+Setting a Geo Type on a bone only takes effect with Split At Bones, apart from Reference Point. The other nodes pick between the geometry of different bones, and a bound model draws under none of them. A reference point draws nothing at all, and only reports where a joint landed. A bound model imported from the game does keep the selectors, sorts and reference points it arrived with, and round trips with them intact. With either method, only the first 128 bones in the table can own a display list, though bones past that still animate.
 
 A model standing in for one of Banjo's transformations has to carry a Reference Point in slot 1 and another in slot 2. The game reads those two back to place the player's collision spheres, and every transformation model carries them. Without them both spheres collapse onto the player's own position and enemies pass through untouched. Put slot 1 around two thirds of the way up the model and slot 2 near the bottom, matching whichever model you replace.
 
@@ -117,7 +117,7 @@ Collision is set per material, under BK64 Collision in the material tab. Leave i
 
 The triangles reference the model's own vertices. Collision costs a triangle list and nothing more.
 
-Collision doesn't have to follow the mesh. Select a mesh, press Toggle Collision Only, and it stops drawing but still collides: an invisible floor, a barrier across a gap, or a cheap box standing in for something detailed. Give every face a material with a Collision Type set, since a face with none is an error rather than a guess. The mesh goes out as extra vertices on the end of the model's own list, the way vanilla does it, and the model's radius grows to reach them.
+Collision doesn't have to follow the mesh. Select a mesh and press Toggle Collision Only. It stops drawing but still collides: an invisible floor, a barrier across a gap, or a cheap box standing in for something detailed. Give every face a material with a Collision Type set, since a face with none is an error rather than a guess. The mesh goes out as extra vertices on the end of the model's own list, the way vanilla does it, and the model's radius grows to reach them.
 
 Vanilla leans on this. Over 90 models collide against geometry they never draw, the beehive and Mumbo's hut among them, and those come in as a `<name>_collision_only` mesh so a re-export keeps them.
 
@@ -154,7 +154,7 @@ The game uses them to decide whether one thing has touched another. Without them
 
 The import brings them in as wire objects in their own `<name>_collision_shapes` collection, marked Ignore Render so the model export leaves them alone, parented to the bone they name. Their undecoded fields ride along as custom properties.
 
-Each shape carries a code, a label and not a setting. 0 means every search skips it, 255 means the shape is a plain volume that nothing needs to tell apart from the others, and small numbers are used where something does. The jigsaw puzzle numbers its twenty pieces 1 to 20 so the game can ask which one you are standing on. What a number means is decided by whatever queries it, and several shapes can share one so the game can ask whether a point is in any of them.
+Each shape carries a code, a label and not a setting. 0 means every search skips it. 255 marks a plain volume nothing needs to tell apart from the others, and small numbers are used where something does. The jigsaw puzzle numbers its twenty pieces 1 to 20 so the game can ask which one you are standing on. What a number means is decided by whatever queries it, and several shapes can share one so the game can ask whether a point is in any of them.
 
 Shapes are exported too. Any object under the model with a Shape custom property is written as one, taken from its own transform. Move, rotate and scale it to set the shape. Parent it to a bone and it will follow that bone. Set Hit Code to 255 unless something in the game needs to tell this shape from the others. The cull radius the game tests before checking any shape is the model's own radius, the way every vanilla model sets it.
 
@@ -168,7 +168,7 @@ Which vertices belong to a mesh is worked out from their positions on the way ou
 ### Importing An Animation
 "Import BK Animation" reads an animation onto the selected armature as a new action, one keyframe per frame. Bones are matched by ID. Import the skeleton of the model the animation belongs to first. An animation naming an ID the rig doesn't have is refused rather than partly applied.
 
-An imported animation is not a byte for byte copy of the original when exported again. It is exact on every whole frame, to within the translation step above. Between two frames it can differ by a couple of BK units, because a key can only sit on a whole frame, and the original's curve leaves the line through its own per frame values by up to two degrees. Use this to read an animation to see how it moves, or to adjust it.
+An imported animation is not a byte for byte copy of the original when exported again. It is exact on every whole frame, to within the translation step above. Between two frames it can differ by a couple of BK units. A key can only sit on a whole frame, and the original's curve leaves the line through its own per frame values by up to two degrees. Use this to read an animation to see how it moves, or to adjust it.
 
 ### Importing A Model
 "Import BK Model" reads a model resource or a `.bin`, and everything that came with it: mesh, UVs, vertex colors, textures, materials, the armature with its bone ids, and Animation Scale. The format is detected from the file, leaving nothing to set. Point Model File at a resource and keep its `_GEO`, `_VTX` and `_tex_<i>` siblings in the same folder; a `.bin` carries all of that already.
@@ -177,7 +177,7 @@ The mesh comes in as one object with a vertex group per bone, each vertex in the
 
 The geo layout comes in with the model and goes back out on export: selectors, sorts, skinned seams and mipmapped materials all survive the round trip, along with your mesh edits. Geometry you add is drawn after the original layout, under whichever bone you weight it to.
 
-Both rigging methods come in weighted. A Split At Bones model takes its weights from the layout, and a bound one from its binding table, so Gruntilda, Boggy and Gobi arrive posable, not as a bare mesh sitting beside an armature. The import reports which of the two it found.
+Both rigging methods come in weighted. A Split At Bones model takes its weights from the layout, a bound one from its binding table. Gruntilda, Boggy and Gobi arrive posable, not as a bare mesh sitting beside an armature. The import reports which of the two it found.
 
 The three collision dropdowns describe the common flag words, though vanilla uses many others besides. Anything they can't describe comes in as Raw Flags and goes back out exactly as it arrived. Clear that field to author the surface with the dropdowns instead.
 
@@ -196,7 +196,7 @@ To stand in for a vanilla model, your bone table needs to carry the bone IDs tha
 
 43 of the 659 vanilla models carry a mesh list, and an actor whose model has one builds from it the moment it spawns without checking. A stand-in that carries none crashes instead of just looking wrong. Keep the mesh groups the import creates and put your own geometry in them. Tee-hee, Mutie Snippet and the Twinklies are among these.
 
-Bones come in at their original rest positions, and a third of them sit exactly on their parent: 1736 of the 5150 bones in the game, spread over 218 of the 257 rigged models. These are still real table entries. Deleting one doesn't merge it into its neighbor, it removes a link from the chain and leaves whichever animation channel addressed that ID moving nothing.
+Bones come in at their original rest positions, and a third of them sit exactly on their parent. That is 1736 of the game's 5150 bones, across 218 of the 257 rigged models. These are still real table entries. Deleting one doesn't merge it into its neighbor, it removes a link from the chain and leaves whichever animation channel addressed that ID moving nothing.
 
 ### Getting It Into The Game
 Format sets what is written, for animations as well as models. O2R writes the resource family described above, for the HarbourMasters ports. BK Model Binary writes a single `.bin` in the game's own format, which the ROM hacking tools read.

@@ -12,19 +12,28 @@ from .bk64_constants import (
     MAX_BONE_ID,
     RENDERMODE_AA_OPAQUE,
 )
+from .bk64_level_models import bk64_level_layers, bk64_level_names
 
 bk64_collision_type_enum = (
     ("NONE", "No Collision", "Not written into the collision list"),
     ("GROUND", "Ground", "Solid, walked on from above"),
-    ("DOUBLE_SIDED", "Double Sided", "Solid from either face"),
     ("WATER", "Water", "Swimmable"),
-    ("WATER2", "Water 2", "The second water type"),
+    ("WATER2", "Water (alt)", "Swimmable. The game tests it exactly like Water"),
 )
 
-bk64_ground_type_enum = (
-    ("NORMAL", "Normal", "Nothing special"),
-    ("TALON", "Talon", "Needs the Talon Trot to climb"),
-    ("UNCLIMBABLE", "Unclimbable", "Slides off"),
+bk64_level_enum = tuple(
+    (
+        name,
+        name,
+        "Opaque and translucent halves" if len(bk64_level_layers(name)) > 1 else "Opaque half only",
+    )
+    for name in bk64_level_names()
+)
+
+bk64_level_layer_enum = (
+    ("BOTH", "Both", "Each half as its own object, so either can be hidden"),
+    ("OPA", "Opaque", "The solid half on its own"),
+    ("XLU", "Translucent", "The blended half on its own, water and glass"),
 )
 
 bk64_sound_type_enum = (
@@ -130,6 +139,9 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_rigging",
     "hm64_bk64_import_path",
     "hm64_bk64_import_bone_length",
+    "hm64_bk64_level_folder",
+    "hm64_bk64_level",
+    "hm64_bk64_level_layer",
     "hm64_bk64_anim_path",
     "hm64_bk64_anim_include_rest",
     "hm64_bk64_anim_import_path",
@@ -146,8 +158,15 @@ _BK64_BONE_PROPS = (
 
 _BK64_MATERIAL_PROPS = (
     "hm64_bk64_collision_type",
-    "hm64_bk64_ground_type",
     "hm64_bk64_sound_type",
+    "hm64_bk64_trottable_slope",
+    "hm64_bk64_untrottable_slope",
+    "hm64_bk64_damage",
+    "hm64_bk64_double_sided",
+    "hm64_bk64_non_impeding",
+    "hm64_bk64_script_target",
+    "hm64_bk64_default_sounds",
+    "hm64_bk64_collision_extra",
     "hm64_bk64_draw_layer",
     "hm64_bk64_collision_raw",
     "hm64_bk64_collision_unk6",
@@ -194,7 +213,7 @@ def bk64_properties_register():
     bpy.types.Scene.hm64_bk64_env_map = BoolProperty(
         name="Reflective (Env Map)",
         default=False,
-        description="Reflective surfaces, the way a Jiggy shines. Sets up the reflection matrix",
+        description="Sets up the reflection matrix that environment mapping needs",
     )
     bpy.types.Scene.hm64_bk64_mipmap = BoolProperty(
         name="Trilinear Mipmap",
@@ -212,7 +231,7 @@ def bk64_properties_register():
         items=bk64_rigging_enum,
         default="SPLIT",
         description="How the mesh follows the bones. Split At Bones cuts it into rigid pieces, Bind "
-        "Vertices keeps it whole and gives every vertex a bone of its own",
+        "Vertices keeps it whole and weights each vertex to one bone",
     )
     bpy.types.Scene.hm64_bk64_draw_layer = EnumProperty(
         name="Draw Layer",
@@ -226,6 +245,23 @@ def bk64_properties_register():
         subtype="FILE_PATH",
         description="A BK model resource extracted from bk.o2r. Pick the model itself, not a "
         "_GEO, _VTX or _tex sibling",
+    )
+    bpy.types.Scene.hm64_bk64_level_folder = StringProperty(
+        name="Level Folder",
+        subtype="DIR_PATH",
+        description="Folder holding extracted level resources. Unpack bk.o2r and pick its "
+        "assets/level folder, or the folder you unpacked it into",
+    )
+    bpy.types.Scene.hm64_bk64_level = EnumProperty(
+        name="Level",
+        items=bk64_level_enum,
+        description="Which level to read",
+    )
+    bpy.types.Scene.hm64_bk64_level_layer = EnumProperty(
+        name="Halves",
+        items=bk64_level_layer_enum,
+        default="BOTH",
+        description="Which of the level's two models to bring in",
     )
     bpy.types.Scene.hm64_bk64_import_bone_length = FloatProperty(
         name="Bone Length",
@@ -244,34 +280,61 @@ def bk64_properties_register():
         name="Animation File",
         subtype="FILE_PATH",
         description="A BK animation extracted from bk.o2r, or a .bin, to read onto the selected "
-        "armature. It lands by bone id. Import that model's skeleton first",
+        "armature. Applied by bone id, so import that model's skeleton first",
     )
     bpy.types.Scene.hm64_bk64_anim_include_rest = BoolProperty(
         name="Hold Unanimated Bones",
         default=True,
         description="Writes one key holding every bone the action never moves. Without it those "
-        "bones keep the pose the animation before this one left them in",
+        "bones keep the pose left by the previous animation",
     )
 
     bpy.types.Material.hm64_bk64_draw_layer = EnumProperty(
         name="Draw Layer",
         items=bk64_material_draw_layer_enum,
         default="SCENE",
-        description="Draws faces using this material on their own render mode, letting one model "
-        "have a solid body and a see-through visor",
+        description="Draws faces using this material on their own render mode, so one model can mix "
+        "solid and translucent geometry",
     )
     bpy.types.Material.hm64_bk64_collision_type = EnumProperty(
         name="Collision",
         items=bk64_collision_type_enum,
         default="NONE",
-        description="Whether faces using this material go into the model's collision list, and how "
-        "Banjo meets them. Characters carry no collision, scenery does",
+        description="Whether faces using this material go into the model's collision list, and what "
+        "kind of surface they are. Characters carry no collision, scenery does",
     )
-    bpy.types.Material.hm64_bk64_ground_type = EnumProperty(
-        name="Ground Type",
-        items=bk64_ground_type_enum,
-        default="NORMAL",
-        description="How the surface behaves underfoot",
+    bpy.types.Material.hm64_bk64_trottable_slope = BoolProperty(
+        name="Trottable Slope",
+        description="Slippery unless the player is in Talon Trot",
+    )
+    bpy.types.Material.hm64_bk64_untrottable_slope = BoolProperty(
+        name="Untrottable Slope",
+        description="Slippery in any move except a transformation",
+    )
+    bpy.types.Material.hm64_bk64_damage = BoolProperty(
+        name="Damage",
+        description="Damages the player on contact",
+    )
+    bpy.types.Material.hm64_bk64_double_sided = BoolProperty(
+        name="Double Sided",
+        description="Solid from either face",
+    )
+    bpy.types.Material.hm64_bk64_non_impeding = BoolProperty(
+        name="Non-Impeding",
+        description="Detected but does not block movement",
+    )
+    bpy.types.Material.hm64_bk64_script_target = BoolProperty(
+        name="Script Target",
+        description="Targeted by the map's event scripts",
+    )
+    bpy.types.Material.hm64_bk64_default_sounds = BoolProperty(
+        name="Default Sounds",
+        description="Take the Sound Type from the shared table instead of the map's",
+    )
+    bpy.types.Material.hm64_bk64_collision_extra = IntProperty(
+        name="Other Flags",
+        default=0,
+        description="Unidentified flag bits, kept so an imported surface exports unchanged",
     )
     bpy.types.Material.hm64_bk64_sound_type = EnumProperty(
         name="Sound Type",
@@ -289,23 +352,21 @@ def bk64_properties_register():
     bpy.types.Material.hm64_bk64_collision_raw = IntProperty(
         name="Raw Flags",
         default=0,
-        description="The flag word an imported surface came in with, written back as it is. Vanilla "
-        "uses combinations the choices above can't describe. Set it to 0 to author with them instead",
+        description="The flag word an imported surface came in with, written back as it is. Only set "
+        "when the word holds a bit the choices above can't describe. Set it to 0 to author with them",
     )
     bpy.types.Material.hm64_bk64_collision_unk6 = IntProperty(
         name="Raw Unk6",
         default=0,
         min=0,
         max=0xFFFF,
-        description="The unidentified halfword an imported collision triangle came in with. Nothing "
-        "is known about it, and it's written back untouched",
+        description="The unidentified halfword an imported collision triangle came in with, written back untouched",
     )
     bpy.types.Material.hm64_bk64_anim_tex = EnumProperty(
         name="Animated Texture",
         items=bk64_anim_tex_enum,
         default="NONE",
-        description="Cycle this material's texture through a set of frames, the way a torch or a "
-        "waterfall moves. The frames go in the list below",
+        description="Cycle this material's texture through the frames listed below",
     )
     bpy.types.Material.hm64_bk64_anim_slot = IntProperty(
         name="Slot",
@@ -329,7 +390,7 @@ def bk64_properties_register():
         min=0,
         max=MAX_BONE_ID,
         description="The id animations use to address this bone. Replacing a vanilla model means "
-        "matching its ids limb for limb. 0 assigns ids automatically on export",
+        "matching its ids exactly. 0 assigns ids automatically on export",
     )
     bpy.types.Bone.hm64_bk64_geo_type = EnumProperty(
         name="Geo Type",

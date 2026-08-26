@@ -5,11 +5,13 @@ from bpy.utils import register_class, unregister_class
 from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
+from .bk64_constants import BK_COLLISION_FLAG_BITS
 from .bk64_operators import (
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
     BK64_ExportAnimation,
     BK64_ExportModel,
+    BK64_ImportLevel,
     BK64_ImportModel,
     BK64_ImportSkeleton,
     BK64_PromoteMaterials,
@@ -95,8 +97,20 @@ class BK64_ImportModelPanel(BK64_Panel):
         box = col.box().column()
         box.label(text="Import BK Model brings in the mesh, textures and armature.")
         box.label(text="Import BK Skeleton takes only the bones, ids included, so a")
-        box.label(text="replacement can answer the original's animations id for id.")
+        box.label(text="replacement accepts the original's animations.")
         box.label(text="Both need the _GEO, _VTX and _tex siblings in the same folder.")
+
+        col.separator()
+        prop_split(col, scene, "hm64_bk64_level_folder", "Level Folder")
+        prop_split(col, scene, "hm64_bk64_level", "Level")
+        prop_split(col, scene, "hm64_bk64_level_layer", "Halves")
+        col.operator(BK64_ImportLevel.bl_idname)
+
+        box = col.box().column()
+        box.label(text="Import BK Level finds a level by name, so you don't have to")
+        box.label(text="hunt for its ASSET_ file. Unpack bk.o2r and point at the")
+        box.label(text="assets/level folder inside. Each half comes in as its own")
+        box.label(text="object, so the translucent one can be hidden while you work.")
 
 
 class BK64_BonePanel(BK64_Panel):
@@ -162,8 +176,13 @@ class BK64_MaterialPanel(BK64_Panel):
             return
         prop_split(col, material, "hm64_bk64_collision_type", "Collision")
         if material.hm64_bk64_collision_type != "NONE":
-            prop_split(col, material, "hm64_bk64_ground_type", "Ground Type")
             prop_split(col, material, "hm64_bk64_sound_type", "Sound Type")
+            box = col.box().column()
+            box.label(text="Surface Flags")
+            for name in BK_COLLISION_FLAG_BITS:
+                box.prop(material, f"hm64_bk64_{name}")
+            if material.hm64_bk64_collision_extra:
+                prop_split(box, material, "hm64_bk64_collision_extra", "Other Flags")
 
 
 bk64_panel_classes = (

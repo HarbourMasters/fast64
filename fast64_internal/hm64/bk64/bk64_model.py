@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import struct
+import zlib
 
 import bmesh
 import bpy
@@ -34,10 +35,10 @@ from .bk64_constants import (
     BK_PALETTE_SIZE,
     BK_TEX_TYPE,
     bk64_world_defaults,
-    BK_COLLISION_FLAG_BASE,
+    BK_COLLISION_FLAG_BITS,
     BK_COLLISION_SINGLE_CELL_SCALE,
-    BK_COLLISION_TYPE,
-    BK_GROUND_TYPE,
+    BK_MEDIUM_TYPE,
+    bk64_surface_encode,
     COLLISION_COLOR_ATTR,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
@@ -53,8 +54,12 @@ from .bk64_constants import (
     MAX_TEXTURE_DIM,
     MAX_VERTEX_COUNT,
     MESH_GROUP_PREFIX,
+    MIP_BASE_PROP,
     MIP_LOAD_BLOCK,
     MIP_LOAD_TILE,
+    MIP_PYRAMID_PROP,
+    MIP_PYRAMID_SIZE,
+    MIP_ROW_BYTES,
     MIP_SPTEXTURE_LEVEL,
     MIP_SPTEXTURE_TILE,
     MIP_TEXTURE_DIM,
@@ -839,9 +844,17 @@ def _reads_texel1(f3d_mat):
     return False
 
 
+def _kept_pyramid(image, base: bytes):
+    """The mip levels the image was imported with, or None once its base moves."""
+    stored = image.get(MIP_PYRAMID_PROP) if image is not None else None
+    if not stored or image.get(MIP_BASE_PROP) != f"{zlib.crc32(base):08x}":
+        return None
+    kept = bytes.fromhex(stored)
+    return kept if len(kept) == MIP_PYRAMID_SIZE else None
+
+
 def _mip_pyramid(pixels: bytes) -> bytes:
-    """The 16, 8, 4 and 2 pixel levels of a 32x32 RGBA16 base, padded out to the
-    0x600 texels the mip load brings in"""
+    """The 16 down to 1 texel levels of a 32x32 RGBA16 base."""
 
     def decode(data, size):
         out = []
@@ -860,17 +873,21 @@ def _mip_pyramid(pixels: bytes) -> bytes:
                 out.append(color + (1 if sum(cell[3] for cell in cells) >= 2 else 0,))
         return out
 
+    rows = [bytearray(MIP_ROW_BYTES) for _ in range(MIP_PYRAMID_SIZE // MIP_ROW_BYTES)]
     level = decode(pixels, MIP_TEXTURE_DIM)
     size = MIP_TEXTURE_DIM
-    data = bytearray()
-    while size > 2:
+    while size > 1:
         level = shrink(level, size)
         size //= 2
+        data = bytearray()
         for red, green, blue, alpha in level:
             value = (red << 11) | (green << 6) | (blue << 1) | alpha
             data += bytes((value >> 8, value & 0xFF))
-    data += bytes((0x600 - MIP_TEXTURE_DIM * MIP_TEXTURE_DIM) * 2 - len(data))
-    return bytes(data)
+        stride = size * 2
+        at = MIP_ROW_BYTES - stride * 2
+        for row in range(size):
+            rows[row][at : at + stride] = data[row * stride : (row + 1) * stride]
+    return b"".join(bytes(row) for row in rows)
 
 
 def _vtx_loads(pairs):
@@ -1193,7 +1210,7 @@ def _collect_textures(
                         f"Texture '{fImage.name}' is HD and mipmapped. The pyramid needs N64 sized "
                         "pixels an HD image no longer carries. Drop TEXEL0 or scale it to fit TMEM."
                     )
-                pixels += _mip_pyramid(pixels)
+                pixels += _kept_pyramid(key.image, pixels) or _mip_pyramid(pixels)
             resources.append(_write_texture_resource(otex_format, fImage.width, fImage.height, pixels, hd_scale))
 
         # one entry per texture, in display list order. Fewer would slide the
@@ -1479,13 +1496,11 @@ def _surface_of_material(material):
     collision = getattr(material, "hm64_bk64_collision_type", "NONE")
     if collision == "NONE":
         return None
-    flags = (
-        (BK_COLLISION_FLAG_BASE << 24)
-        | (BK_COLLISION_TYPE[collision] << 16)
-        | (BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "NORMAL")] << 8)
-        | BK_GROUND_TYPE[getattr(material, "hm64_bk64_ground_type", "NORMAL")]
-    )
-    return (flags, 0)
+    fields = {name: getattr(material, f"hm64_bk64_{name}", False) for name in BK_COLLISION_FLAG_BITS}
+    fields["medium"] = BK_MEDIUM_TYPE[collision]
+    fields["sound"] = BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "NORMAL")]
+    fields["extra"] = getattr(material, "hm64_bk64_collision_extra", 0)
+    return (bk64_surface_encode(fields), getattr(material, "hm64_bk64_collision_unk6", 0))
 
 
 def _material_surfaces(fModel: FModel):

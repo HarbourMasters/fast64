@@ -106,8 +106,11 @@ GEO_TYPE_MIPMAP_TRILINEAR = 0x02
 MIP_TEXTURE_DIM = 32
 MIP_SPTEXTURE_LEVEL = 2
 MIP_SPTEXTURE_TILE = 2
-MIP_LOAD_TILE = (0xF5100000, 0x07014050)  # load tile 7, the way every vanilla mip chunk sets it
-MIP_LOAD_BLOCK = (0xF3000000, 0x075FF100)  # 0x600 texels, base and pyramid together
+MIP_LOAD_TILE_INDEX = 7
+MIP_LOAD_TILE = (0xF5100000, 0x07014050)  # load tile 7
+MIP_LOAD_BLOCK = (0xF3000000, 0x075FF100)  # 0x600 texels
+MIP_ROW_BYTES = MIP_TEXTURE_DIM * 2
+MIP_PYRAMID_SIZE = (0x600 - MIP_TEXTURE_DIM * MIP_TEXTURE_DIM) * 2
 GEO_TYPE_ENV_MAP = 0x04
 
 # BK is F3DEX 1
@@ -186,11 +189,6 @@ WHITE_TEXTURE_DIM = 8
 # scale 0 means one cell holding everything, the path the game takes for it
 BK_COLLISION_SINGLE_CELL_SCALE = 0
 
-# Top byte of the triangle flag word
-BK_COLLISION_FLAG_BASE = 0x88
-
-BK_COLLISION_TYPE = {"GROUND": 0, "DOUBLE_SIDED": 1, "WATER": 3, "WATER2": 4, "NONE": 0xFF}
-BK_GROUND_TYPE = {"NORMAL": 0, "TALON": 25, "UNCLIMBABLE": 64}
 BK_SOUND_TYPE = {
     "NORMAL": 0,
     "METAL": 1,
@@ -204,6 +202,60 @@ BK_SOUND_TYPE = {
     "SLUSH": 9,
 }
 
+# BKCollisionTriangle.flags is a bit field
+BK_COLLISION_SOUND_SHIFT = 8
+BK_COLLISION_SOUND_MASK = 0x00000F00
+BK_COLLISION_MEDIUM_SHIFT = 17
+BK_COLLISION_MEDIUM_MASK = 0x001E0000  # core2/vtx/listutils.c func_802E7408 tests all four together
+BK_MEDIUM_TYPE = {"GROUND": 0, "WATER": 1, "WATER2": 2}
+
+BK_COLLISION_FLAG_BITS = {
+    "trottable_slope": 0x00000010,
+    "untrottable_slope": 0x00000040,
+    "damage": 0x00002000,  # core2/ba/hazards.c reads it off the floor under the player
+    "double_sided": 0x00010000,  # core2/collision/raycast.c, and listutils.c inverts the normal
+    "non_impeding": 0x00400000,
+    "script_target": 0x08000000,
+    "default_sounds": 0x80000000,
+}
+
+# unidentified bits vanilla sets
+BK_COLLISION_EXTRA_MASK = 0x05A01080
+
+BK_COLLISION_KNOWN_MASK = BK_COLLISION_SOUND_MASK | BK_COLLISION_MEDIUM_MASK | BK_COLLISION_EXTRA_MASK
+for _mask in BK_COLLISION_FLAG_BITS.values():
+    BK_COLLISION_KNOWN_MASK |= _mask
+del _mask
+
+
+def bk64_surface_decode(flags: int) -> dict | None:
+    """The flag word as named fields, or None if it sets a bit we don't recognize"""
+    flags &= 0xFFFFFFFF
+    if flags & ~BK_COLLISION_KNOWN_MASK:
+        return None
+    sound = (flags & BK_COLLISION_SOUND_MASK) >> BK_COLLISION_SOUND_SHIFT
+    medium = (flags & BK_COLLISION_MEDIUM_MASK) >> BK_COLLISION_MEDIUM_SHIFT
+    if sound not in BK_SOUND_TYPE.values() or medium not in BK_MEDIUM_TYPE.values():
+        return None
+
+    fields = {name: bool(flags & mask) for name, mask in BK_COLLISION_FLAG_BITS.items()}
+    fields["sound"] = sound
+    fields["medium"] = medium
+    fields["extra"] = flags & BK_COLLISION_EXTRA_MASK
+    return fields
+
+
+def bk64_surface_encode(fields: dict) -> int:
+    """The flag word for those fields"""
+    flags = (fields.get("sound", 0) << BK_COLLISION_SOUND_SHIFT) & BK_COLLISION_SOUND_MASK
+    flags |= (fields.get("medium", 0) << BK_COLLISION_MEDIUM_SHIFT) & BK_COLLISION_MEDIUM_MASK
+    flags |= fields.get("extra", 0) & BK_COLLISION_EXTRA_MASK
+    for name, mask in BK_COLLISION_FLAG_BITS.items():
+        if fields.get(name):
+            flags |= mask
+    return flags
+
+
 NO_PARENT = 0xFFFF
 
 MAX_VERTEX_COUNT = 32767  # the header count is an s16, the port drops indices past it
@@ -213,6 +265,11 @@ GEO_LAYOUT_PROP = "hm64_bk64_geo_layout"
 
 # an HD image carries the N64 size its tiles address, for the slot to read back
 NATIVE_SIZE_PROP = "hm64_bk64_native_size"
+
+# the mip levels a texture arrived with, and
+# a fingerprint of the base they were drawn from.
+MIP_PYRAMID_PROP = "hm64_bk64_mip_pyramid"
+MIP_BASE_PROP = "hm64_bk64_mip_base"
 
 # markers on helper objects, found by walking the root's children on export
 SHAPE_KIND = "hm64_bk64_shape"
