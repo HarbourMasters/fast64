@@ -248,15 +248,14 @@ def surface_of_material(material):
     """(flags, unk6) for a material that asks for collision, None for one that doesn't"""
     raw = getattr(material, "hm64_bk64_collision_raw", 0)
     if raw:
-        # an imported surface, kept exactly. Vanilla uses flag words the three
-        # choices can't describe.
+        # an imported surface kept exactly, for the flag words only a romhack sets
         return (raw & 0xFFFFFFFF, getattr(material, "hm64_bk64_collision_unk6", 0))
     collision = getattr(material, "hm64_bk64_collision_type", "NONE")
     if collision == "NONE":
         return None
     fields = {name: getattr(material, f"hm64_bk64_{name}", False) for name in BK_COLLISION_FLAG_BITS}
     fields["medium"] = BK_MEDIUM_TYPE[collision]
-    fields["sound"] = BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "NORMAL")]
+    fields["sound"] = BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "MAP_DEFAULT")]
     fields["extra"] = getattr(material, "hm64_bk64_collision_extra", 0)
     return (bk64_surface_encode(fields), getattr(material, "hm64_bk64_collision_unk6", 0))
 
