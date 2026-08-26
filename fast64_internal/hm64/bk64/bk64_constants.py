@@ -63,7 +63,7 @@ BK_TEX_BITS = {"CI4": 4, "CI8": 8, "RGBA16": 16, "RGBA32": 32, "IA8": 8}
 # frame the game slides that segment's base on by frame_size bytes.
 SEG_ANIM_BASE = 15
 ANIM_TEX_SLOT_COUNT = 4
-ANIM_FRAME_FORMATS = frozenset(("RGBA16", "RGBA32", "IA8"))  # a CI frame would animate its palette too
+ANIM_FRAME_FORMATS = frozenset(("RGBA16", "RGBA32", "IA8", "CI4", "CI8"))  # a CI frame carries its palette with it
 
 MAX_TEXTURE_DIM = 255  # BKTextureInfo stores width/height as u8
 

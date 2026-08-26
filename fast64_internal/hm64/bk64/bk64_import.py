@@ -672,12 +672,25 @@ def _load_animated_frames(base: str, model, binds, images):
         if otex_format is None:
             raise PluginError(f"Animated texture in '{base}' is type {info['type']}, which has no BK format.")
 
-        rows = frame_size * 8 // (info["width"] * BK_TEX_BITS[otex_format])
+        # a CI frame's palette rides ahead of its image, sliding along with it
+        pal_size = BK_PALETTE_SIZE.get(otex_format, 0)
+        expected = pal_size + info["width"] * info["height"] * BK_TEX_BITS[otex_format] // 8
+        if pal_size and expected != frame_size:
+            # Don't trust the header, test the stride
+            for candidate in ("CI4", "CI8"):
+                c_pal = BK_PALETTE_SIZE[candidate]
+                c_bytes = info["width"] * info["height"] * BK_TEX_BITS[candidate] // 8
+                if c_pal + c_bytes == frame_size:
+                    otex_format, pal_size = candidate, c_pal
+                    break
+        rows = (frame_size - pal_size) * 8 // (info["width"] * BK_TEX_BITS[otex_format])
         built = []
         for index in range(frame_count):
             at = offset + index * frame_size
             image = bpy.data.images.new(f"{base}_anim{slot}_{index}", info["width"], rows, alpha=True)
-            image.pixels = _decode(blob[at : at + frame_size], otex_format, info["width"], rows, b"")
+            image.pixels = _decode(
+                blob[at + pal_size : at + frame_size], otex_format, info["width"], rows, blob[at : at + pal_size]
+            )
             image.pack()
             built.append(image)
 

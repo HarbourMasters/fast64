@@ -1117,7 +1117,7 @@ def _collect_textures(
             shared = key.imagesSharingPalette or (key.image,)
             palette_size[shared] = max(palette_size.get(shared, 0), BK_PALETTE_SIZE[otex_format])
 
-    palette_offset, palette_colors, palette_data, palette_address = {}, {}, {}, {}
+    palette_offset, palette_colors, palette_data, palette_address, anim_palettes = {}, {}, {}, {}, {}
     for key, fImage in fModel.textures.items():
         if not isinstance(key, FPaletteKey):
             continue
@@ -1132,7 +1132,8 @@ def _collect_textures(
             )
         palette_colors[shared_key] = fImage.height
         palette_data[shared_key] = padded
-        if not embed_images:
+        animated_shared = any(image in (animated or {}) for image in shared_key or ())
+        if not embed_images and not animated_shared:
             palette_offset[shared_key] = len(blob)
             blob.extend(padded)
 
@@ -1158,32 +1159,40 @@ def _collect_textures(
             slot, frames, _rate = animation
             if otex_format not in ANIM_FRAME_FORMATS:
                 raise PluginError(
-                    f"Animated texture '{fImage.name}' is {otex_format}. A CI frame would have to "
-                    "animate its palette alongside it. Use RGBA16, RGBA32 or IA8."
+                    f"Animated texture '{fImage.name}' is {otex_format}. Use RGBA16, RGBA32, IA8, CI4 or CI8 frames."
                 )
             if _hd_scale_of(fImage) is not None:
                 raise PluginError(
                     f"Animated texture '{fImage.name}' is HD. The game slides the segment on by a "
                     "frame of N64 sized bytes and a raw strip no longer matches. Scale it to fit TMEM."
                 )
-            pixels = _strip_pixels(fImage, frames, otex_format)
             strip_offset = len(blob)
             if strip_offset > 0xFFFFFF:
                 raise PluginError(f"'{fImage.name}' lands past the 16MB a segment can address. Use fewer textures.")
+            segment_base = (SEG_ANIM_BASE - slot) << 24
+            if paletted:
+                pixels = _strip_ci_pixels(fImage, frames, otex_format, palette_data[shared])
+                # the palette rides ahead of each frame and both slide together
+                anim_palettes[shared] = segment_base | strip_offset
+                fImage.startAddress = segment_base | (strip_offset + BK_PALETTE_SIZE[otex_format])
+            else:
+                pixels = _strip_pixels(fImage, frames, otex_format)
+                fImage.startAddress = segment_base | strip_offset
             blob.extend(pixels)
-            # the game binds the strip by segment and slides it a frame at a time
-            fImage.startAddress = ((SEG_ANIM_BASE - slot) << 24) | strip_offset
             frame_bytes = len(pixels) // len(frames)
             animated_offsets[slot] = (strip_offset, frame_bytes, len(frames))
+            # BKTextureInfo holds height as a u8. GV's 21 frame strip declares
+            # one frame, the short vanilla strips their total
+            strip_height = fImage.height * len(frames)
+            if strip_height > MAX_TEXTURE_DIM:
+                strip_height = fImage.height
             if not embed_images:
-                resources.append(
-                    _write_texture_resource(otex_format, fImage.width, fImage.height * len(frames), pixels)
-                )
+                resources.append(_write_texture_resource(otex_format, fImage.width, strip_height, pixels))
             infos.append(
                 dict(
                     type=BK_TEX_TYPE.get(otex_format, 0),
                     width=fImage.width,
-                    height=fImage.height * len(frames),
+                    height=strip_height,
                     colors=0,
                     offset=strip_offset,
                 )
@@ -1250,7 +1259,10 @@ def _collect_textures(
         palette_offset = palette_address
     for key, fImage in fModel.textures.items():
         if isinstance(key, FPaletteKey):
-            fImage.startAddress = (SEG_TEX_BLOB << 24) | palette_offset[key.imagesSharingPalette]
+            if key.imagesSharingPalette in anim_palettes:
+                fImage.startAddress = anim_palettes[key.imagesSharingPalette]
+            else:
+                fImage.startAddress = (SEG_TEX_BLOB << 24) | palette_offset[key.imagesSharingPalette]
 
     return resources, infos, bytes(blob), white_offset, animated_offsets
 
@@ -1451,6 +1463,35 @@ def _strip_pixels(fImage, frames, otex_format: str):
                 "Every frame has to be the same size and format."
             )
         encoded += spare.data
+    return bytes(encoded)
+
+
+def _strip_ci_pixels(fImage, frames, otex_format: str, palette0: bytes):
+    """Every frame as its own palette then image, frame 0 first"""
+    from ...f3d.f3d_texture_writer import getColorsUsedInImage, writeCITextureData
+
+    pal_size = BK_PALETTE_SIZE[otex_format]
+    first = bytes(fImage.data)
+    encoded = bytearray(palette0 + first)
+    for frame in frames[1:]:
+        colors = getColorsUsedInImage(frame, "RGBA16")
+        if len(colors) > pal_size // 2:
+            raise PluginError(
+                f"Frame '{frame.name}' uses {len(colors)} colors and {otex_format} palettes hold "
+                f"{pal_size // 2}. Reduce its colors, or use RGBA16 frames."
+            )
+        spare = FImage(frame.name, fImage.fmt, fImage.bitSize, frame.size[0], frame.size[1], None)
+        writeCITextureData(frame, spare, colors, "RGBA16", otex_format)
+        if len(spare.data) != len(first):
+            raise PluginError(
+                f"Frame '{frame.name}' encodes to {len(spare.data)} bytes and frame 0 to {len(first)}. "
+                "Every frame has to be the same size and format."
+            )
+        palette = bytearray(pal_size)
+        for index, color in enumerate(colors):
+            palette[index * 2] = color >> 8
+            palette[index * 2 + 1] = color & 0xFF
+        encoded += palette + spare.data
     return bytes(encoded)
 
 
