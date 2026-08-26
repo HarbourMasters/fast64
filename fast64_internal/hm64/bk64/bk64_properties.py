@@ -88,7 +88,7 @@ bk64_draw_layer_enum = (
 )
 
 bk64_material_draw_layer_enum = (
-    ("SCENE", "From Scene", "The export panel's Draw Layer, or Translucent when the render mode blends"),
+    ("SCENE", "From Scene", "Whatever the export panel's Draw Layer says"),
     ("INHERIT", "Inherit", "Sets no render mode and draws with whatever the chunk before it left"),
 ) + bk64_draw_layer_enum
 

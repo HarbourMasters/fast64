@@ -4,7 +4,6 @@ import struct
 import zlib
 
 from ...f3d.f3d_gbi import FImage, FModel, FPaletteKey
-from ...f3d.f3d_material import get_output_method
 from ...utility import PluginError
 from .bk64_constants import (
     ANIM_FRAME_FORMATS,
@@ -318,11 +317,7 @@ def collect_textures(
 
 def draw_layer_of(material, scene_layer: str):
     layer = getattr(material, "hm64_bk64_draw_layer", "SCENE") if material is not None else "SCENE"
-    if layer != "SCENE":
-        return layer
-    if material is not None and get_output_method(material) == "XLU":
-        return "TRANSLUCENT_NO_AA" if scene_layer.endswith("_NO_AA") else "TRANSLUCENT"
-    return scene_layer
+    return scene_layer if layer == "SCENE" else layer
 
 
 def _combiner_fold(f3d_mat):
