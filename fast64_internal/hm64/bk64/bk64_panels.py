@@ -96,7 +96,7 @@ class BK64_ImportModelPanel(BK64_Panel):
         box = col.box().column()
         box.label(text="Import BK Model brings in the mesh, textures and armature.")
         box.label(text="Import BK Skeleton takes only the bones, ids included, so a")
-        box.label(text="replacement can answer the original's animations id for id.")
+        box.label(text="replacement accepts the original's animations.")
         box.label(text="Both need the _GEO, _VTX and _tex siblings in the same folder.")
 
 

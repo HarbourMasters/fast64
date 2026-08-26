@@ -194,7 +194,7 @@ def bk64_properties_register():
     bpy.types.Scene.hm64_bk64_env_map = BoolProperty(
         name="Reflective (Env Map)",
         default=False,
-        description="Reflective surfaces, the way a Jiggy shines. Sets up the reflection matrix",
+        description="Sets up the reflection matrix that environment mapping needs",
     )
     bpy.types.Scene.hm64_bk64_mipmap = BoolProperty(
         name="Trilinear Mipmap",
@@ -212,7 +212,7 @@ def bk64_properties_register():
         items=bk64_rigging_enum,
         default="SPLIT",
         description="How the mesh follows the bones. Split At Bones cuts it into rigid pieces, Bind "
-        "Vertices keeps it whole and gives every vertex a bone of its own",
+        "Vertices keeps it whole and weights each vertex to one bone",
     )
     bpy.types.Scene.hm64_bk64_draw_layer = EnumProperty(
         name="Draw Layer",
@@ -244,21 +244,21 @@ def bk64_properties_register():
         name="Animation File",
         subtype="FILE_PATH",
         description="A BK animation extracted from bk.o2r, or a .bin, to read onto the selected "
-        "armature. It lands by bone id. Import that model's skeleton first",
+        "armature. Applied by bone id, so import that model's skeleton first",
     )
     bpy.types.Scene.hm64_bk64_anim_include_rest = BoolProperty(
         name="Hold Unanimated Bones",
         default=True,
         description="Writes one key holding every bone the action never moves. Without it those "
-        "bones keep the pose the animation before this one left them in",
+        "bones keep the pose left by the previous animation",
     )
 
     bpy.types.Material.hm64_bk64_draw_layer = EnumProperty(
         name="Draw Layer",
         items=bk64_material_draw_layer_enum,
         default="SCENE",
-        description="Draws faces using this material on their own render mode, letting one model "
-        "have a solid body and a see-through visor",
+        description="Draws faces using this material on their own render mode, so one model can mix "
+        "solid and translucent geometry",
     )
     bpy.types.Material.hm64_bk64_collision_type = EnumProperty(
         name="Collision",
@@ -330,8 +330,7 @@ def bk64_properties_register():
         name="Animated Texture",
         items=bk64_anim_tex_enum,
         default="NONE",
-        description="Cycle this material's texture through a set of frames, the way a torch or a "
-        "waterfall moves. The frames go in the list below",
+        description="Cycle this material's texture through the frames listed below",
     )
     bpy.types.Material.hm64_bk64_anim_slot = IntProperty(
         name="Slot",
@@ -355,7 +354,7 @@ def bk64_properties_register():
         min=0,
         max=MAX_BONE_ID,
         description="The id animations use to address this bone. Replacing a vanilla model means "
-        "matching its ids limb for limb. 0 assigns ids automatically on export",
+        "matching its ids exactly. 0 assigns ids automatically on export",
     )
     bpy.types.Bone.hm64_bk64_geo_type = EnumProperty(
         name="Geo Type",
