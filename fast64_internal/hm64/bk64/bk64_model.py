@@ -40,6 +40,7 @@ from .bk64_constants import (
     COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
+    SOURCE_CHUNK_ATTR,
     CYCLE_TYPE_2CYCLE,
     DEFAULT_LIGHT_DIR,
     F3D_FMT_TO_OTEX,
@@ -447,18 +448,15 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
 
     # an imported face keeps its chunk's bone from the layout, not a weight
     # vote that could land it across the seam
-    bone_of_slot = {}
-    if source_bones:
-        for slot_index, slot in enumerate(mesh_obj.material_slots):
-            source = getattr(slot.material, "hm64_bk64_source_chunk", -1) if slot.material else -1
-            if source in source_bones:
-                bone_of_slot[slot_index] = source_bones[source]
+    source_of_face = _face_sources(mesh_obj.data) if source_bones else []
 
     deform_layer = bm.verts.layers.deform.active
     bone_of_face, faces_by_bone = {}, {}
     unweighted = 0
     for face in bm.faces:
-        bone_name = bone_of_slot.get(face.material_index)
+        bone_name = None
+        if source_bones and face.index < len(source_of_face):
+            bone_name = source_bones.get(source_of_face[face.index])
         if bone_name is None:
             group_index = _face_bone_group(face, deform_layer, group_index_to_bone)
             if group_index is None:
@@ -1304,28 +1302,35 @@ def _draw_layer_of(material, scene_layer: str):
     return scene_layer
 
 
-def _draw_key_of(material, scene_layer: str):
-    """(draw layer, source chunk) a material asks for, and chunks split where it differs.
-
-    The source chunk is the display list an imported face was drawn in. Keeping
-    those faces together lets the layout a model came with be written again with
-    the new indices.
-    """
-    source = getattr(material, "hm64_bk64_source_chunk", -1) if material is not None else -1
-    return (_draw_layer_of(material, scene_layer), source)
+def _face_sources(mesh):
+    """The chunk each face was drawn in, off the mesh or an older blend's materials"""
+    layer = mesh.attributes.get(SOURCE_CHUNK_ATTR)
+    if layer is not None and layer.domain == "FACE":
+        return [item.value for item in layer.data]
+    of_slot = [getattr(material, "hm64_bk64_source_chunk", -1) if material else -1 for material in mesh.materials] or [
+        -1
+    ]
+    return [
+        of_slot[polygon.material_index] if polygon.material_index < len(of_slot) else -1 for polygon in mesh.polygons
+    ]
 
 
 def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
-    """The part as (key, object) pairs, cut where its materials disagree"""
+    """The part as (key, object) pairs, cut where its faces disagree"""
     # a chunk jumps into one render mode entry. Other faces need their own.
-    key_of_slot = {
-        index: _draw_key_of(slot.material, scene_layer) for index, slot in enumerate(part_obj.material_slots)
+    layer_of_slot = {
+        index: _draw_layer_of(slot.material, scene_layer) for index, slot in enumerate(part_obj.material_slots)
     }
-    default = (scene_layer, -1)
+    sources = _face_sources(part_obj.data)
     part_obj.data.calc_loop_triangles()
-    wanted = {key_of_slot.get(tri.material_index, default) for tri in part_obj.data.loop_triangles}
+    key_of_face = [
+        (layer_of_slot.get(polygon.material_index, scene_layer), sources[index])
+        for index, polygon in enumerate(part_obj.data.polygons)
+    ]
+    default = (scene_layer, -1)
+    wanted = set(key_of_face) or {default}
     if len(wanted) <= 1:
-        return [(wanted.pop() if wanted else default, part_obj)]
+        return [(wanted.pop(), part_obj)]
 
     pieces = []
     for key in sorted(wanted):
@@ -1334,7 +1339,7 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
         bm.faces.ensure_lookup_table()
         bmesh.ops.delete(
             bm,
-            geom=[face for face in bm.faces if key_of_slot.get(face.material_index, default) != key],
+            geom=[face for face in bm.faces if key_of_face[face.index] != key],
             context="FACES",
         )
         piece = _bmesh_to_object(context, bm, f"{part_obj.name}_{key[0].lower()}_{key[1]}", part_obj)

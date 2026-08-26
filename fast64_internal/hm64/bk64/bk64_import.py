@@ -37,6 +37,7 @@ from .bk64_constants import (
     GEO_CMD_TEXWRAP,
     GEO_CMD_UNK0,
     GEO_LAYOUT_PROP,
+    SOURCE_CHUNK_ATTR,
     MIP_BASE_PROP,
     MIP_LOAD_TILE_INDEX,
     MIP_PYRAMID_PROP,
@@ -867,9 +868,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     """One material per distinct draw state, and the image each slot samples"""
     # texture, tile, combiner and collision, all four read back off materials
     keys = {
-        (draw, surfaces.get(tuple(sorted(indices))), source)
-        for _matrix, source, faces in geometry
-        for indices, draw in faces
+        (draw, surfaces.get(tuple(sorted(indices)))) for _matrix, _source, faces in geometry for indices, draw in faces
     }
     materials, slot_image, slot_scale = {}, {}, {}
     prototypes = {}
@@ -877,7 +876,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     for index, key in enumerate(ordered):
         if progress is not None:
             progress(index / len(ordered), f"material {index + 1} of {len(ordered)}")
-        (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface, source = key
+        (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface = key
         preset = "bk64_shaded_texture" if texture is not None else "bk64_shaded_solid"
         material = _material_from_preset(mesh_obj, preset, prototypes)
         if isinstance(texture, tuple):
@@ -939,7 +938,6 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
         material.hm64_bk64_draw_layer = layer
         if layer.startswith("TRANSLUCENT"):
             material.f3d_mat.rdp_settings.rendermode_preset_cycle_2 = "G_RM_AA_ZB_XLU_SURF2"
-        material.hm64_bk64_source_chunk = source  # so the export can rebuild the layout
         for bit, flag in GEO_MODE_FLAGS.items():
             setattr(material.f3d_mat.rdp_settings, flag, bool(geomode & bit))
         # BK keeps its shading in vertex colors. A lit material has the export
@@ -983,8 +981,10 @@ def _build_faces(geometry, surfaces, vertices, materials, to_blender):
                 corners.append(remap[index])
             if len(set(corners)) < 3:
                 continue  # a degenerate triangle carries no surface
-            key = (draw, surfaces.get(tuple(sorted(indices))), source)
-            face_data.append((corners, materials[key], matrix_id, [vertices[i] for i in indices], list(indices)))
+            key = (draw, surfaces.get(tuple(sorted(indices))))
+            face_data.append(
+                (corners, materials[key], matrix_id, [vertices[i] for i in indices], list(indices), source)
+            )
     return face_data, positions, remap
 
 
@@ -1140,9 +1140,12 @@ def _fill_mesh(mesh, positions, face_data, slot_image, slot_scale):
     )
     alpha_layer = mesh.color_attributes.get("Alpha")
 
-    for face_index, (_corners, material_index, _matrix_id, source, _orig_indices) in enumerate(face_data):
+    # the chunk each face was drawn in, for the export to rebuild the layout
+    chunk_layer = mesh.attributes.new(name=SOURCE_CHUNK_ATTR, type="INT", domain="FACE")
+    for face_index, (_corners, material_index, _matrix_id, source, _orig_indices, chunk) in enumerate(face_data):
         polygon = mesh.polygons[face_index]
         polygon.material_index = material_index
+        chunk_layer.data[face_index].value = chunk
         image = slot_image.get(material_index)
         width, height = (image.size[0], image.size[1]) if image else (32, 32)
         scale_s, scale_t = slot_scale.get(material_index, (1.0, 1.0))
@@ -1296,7 +1299,7 @@ def import_bk64_model(context, path: str, settings):
         # to the child and tear the joint open the moment it bends.
         owner_of = state["vertex_owner"]
         fallback = {}
-        for corners, _material, matrix_id, _source, orig_indices in face_data:
+        for corners, _material, matrix_id, _source, orig_indices, _chunk in face_data:
             for orig in orig_indices:
                 fallback.setdefault(orig, matrix_id)
         groups = {}

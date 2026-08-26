@@ -299,6 +299,10 @@ NATIVE_SIZE_PROP = "hm64_bk64_native_size"
 MIP_PYRAMID_PROP = "hm64_bk64_mip_pyramid"
 MIP_BASE_PROP = "hm64_bk64_mip_base"
 
+# the display list chunk each imported face was drawn in, on the mesh rather
+# than the material so identical materials can share one slot
+SOURCE_CHUNK_ATTR = "hm64_bk64_source"
+
 # the cell grid a model's collision came with, written back while the surface
 # set still matches
 COLLISION_GRID_PROP = "hm64_bk64_collision_grid"
