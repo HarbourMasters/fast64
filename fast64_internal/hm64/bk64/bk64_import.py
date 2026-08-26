@@ -1219,6 +1219,7 @@ def import_bk64_model(context, path: str, settings):
     # Nothing here samples one, and nothing writes one back.
     bound = {draw[0] for _matrix, _source, faces in geometry for _indices, draw in faces}
     model["unbound_textures"] = max(0, len(model["tex_infos"]) - len({t for t in bound if isinstance(t, int)}))
+    model["dropped"] = state["dropped"]
 
     armature_obj = None
     bone_names = {}
