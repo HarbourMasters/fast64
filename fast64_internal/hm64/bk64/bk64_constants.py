@@ -264,6 +264,20 @@ def bk64_surface_encode(fields: dict) -> int:
 
 NO_PARENT = 0xFFFF
 
+
+def s16(value):
+    """Rounded and clamped, a coordinate past the range would wrap"""
+    return max(-32768, min(32767, int(round(value))))
+
+
+def tri_indices(word, cache):
+    """The three vertices a G_TRI word names, or None when a slot holds nothing yet"""
+    try:
+        return [cache[((word >> shift) & 0xFF) // 2] for shift in (16, 8, 0)]
+    except KeyError:
+        return None
+
+
 MAX_VERTEX_COUNT = 32767  # the header count is an s16, the port drops indices past it
 
 # where an imported model's geo layout rides, as JSON on the armature

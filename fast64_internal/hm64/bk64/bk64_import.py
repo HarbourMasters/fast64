@@ -19,13 +19,9 @@ from ...f3d.f3d_material import (
 )
 from ...utility import PluginError, gammaInverse, gammaInverseValue
 from .bk64_constants import (
-    BK_COLLISION_FLAG_BITS,
-    BK_MEDIUM_TYPE,
     BK_PALETTE_SIZE,
     BK_TEX_BITS,
     BK_TEX_TYPE,
-    BK_SOUND_TYPE,
-    bk64_surface_decode,
     GEO_CMD_BONE,
     GEO_CMD_CALL,
     GEO_CMD_CAMERA,
@@ -81,8 +77,16 @@ from .bk64_constants import (
     SEG_TEX_BLOB,
     SHAPE_KIND,
     SHAPE_PIVOT,
+    tri_indices,
 )
-from .bk64_rom import is_bkmodelbin, layout_records, pack_collision_grid, read_bkmodelbin_header, tri_indices
+from .bk64_collision import (
+    apply_surface,
+    pack_collision_grid,
+    read_bin_collision,
+    read_collision,
+    read_collision_shapes_data,
+)
+from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header
 from .bk64_skeleton import bone_space_matrix, create_armature_from_bones, read_bone_table
 
 OTEX_FORMAT = {value: key for key, value in OTEX_TYPE.items()}
@@ -134,9 +138,9 @@ def _read_model(data: bytes):
 
     collision, collision_grid, shapes = {}, None, None
     if has_collision:
-        collision, collision_grid, offset = _read_collision(data, offset)
+        collision, collision_grid, offset = read_collision(data, offset)
     if has_shapes:
-        shapes, offset = _read_collision_shapes(data, offset)
+        shapes, offset = read_collision_shapes_data(data, offset)
 
     extra, offset = _read_rest(data, offset, flags[3:])
     if offset != len(data):
@@ -191,7 +195,7 @@ def _read_model_bin(data: bytes):
         blob = data[blob_at : blob_at + blob_size]
 
     anim_scale, bones = read_bone_table(data)
-    bin_collision = _read_bin_collision(data, header["collision"]) if header["collision"] else ({}, None)
+    bin_collision = read_bin_collision(data, header["collision"]) if header["collision"] else ({}, None)
     model = dict(
         geo_type=header["geo_type"],
         tri_count=header["tri_count"],
@@ -210,111 +214,10 @@ def _read_model_bin(data: bytes):
         bones=bones,
         collision=bin_collision[0],
         collision_grid=bin_collision[1],
-        shapes=_read_collision_shapes(data, header["unk14"], ">")[0] if header["unk14"] else None,
+        shapes=read_collision_shapes_data(data, header["unk14"], ">")[0] if header["unk14"] else None,
     )
     # the layout is written last and runs to the end of the file
     return model, vertices, read_geo_body(data[header["geo"] :], ">"), _blob_textures(tex_infos)
-
-
-def _collision_triangles(data: bytes, offset: int, count: int, endian: str):
-    # keyed by vertices, not list position, the display list reorders the faces
-    surfaces = {}
-    for index in range(count):
-        first, second, third, unk6, flags = struct.unpack_from(endian + "HHHHI", data, offset + index * 12)
-        surfaces[tuple(sorted((first, second, third)))] = (flags, unk6)
-    return surfaces
-
-
-def _read_collision(data: bytes, offset: int):
-    """({sorted vertex triple: (flags, unk6)}, the grid, where the section ends)"""
-    low = struct.unpack_from("<3h", data, offset)
-    high = struct.unpack_from("<3h", data, offset + 6)
-    offset += 12
-    _y_stride, _z_stride, scale, cube_count, tri_count = struct.unpack_from("<5H", data, offset)
-    offset += 10
-    grid = _read_grid(data, offset, low, high, scale, cube_count, tri_count, "<")
-    offset += cube_count * 4
-    return _collision_triangles(data, offset, tri_count, "<"), grid, offset + tri_count * 12
-
-
-def _read_bin_collision(data: bytes, offset: int):
-    """({sorted vertex triple: (flags, unk6)}, the grid) from a BKCollisionList.
-
-    The resource stream writes the scale ahead of the cell count and drops the
-    struct's padding, so this reads the game's own layout instead of sharing the
-    resource's reader.
-    """
-    low = struct.unpack_from(">3h", data, offset)
-    high = struct.unpack_from(">3h", data, offset + 6)
-    _y_stride, _z_stride, cell_count, scale, tri_count = struct.unpack_from(">5h", data, offset + 0xC)
-    grid = _read_grid(data, offset + 0x18, low, high, scale, cell_count, tri_count, ">")
-    return _collision_triangles(data, offset + 0x18 + cell_count * 4, tri_count, ">"), grid
-
-
-def _read_grid(data: bytes, runs_at: int, low, high, scale: int, cube_count: int, tri_count: int, endian: str):
-    """The cell structure as it came, or None for a layout not worth keeping.
-
-    The entries keep their order and each record its corner order, since the
-    winding is what a raycast takes the normal from.
-    """
-    if scale <= 0 or cube_count <= 0:
-        return None
-    counts, cursor = [], 0
-    for index in range(cube_count):
-        start, count = struct.unpack_from(endian + "hh", data, runs_at + index * 4)
-        if count and start != cursor:
-            return None  # runs the game's layout never produces, keep nothing
-        counts.append(count)
-        cursor += count
-    if cursor != tri_count:
-        return None
-    records_at = runs_at + cube_count * 4
-    records = [struct.unpack_from(endian + "HHHHI", data, records_at + index * 12) for index in range(tri_count)]
-    return dict(low=low, high=high, scale=scale, counts=counts, records=records)
-
-
-MEDIUM_NAMES = {value: key for key, value in BK_MEDIUM_TYPE.items()}
-SOUND_NAMES = {value: key for key, value in BK_SOUND_TYPE.items()}
-
-
-def _read_collision_shapes(data: bytes, offset: int, endian: str = "<"):
-    """The header 0x14 shapes and their cull radius"""
-    # a shape's code is a label rather than a setting, and shapes can share one
-    box_count, cylinder_count, sphere_count, cull = struct.unpack_from(endian + "4h", data, offset)
-    offset += 8
-    shapes = {"cull": cull, "boxes": [], "cylinders": [], "spheres": []}
-
-    for _box in range(box_count):
-        values = struct.unpack_from(endian + "3h3h3h3BBbx", data, offset)
-        shapes["boxes"].append(
-            dict(
-                low=values[0:3],
-                high=values[3:6],
-                position=values[6:9],
-                rotation=values[9:12],
-                code=values[12],
-                bone=values[13],
-            )
-        )
-        offset += 24
-    for _cylinder in range(cylinder_count):
-        values = struct.unpack_from(endian + "hh3h3BBbx", data, offset)
-        shapes["cylinders"].append(
-            dict(
-                radius=values[0],
-                height=values[1],
-                position=values[2:5],
-                rotation=values[5:8],
-                code=values[8],
-                bone=values[9],
-            )
-        )
-        offset += 16
-    for _sphere in range(sphere_count):
-        values = struct.unpack_from(endian + "h3hBbxx", data, offset)
-        shapes["spheres"].append(dict(radius=values[0], center=values[1:4], code=values[4], bone=values[5]))
-        offset += 12
-    return shapes, offset
 
 
 def _read_mesh_list(data: bytes, offset: int, endian: str = "<"):
@@ -397,20 +300,6 @@ def _shape_matrix(position, rotation):
     angles = mathutils.Euler([math.radians(value * 2) for value in (rotation[0], rotation[1], rotation[2])], "YXZ")
     pivot = mathutils.Vector(position)
     return mathutils.Matrix.Translation(pivot) @ angles.to_matrix().to_4x4() @ mathutils.Matrix.Translation(-pivot)
-
-
-def _apply_surface(material, flags: int, unk6: int):
-    fields = bk64_surface_decode(flags)
-    if fields is not None:
-        material.hm64_bk64_collision_type = MEDIUM_NAMES[fields["medium"]]
-        material.hm64_bk64_sound_type = SOUND_NAMES[fields["sound"]]
-        for name in BK_COLLISION_FLAG_BITS:
-            setattr(material, f"hm64_bk64_{name}", fields[name])
-        material.hm64_bk64_collision_extra = fields["extra"]
-        material.hm64_bk64_collision_unk6 = unk6
-        return
-    material.hm64_bk64_collision_raw = flags - 0x100000000 if flags > 0x7FFFFFFF else flags
-    material.hm64_bk64_collision_unk6 = unk6
 
 
 def _mux(case: str, value: int):
@@ -653,7 +542,7 @@ def _decode_raw(pixels: bytes, width: int, height: int):
 
 
 def _keep_pyramid(image, data: bytes, at: int, size: int):
-    """Stash the mip levels a texture arrived with, for export to write back."""
+    """Stash the mip levels a texture arrived with, for export to write back"""
     pyramid = data[at + size : at + size + MIP_PYRAMID_SIZE]
     if len(pyramid) < MIP_PYRAMID_SIZE:
         return
@@ -1053,7 +942,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
             slot_scale[len(materials)] = (texscale[0] / 0xFFFF, texscale[1] / 0xFFFF)
         if surface is not None:
             material.name += "_collision"
-            _apply_surface(material, *surface)
+            apply_surface(material, *surface)
         # the property update callback resolves its material from the UI context
         # and gives up during an import, leaving tile sizes at 1x1 and the nodes
         # on the preset's combiner. A flat run drops TEXEL0, so the preset's
@@ -1124,7 +1013,7 @@ def _build_collision_only(context, base: str, leftover, vertices, armature_obj, 
     for surface in face_surfaces:
         if surface not in slot_of:
             material = bpy.data.materials.new(f"{base}_collision_{len(slot_of)}")
-            _apply_surface(material, *surface)
+            apply_surface(material, *surface)
             mesh.materials.append(material)
             slot_of[surface] = len(slot_of)
     for polygon, surface in zip(mesh.polygons, face_surfaces):

@@ -32,17 +32,13 @@ from .bk64_constants import (
     ANIM_FRAME_FORMATS,
     ANIM_TEX_SLOT_COUNT,
     BIN_TEX_FORMATS,
+    bk64_world_defaults,
     BK_PALETTE_SIZE,
     BK_TEX_TYPE,
-    bk64_world_defaults,
-    BK_COLLISION_FLAG_BITS,
-    BK_MEDIUM_TYPE,
-    bk64_surface_encode,
     COLLISION_COLOR_ATTR,
     COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
-    BK_SOUND_TYPE,
     CYCLE_TYPE_2CYCLE,
     DEFAULT_LIGHT_DIR,
     F3D_FMT_TO_OTEX,
@@ -87,31 +83,34 @@ from .bk64_constants import (
     OTR_TEXTURE_V1,
     PALETTED_FORMATS,
     RENDERMODE_ENTRY_STRIDE,
-    SHADE_FOLD_FORMATS,
-    TEX_FLAG_LOAD_AS_RAW,
     RT_BK_MODEL,
     RT_BLOB,
     RT_TEXTURE,
     RT_VERTEX,
+    s16,
+    SEG_ANIM_BASE,
     SEG_RENDERMODE,
     SEG_TEX,
-    SEG_ANIM_BASE,
     SEG_TEX_BLOB,
     SEG_VTX,
+    SHADE_FOLD_FORMATS,
     SHAPE_KIND,
     SHAPE_PIVOT,
+    TEX_FLAG_LOAD_AS_RAW,
     WHITE_TEXTURE_DIM,
 )
+from .bk64_collision import (
+    collision_from_display_list,
+    material_surfaces,
+    surface_of_material,
+    unpack_collision_grid,
+    write_collision_list,
+)
 from .bk64_rom import (
-    collision_grid,
     collision_shapes,
     geo_body,
     layout_records,
     mesh_list,
-    preserved_grid,
-    s16,
-    tri_indices,
-    unpack_collision_grid,
     vertex_bone_map,
     vertex_records,
     write_bkmodelbin,
@@ -266,7 +265,7 @@ def _write_model_resource(
         for bone in bones:
             data.extend(struct.pack("<fffHH", *bone.position, bone.bone_id & 0xFFFF, bone.parent_index & 0xFFFF))
     if collision:
-        data.extend(_write_collision(collision, vertices, collision_grid_stored))
+        data.extend(write_collision_list(collision, vertices, collision_grid_stored, "<"))
     if shapes:
         data.extend(collision_shapes(shapes))
     if meshes:
@@ -792,7 +791,7 @@ def read_collision_only(context, root_obj, scale: float):
         try:
             for face in bm.faces:
                 material = obj.material_slots[face.material_index].material if obj.material_slots else None
-                surface = _surface_of_material(material) if material else None
+                surface = surface_of_material(material) if material else None
                 if surface is None:
                     raise PluginError(
                         f"'{obj.name}' is marked collision only but face {face.index} has no collision material. "
@@ -850,7 +849,7 @@ def _reads_texel1(f3d_mat):
 
 
 def _kept_pyramid(image, base: bytes):
-    """The mip levels the image was imported with, or None once its base moves."""
+    """The mip levels the image was imported with, or None once its base moves"""
     stored = image.get(MIP_PYRAMID_PROP) if image is not None else None
     if not stored or image.get(MIP_BASE_PROP) != f"{zlib.crc32(base):08x}":
         return None
@@ -859,7 +858,7 @@ def _kept_pyramid(image, base: bytes):
 
 
 def _mip_pyramid(pixels: bytes) -> bytes:
-    """The 16 down to 1 texel levels of a 32x32 RGBA16 base."""
+    """The 16 down to 1 texel levels of a 32x32 RGBA16 base"""
 
     def decode(data, size):
         out = []
@@ -1491,93 +1490,6 @@ def _animated_slots(fModel: FModel):
     return animated
 
 
-def _surface_of_material(material):
-    """(flags, unk6) for a material that asks for collision, None for one that doesn't"""
-    raw = getattr(material, "hm64_bk64_collision_raw", 0)
-    if raw:
-        # an imported surface, kept exactly. Vanilla uses flag words the three
-        # choices can't describe.
-        return (raw & 0xFFFFFFFF, getattr(material, "hm64_bk64_collision_unk6", 0))
-    collision = getattr(material, "hm64_bk64_collision_type", "NONE")
-    if collision == "NONE":
-        return None
-    fields = {name: getattr(material, f"hm64_bk64_{name}", False) for name in BK_COLLISION_FLAG_BITS}
-    fields["medium"] = BK_MEDIUM_TYPE[collision]
-    fields["sound"] = BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "NORMAL")]
-    fields["extra"] = getattr(material, "hm64_bk64_collision_extra", 0)
-    return (bk64_surface_encode(fields), getattr(material, "hm64_bk64_collision_unk6", 0))
-
-
-def _material_surfaces(fModel: FModel):
-    """The collision a material asks for, keyed by FMaterial id"""
-    surfaces = {}
-    for key, value in fModel.materials.items():
-        surface = _surface_of_material(key[0])
-        if surface is not None:
-            surfaces[id(value[0])] = surface
-    return surfaces
-
-
-def _collision_triangles(dl_words, owners, surfaces):
-    # a collision triangle indexes the model's own vertex buffer, so walking the
-    # display list beats building the faces twice
-    if not surfaces:
-        return []
-
-    material_of = {}
-    for first, last, fmaterial in owners:
-        for index in range(first, last):
-            material_of[index] = fmaterial
-
-    triangles, cache = [], {}
-
-    def emit(word):
-        indices = tri_indices(word, cache)
-        if indices is None:
-            return
-        surface = surfaces.get(material_of.get(indices[0]))
-        if surface is not None:
-            triangles.append((indices, surface[0], surface[1]))
-
-    for w0, w1 in dl_words:
-        opcode = (w0 >> 24) & 0xFF
-        if opcode == OP_VTX:
-            start = ((w0 >> 16) & 0xFF) // 2
-            count = (w0 & 0xFFFF) >> 10
-            base = (w1 & 0xFFFFFF) // VTX_SIZE
-            for step in range(count):
-                cache[start + step] = base + step
-        elif opcode == OP_TRI1:
-            emit(w1)
-        elif opcode == OP_TRI2:
-            emit(w0 & 0xFFFFFF)
-            emit(w1)
-    return triangles
-
-
-def _write_collision(triangles, vertices, stored=None):
-    """BKCollisionList, bucketed into the grid a query walks.
-
-    The resource stream puts the scale ahead of the cell count and drops the
-    struct's padding, the other way round from the .bin.
-    """
-    kept = preserved_grid(stored, triangles, vertices)
-    if kept is not None:
-        low, size, scale, runs, records = kept
-    else:
-        low, size, scale, runs, entries = collision_grid(triangles, vertices)
-        # (indices, flags, unk6) into the record's (indices, unk6, flags)
-        records = [(triangles[index][0], triangles[index][2], triangles[index][1]) for index in entries]
-    data = bytearray()
-    data.extend(struct.pack("<hhhhhh", *low, *(low[k] + size[k] - 1 for k in range(3))))
-    data.extend(struct.pack("<HHHHH", size[0], size[0] * size[1], scale, len(runs), len(records)))
-    for start, count in runs:
-        data.extend(struct.pack("<HH", start, count))
-    for indices, unk6, flags in records:
-        data.extend(struct.pack("<HHHHI", indices[0], indices[1], indices[2], unk6, flags & 0xFFFFFFFF))
-    return bytes(data)
-
-
 def _material_lights(fModel: FModel):
     """The lighting each lit FMaterial was authored with, keyed by id"""
     # BK loads no lights. The shading gets worked out here instead.
@@ -2083,7 +1995,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     from_source.setdefault(source, []).append(len(dl_words))
                 dl_words += part
 
-        collision = _collision_triangles(dl_words, vertex_owners, _material_surfaces(fModel))
+        collision = collision_from_display_list(dl_words, vertex_owners, material_surfaces(fModel))
         if shapes:
             index_of_bone = {bone.name: index for index, bone in enumerate(bones)}
             for group in ("boxes", "cylinders", "spheres"):

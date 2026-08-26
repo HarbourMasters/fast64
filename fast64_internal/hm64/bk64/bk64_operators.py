@@ -366,7 +366,7 @@ class BK64_ImportAnimation(Operator):
 
 
 def _level_resource(folder: str, index: int, stem: str, layer: str):
-    """Where a level's half was extracted to, or None if it isn't there."""
+    """Where a level's half was extracted to, or None if it isn't there"""
     name = f"ASSET_{index:04X}_{stem}_{layer}"
     for candidate in (os.path.join(folder, name), os.path.join(folder, "assets", "level", name)):
         if os.path.isfile(candidate):
