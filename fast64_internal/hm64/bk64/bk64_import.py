@@ -46,6 +46,7 @@ from .bk64_constants import (
     MIP_PYRAMID_PROP,
     MIP_PYRAMID_SIZE,
     BK64_DRAW_LAYER_ENTRY,
+    COLLISION_GRID_PROP,
     OP_DL,
     OP_CLEARGEOMETRYMODE,
     OP_ENDDL,
@@ -81,7 +82,7 @@ from .bk64_constants import (
     SHAPE_KIND,
     SHAPE_PIVOT,
 )
-from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header, tri_indices
+from .bk64_rom import is_bkmodelbin, layout_records, pack_collision_grid, read_bkmodelbin_header, tri_indices
 from .bk64_skeleton import bone_space_matrix, create_armature_from_bones, read_bone_table
 
 OTEX_FORMAT = {value: key for key, value in OTEX_TYPE.items()}
@@ -131,9 +132,9 @@ def _read_model(data: bytes):
     if bones:
         offset += 6 + len(bones) * 16
 
-    collision, shapes = {}, None
+    collision, collision_grid, shapes = {}, None, None
     if has_collision:
-        collision, offset = _read_collision(data, offset)
+        collision, collision_grid, offset = _read_collision(data, offset)
     if has_shapes:
         shapes, offset = _read_collision_shapes(data, offset)
 
@@ -157,6 +158,7 @@ def _read_model(data: bytes):
         anim_scale=anim_scale,
         bones=bones,
         collision=collision,
+        collision_grid=collision_grid,
         shapes=shapes,
     )
 
@@ -189,6 +191,7 @@ def _read_model_bin(data: bytes):
         blob = data[blob_at : blob_at + blob_size]
 
     anim_scale, bones = read_bone_table(data)
+    bin_collision = _read_bin_collision(data, header["collision"]) if header["collision"] else ({}, None)
     model = dict(
         geo_type=header["geo_type"],
         tri_count=header["tri_count"],
@@ -205,7 +208,8 @@ def _read_model_bin(data: bytes):
         tex_infos=tex_infos,
         anim_scale=anim_scale,
         bones=bones,
-        collision=_read_bin_collision(data, header["collision"]) if header["collision"] else {},
+        collision=bin_collision[0],
+        collision_grid=bin_collision[1],
         shapes=_read_collision_shapes(data, header["unk14"], ">")[0] if header["unk14"] else None,
     )
     # the layout is written last and runs to the end of the file
@@ -222,22 +226,51 @@ def _collision_triangles(data: bytes, offset: int, count: int, endian: str):
 
 
 def _read_collision(data: bytes, offset: int):
-    """({sorted vertex triple: (flags, unk6)}, where the section ends)"""
-    offset += 12  # the cell grid's bounds, ignored when one cell holds everything
-    _y_stride, _z_stride, _scale, cube_count, tri_count = struct.unpack_from("<5H", data, offset)
-    offset += 10 + cube_count * 4
-    return _collision_triangles(data, offset, tri_count, "<"), offset + tri_count * 12
+    """({sorted vertex triple: (flags, unk6)}, the grid, where the section ends)"""
+    low = struct.unpack_from("<3h", data, offset)
+    high = struct.unpack_from("<3h", data, offset + 6)
+    offset += 12
+    _y_stride, _z_stride, scale, cube_count, tri_count = struct.unpack_from("<5H", data, offset)
+    offset += 10
+    grid = _read_grid(data, offset, low, high, scale, cube_count, tri_count, "<")
+    offset += cube_count * 4
+    return _collision_triangles(data, offset, tri_count, "<"), grid, offset + tri_count * 12
 
 
 def _read_bin_collision(data: bytes, offset: int):
-    """{sorted vertex triple: (flags, unk6)} from a BKCollisionList.
+    """({sorted vertex triple: (flags, unk6)}, the grid) from a BKCollisionList.
 
     The resource stream writes the scale ahead of the cell count and drops the
     struct's padding, so this reads the game's own layout instead of sharing the
     resource's reader.
     """
-    _y_stride, _z_stride, cell_count, _scale, tri_count = struct.unpack_from(">5h", data, offset + 0xC)
-    return _collision_triangles(data, offset + 0x18 + cell_count * 4, tri_count, ">")
+    low = struct.unpack_from(">3h", data, offset)
+    high = struct.unpack_from(">3h", data, offset + 6)
+    _y_stride, _z_stride, cell_count, scale, tri_count = struct.unpack_from(">5h", data, offset + 0xC)
+    grid = _read_grid(data, offset + 0x18, low, high, scale, cell_count, tri_count, ">")
+    return _collision_triangles(data, offset + 0x18 + cell_count * 4, tri_count, ">"), grid
+
+
+def _read_grid(data: bytes, runs_at: int, low, high, scale: int, cube_count: int, tri_count: int, endian: str):
+    """The cell structure as it came, or None for a layout not worth keeping.
+
+    The entries keep their order and each record its corner order, since the
+    winding is what a raycast takes the normal from.
+    """
+    if scale <= 0 or cube_count <= 0:
+        return None
+    counts, cursor = [], 0
+    for index in range(cube_count):
+        start, count = struct.unpack_from(endian + "hh", data, runs_at + index * 4)
+        if count and start != cursor:
+            return None  # runs the game's layout never produces, keep nothing
+        counts.append(count)
+        cursor += count
+    if cursor != tri_count:
+        return None
+    records_at = runs_at + cube_count * 4
+    records = [struct.unpack_from(endian + "HHHHI", data, records_at + index * 12) for index in range(tri_count)]
+    return dict(low=low, high=high, scale=scale, counts=counts, records=records)
 
 
 MEDIUM_NAMES = {value: key for key, value in BK_MEDIUM_TYPE.items()}
@@ -1302,6 +1335,8 @@ def import_bk64_model(context, path: str, settings):
     context.scene.collection.objects.link(mesh_obj)
     # on whichever object the export is handed, the armature when there's one
     (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
+    if model.get("collision_grid"):
+        mesh_obj[COLLISION_GRID_PROP] = pack_collision_grid(model["collision_grid"], vertices)
 
     if model["shapes"]:
         model["shape_objects"] = _build_collision_shapes(

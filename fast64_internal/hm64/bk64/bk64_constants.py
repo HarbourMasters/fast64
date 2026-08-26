@@ -186,8 +186,14 @@ SEG_TEX_BLOB = 2  # offset into the model's own texture blob
 # texture instead. The game never looks, its combiner takes SHADE.
 WHITE_TEXTURE_DIM = 8
 
-# scale 0 means one cell holding everything, the path the game takes for it
-BK_COLLISION_SINGLE_CELL_SCALE = 0
+# the grid a collision query walks. Vanilla's scales are multiples of 100, at
+# around five triangles a cell
+BK_COLLISION_SCALE_STEP = 100
+BK_COLLISION_SCALE_MIN = 300
+BK_COLLISION_SCALE_MAX = 8000
+BK_COLLISION_CELL_TRIANGLES = 5
+BK_COLLISION_MAX_CELLS = 16384  # vanilla tops out at 12441
+BK_COLLISION_MAX_ENTRIES = 32000  # tri_cnt and start_tri_index are both s16
 
 BK_SOUND_TYPE = {
     "NORMAL": 0,
@@ -270,6 +276,10 @@ NATIVE_SIZE_PROP = "hm64_bk64_native_size"
 # a fingerprint of the base they were drawn from.
 MIP_PYRAMID_PROP = "hm64_bk64_mip_pyramid"
 MIP_BASE_PROP = "hm64_bk64_mip_base"
+
+# the cell grid a model's collision came with, written back while the surface
+# set still matches
+COLLISION_GRID_PROP = "hm64_bk64_collision_grid"
 
 # markers on helper objects, found by walking the root's children on export
 SHAPE_KIND = "hm64_bk64_shape"

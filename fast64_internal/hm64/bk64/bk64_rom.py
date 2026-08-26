@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import base64
 import struct
+import zlib
 
 from ...utility import PluginError
 from .bk64_constants import (
-    BK_COLLISION_SINGLE_CELL_SCALE,
+    BK_COLLISION_CELL_TRIANGLES,
+    BK_COLLISION_MAX_CELLS,
+    BK_COLLISION_MAX_ENTRIES,
+    BK_COLLISION_SCALE_MAX,
+    BK_COLLISION_SCALE_MIN,
+    BK_COLLISION_SCALE_STEP,
     GEO_CMD_SKINNING,
     BKMODEL_HEADER_SIZE,
     BKMODEL_MAGIC,
@@ -224,6 +231,134 @@ def geo_body(records, endian: str = "<"):
     return bytes(body)
 
 
+def pack_collision_grid(grid, vertices) -> str:
+    """The imported grid as a property value, corners resolved to positions.
+
+    Positions rather than indices, since an export orders its vertices its own
+    way. zlib, since an entry averages two copies.
+    """
+    data = bytearray(struct.pack("<7h", grid["scale"], *grid["low"], *grid["high"]))
+    data.extend(struct.pack("<I", len(grid["counts"])))
+    data.extend(struct.pack(f"<{len(grid['counts'])}H", *grid["counts"]))
+    data.extend(struct.pack("<I", len(grid["records"])))
+    for a, b, c, unk6, flags in grid["records"]:
+        for index in (a, b, c):
+            data.extend(struct.pack("<3h", *(s16(value) for value in vertices[index][0])))
+        data.extend(struct.pack("<HI", unk6, flags & 0xFFFFFFFF))
+    return base64.b64encode(zlib.compress(bytes(data))).decode()
+
+
+def unpack_collision_grid(text: str):
+    """The stored grid back as (scale, low, high, counts, records), or None"""
+    try:
+        data = zlib.decompress(base64.b64decode(text))
+    except Exception:
+        return None
+    scale, *bounds = struct.unpack_from("<7h", data, 0)
+    count = struct.unpack_from("<I", data, 14)[0]
+    counts = struct.unpack_from(f"<{count}H", data, 18)
+    at = 18 + count * 2
+    total = struct.unpack_from("<I", data, at)[0]
+    at += 4
+    records = []
+    for _ in range(total):
+        corners = tuple(struct.unpack_from("<3h", data, at + step * 6) for step in range(3))
+        unk6, flags = struct.unpack_from("<HI", data, at + 18)
+        records.append((corners, unk6, flags))
+        at += 24
+    return dict(scale=scale, low=tuple(bounds[:3]), high=tuple(bounds[3:]), counts=counts, records=records)
+
+
+def preserved_grid(stored, triangles, vertices):
+    """The imported grid rebuilt over this export's vertex order, or None.
+
+    Only while the surfaces still match what came in: same triangles, same
+    flags. An edit to either falls through to a fresh grid.
+    """
+    if stored is None:
+        return None
+    position = {}
+    for index, vertex in enumerate(vertices):
+        position.setdefault(tuple(s16(value) for value in vertex[0]), index)
+    ours = {
+        (tuple(sorted(tuple(s16(v) for v in vertices[i][0]) for i in tri)), flags & 0xFFFFFFFF, unk6)
+        for tri, flags, unk6 in triangles
+    }
+    theirs = {(tuple(sorted(corners)), flags & 0xFFFFFFFF, unk6) for corners, unk6, flags in stored["records"]}
+    if ours != theirs:
+        return None
+    records = []
+    for corners, unk6, flags in stored["records"]:
+        indices = tuple(position.get(corner) for corner in corners)
+        if None in indices:
+            return None
+        records.append((indices, unk6, flags))
+    low, high = stored["low"], stored["high"]
+    size = [high[k] - low[k] + 1 for k in range(3)]
+    runs, cursor = [], 0
+    for count in stored["counts"]:
+        runs.append((cursor, count))
+        cursor += count
+    return low, size, stored["scale"], runs, records
+
+
+def _bucket(points, low, scale, size):
+    """{cell index: [triangle]}, a triangle landing in every cell its box covers.
+
+    By bounding box, the same base rule vanilla's grids follow. A box can cover
+    a cell the triangle itself misses, which costs a query an extra read and
+    never a missed hit.
+    """
+    cells = {}
+    for index, tri in enumerate(points):
+        span = [(min(point[k] for point in tri) // scale, max(point[k] for point in tri) // scale) for k in range(3)]
+        for z in range(span[2][0], span[2][1] + 1):
+            for y in range(span[1][0], span[1][1] + 1):
+                for x in range(span[0][0], span[0][1] + 1):
+                    cell = (x - low[0]) + (y - low[1]) * size[0] + (z - low[2]) * size[0] * size[1]
+                    cells.setdefault(cell, []).append(index)
+    return cells
+
+
+def collision_grid(triangles, vertices):
+    """(low cell, size, scale, runs, entries) for a BKCollisionList.
+
+    A triangle is written once per cell it touches and each cell owns one run
+    of the entry list, so a query only reads the cells its own box covers.
+    """
+    points = [tuple(tuple(s16(value) for value in vertices[i][0]) for i in tri[0]) for tri in triangles]
+    low_world = [min(point[k] for tri in points for point in tri) for k in range(3)]
+    high_world = [max(point[k] for tri in points for point in tri) for k in range(3)]
+
+    span = [max(1, high_world[k] - low_world[k]) for k in range(3)]
+    wanted = max(1, len(points) // BK_COLLISION_CELL_TRIANGLES)
+    scale = round((span[0] * span[1] * span[2] / wanted) ** (1.0 / 3.0) / BK_COLLISION_SCALE_STEP)
+    scale = max(BK_COLLISION_SCALE_MIN, min(BK_COLLISION_SCALE_MAX, scale * BK_COLLISION_SCALE_STEP))
+
+    while True:
+        low = [low_world[k] // scale for k in range(3)]
+        high = [high_world[k] // scale for k in range(3)]
+        size = [high[k] - low[k] + 1 for k in range(3)]
+        count = size[0] * size[1] * size[2]
+        if count <= BK_COLLISION_MAX_CELLS:
+            cells = _bucket(points, low, scale, size)
+            if sum(len(members) for members in cells.values()) <= BK_COLLISION_MAX_ENTRIES:
+                break
+        if scale >= BK_COLLISION_SCALE_MAX:
+            raise PluginError(
+                f"{len(points)} collision triangles need a finer grid than a BKCollisionList can "
+                "index. Split the mesh, or take collision off the parts that don't need it."
+            )
+        scale = min(BK_COLLISION_SCALE_MAX, scale + BK_COLLISION_SCALE_STEP)
+
+    runs, entries = [], []
+    for cell in range(count):
+        members = cells.get(cell, ())
+        runs.append((len(entries), len(members)))
+        entries.extend(members)
+    return low, size, scale, runs, entries
+
+
 def collision_shapes(shapes, endian: str = "<"):
     """Counts, a cull radius, then the boxes, cylinders and spheres"""
     # rotations are bytes worth two degrees, and a sphere pads two where the
@@ -398,6 +533,7 @@ def write_bkmodelbin(
     bound_vertices,
     meshes,
     animated_slots,
+    collision_grid_stored=None,
 ):
     """One BKModelBin, the ROM's own layout.
 
@@ -447,11 +583,19 @@ def write_bkmodelbin(
         offsets["collision"] = len(out)
         # BKCollisionList counts its cells before the scale, the other way
         # round from _write_collision's stream
-        out.extend(struct.pack(">hhhhhh", 0, 0, 0, 0, 0, 0))
-        out.extend(struct.pack(">HHHHH", 0, 0, 1, BK_COLLISION_SINGLE_CELL_SCALE, len(collision)))
+        kept = preserved_grid(collision_grid_stored, collision, vertices)
+        if kept is not None:
+            low, size, scale, runs, records = kept
+        else:
+            low, size, scale, runs, entries = collision_grid(collision, vertices)
+            # (indices, flags, unk6) into the record's (indices, unk6, flags)
+            records = [(collision[index][0], collision[index][2], collision[index][1]) for index in entries]
+        out.extend(struct.pack(">hhhhhh", *low, *(low[k] + size[k] - 1 for k in range(3))))
+        out.extend(struct.pack(">HHHHH", size[0], size[0] * size[1], len(runs), scale, len(records)))
         out.extend(bytes(2))
-        out.extend(struct.pack(">HH", 0, len(collision)))
-        for indices, flags, unk6 in collision:
+        for start, count in runs:
+            out.extend(struct.pack(">HH", start, count))
+        for indices, unk6, flags in records:
             out.extend(struct.pack(">HHHHI", indices[0], indices[1], indices[2], unk6, flags & 0xFFFFFFFF))
 
     if bones:

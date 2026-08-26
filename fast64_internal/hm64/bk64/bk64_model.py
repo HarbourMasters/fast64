@@ -36,10 +36,10 @@ from .bk64_constants import (
     BK_TEX_TYPE,
     bk64_world_defaults,
     BK_COLLISION_FLAG_BITS,
-    BK_COLLISION_SINGLE_CELL_SCALE,
     BK_MEDIUM_TYPE,
     bk64_surface_encode,
     COLLISION_COLOR_ATTR,
+    COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
     BK_SOUND_TYPE,
@@ -103,12 +103,15 @@ from .bk64_constants import (
     WHITE_TEXTURE_DIM,
 )
 from .bk64_rom import (
+    collision_grid,
     collision_shapes,
     geo_body,
     layout_records,
     mesh_list,
+    preserved_grid,
     s16,
     tri_indices,
+    unpack_collision_grid,
     vertex_bone_map,
     vertex_records,
     write_bkmodelbin,
@@ -214,6 +217,8 @@ def _write_model_resource(
     bound_vertices,
     meshes,
     animated_slots,
+    vertices,
+    collision_grid_stored=None,
 ):
     """The main BKMO resource, field for field"""
     has_anim = len(bones) > 0
@@ -261,7 +266,7 @@ def _write_model_resource(
         for bone in bones:
             data.extend(struct.pack("<fffHH", *bone.position, bone.bone_id & 0xFFFF, bone.parent_index & 0xFFFF))
     if collision:
-        data.extend(_write_collision(collision))
+        data.extend(_write_collision(collision, vertices, collision_grid_stored))
     if shapes:
         data.extend(collision_shapes(shapes))
     if meshes:
@@ -1550,13 +1555,25 @@ def _collision_triangles(dl_words, owners, surfaces):
     return triangles
 
 
-def _write_collision(triangles):
-    """BKCollisionList, one cell holding every triangle"""
+def _write_collision(triangles, vertices, stored=None):
+    """BKCollisionList, bucketed into the grid a query walks.
+
+    The resource stream puts the scale ahead of the cell count and drops the
+    struct's padding, the other way round from the .bin.
+    """
+    kept = preserved_grid(stored, triangles, vertices)
+    if kept is not None:
+        low, size, scale, runs, records = kept
+    else:
+        low, size, scale, runs, entries = collision_grid(triangles, vertices)
+        # (indices, flags, unk6) into the record's (indices, unk6, flags)
+        records = [(triangles[index][0], triangles[index][2], triangles[index][1]) for index in entries]
     data = bytearray()
-    data.extend(struct.pack("<hhhhhh", 0, 0, 0, 0, 0, 0))  # cell bounds, unused at scale 0
-    data.extend(struct.pack("<HHHHH", 0, 0, BK_COLLISION_SINGLE_CELL_SCALE, 1, len(triangles)))
-    data.extend(struct.pack("<HH", 0, len(triangles)))  # the one cell, holding all of them
-    for indices, flags, unk6 in triangles:
+    data.extend(struct.pack("<hhhhhh", *low, *(low[k] + size[k] - 1 for k in range(3))))
+    data.extend(struct.pack("<HHHHH", size[0], size[0] * size[1], scale, len(runs), len(records)))
+    for start, count in runs:
+        data.extend(struct.pack("<HH", start, count))
+    for indices, unk6, flags in records:
         data.extend(struct.pack("<HHHHI", indices[0], indices[1], indices[2], unk6, flags & 0xFFFFFFFF))
     return bytes(data)
 
@@ -2129,6 +2146,14 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for point in _layout_refpoints(_stored_layout(root_obj) or []):
                 if point[1] not in emitted:
                     records.append(point)
+        stored_grid = next(
+            (
+                unpack_collision_grid(obj[COLLISION_GRID_PROP])
+                for obj in [root_obj] + mesh_objects
+                if COLLISION_GRID_PROP in obj.keys()
+            ),
+            None,
+        )
         if rom_format:
             return {
                 "": write_bkmodelbin(
@@ -2147,6 +2172,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     bound_vertices,
                     meshes,
                     animated_slots,
+                    stored_grid,
                 )
             }
 
@@ -2166,6 +2192,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 bound_vertices,
                 meshes,
                 animated_slots,
+                vertices,
+                stored_grid,
             ),
             "_VTX": _write_vertex_resource(vertices),
             "_GEO": _write_geo_layout(records),
