@@ -1981,6 +1981,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         dl_words = []
         chunks = []
         chunk_bounds = []
+        rigid_seams = set()
         from_source = {}  # original chunk -> the indices its faces went out as
         for bone_index, (layer, source), bone_fMeshes in chunk_fMeshes:
             raw = []
@@ -1993,8 +1994,11 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             last = max(spans[id(fMesh)][1] for fMesh in bone_fMeshes)
             points = [vertex[0] for vertex in vertices[first:last]]
             pair = None
-            if source in skinning_sources and source_counts.get(source) == 1 and source in source_parents:
-                pair = _split_skinning(chunk_words, vertices, owner_of_pos, source_parents[source])
+            if source in skinning_sources:
+                if source_counts.get(source) == 1 and source in source_parents:
+                    pair = _split_skinning(chunk_words, vertices, owner_of_pos, source_parents[source])
+                if pair is None:
+                    rigid_seams.add((source_bones or {}).get(source, f"chunk {source}"))
             for part in pair if pair is not None else (chunk_words,):
                 chunks.append((bone_index, len(dl_words)))
                 chunk_bounds.append(points if part is not (pair[0] if pair else None) else [])
@@ -2002,6 +2006,11 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     from_source.setdefault(source, []).append(len(dl_words))
                 dl_words += part
 
+        for name in sorted(rigid_seams):
+            settings.warnings.append(
+                f"The seam at bone '{name}' lost its skinning and can tear in game. It needs its "
+                "faces on one material and draw layer, with up to 24 vertices weighted to the parent bone."
+            )
         collision = collision_from_display_list(dl_words, vertex_owners, material_surfaces(fModel))
         if shapes:
             index_of_bone = {bone.name: index for index, bone in enumerate(bones)}
