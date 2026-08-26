@@ -11,6 +11,7 @@ from ...utility import PluginError, raisePluginError
 from .bk64_anim import actions_for, export_bk64_animation, import_bk64_animation
 from .bk64_constants import COLLISION_ONLY_PROP, GEO_TYPE_ENV_MAP, GEO_TYPE_MIPMAP_TRILINEAR
 from .bk64_import import import_bk64_model
+from .bk64_level_models import bk64_level_layers
 from .bk64_model import (
     export_bk64_model,
     promote_materials_to_2_cycle,
@@ -364,6 +365,58 @@ class BK64_ImportAnimation(Operator):
             return {"CANCELLED"}
 
 
+def _level_resource(folder: str, index: int, stem: str, layer: str):
+    """Where a level's half was extracted to, or None if it isn't there."""
+    name = f"ASSET_{index:04X}_{stem}_{layer}"
+    for candidate in (os.path.join(folder, name), os.path.join(folder, "assets", "level", name)):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+class BK64_ImportLevel(Operator):
+    bl_idname = "scene.hm64_bk64_import_level"
+    bl_label = "Import BK Level"
+    bl_description = "Read a level by name from a folder of extracted resources"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        scene = context.scene
+        try:
+            with object_mode(context):
+                folder = bpy.path.abspath(scene.hm64_bk64_level_folder)
+                if not folder or not os.path.isdir(folder):
+                    raise PluginError("Pick the folder holding the extracted level resources.")
+
+                level, choice = scene.hm64_bk64_level, scene.hm64_bk64_level_layer
+                layers = bk64_level_layers(level)
+                wanted = [half for half in ("OPA", "XLU") if half in layers]
+                if choice != "BOTH":
+                    wanted = [half for half in wanted if half == choice]
+                if not wanted:
+                    raise PluginError(f"{level} has no {choice} half. It is opaque only.")
+
+                triangles, brought = 0, []
+                for half in wanted:
+                    path = _level_resource(folder, layers[half], level, half)
+                    if path is None:
+                        raise PluginError(
+                            f"{level} {half} isn't in that folder. It should hold "
+                            f"ASSET_{layers[half]:04X}_{level}_{half} and its _GEO, _VTX and _tex siblings."
+                        )
+                    _armature_obj, mesh_obj, _model = import_bk64_model(context, path, BK64_Settings(scene))
+                    triangles += len(mesh_obj.data.polygons)
+                    brought.append(half)
+
+                note = " Each half is its own object." if len(brought) > 1 else ""
+                self.report({"INFO"}, f"Imported {level} {' and '.join(brought)}, {triangles} triangles.{note}")
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 class BK64_ImportModel(Operator):
     bl_idname = "scene.hm64_bk64_import_model"
     bl_label = "Import BK Model"
@@ -476,6 +529,7 @@ bk64_operator_classes = (
     BK64_MarkCollisionOnly,
     BK64_ImportSkeleton,
     BK64_ImportModel,
+    BK64_ImportLevel,
     BK64_ImportAnimation,
 )
 

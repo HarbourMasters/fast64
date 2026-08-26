@@ -12,12 +12,28 @@ from .bk64_constants import (
     MAX_BONE_ID,
     RENDERMODE_AA_OPAQUE,
 )
+from .bk64_level_models import bk64_level_layers, bk64_level_names
 
 bk64_collision_type_enum = (
     ("NONE", "No Collision", "Not written into the collision list"),
     ("GROUND", "Ground", "Solid, walked on from above"),
     ("WATER", "Water", "Swimmable"),
     ("WATER2", "Water (alt)", "Swimmable. The game tests it exactly like Water"),
+)
+
+bk64_level_enum = tuple(
+    (
+        name,
+        name,
+        "Opaque and translucent halves" if len(bk64_level_layers(name)) > 1 else "Opaque half only",
+    )
+    for name in bk64_level_names()
+)
+
+bk64_level_layer_enum = (
+    ("BOTH", "Both", "Each half as its own object, so either can be hidden"),
+    ("OPA", "Opaque", "The solid half on its own"),
+    ("XLU", "Translucent", "The blended half on its own, water and glass"),
 )
 
 bk64_sound_type_enum = (
@@ -123,6 +139,9 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_rigging",
     "hm64_bk64_import_path",
     "hm64_bk64_import_bone_length",
+    "hm64_bk64_level_folder",
+    "hm64_bk64_level",
+    "hm64_bk64_level_layer",
     "hm64_bk64_anim_path",
     "hm64_bk64_anim_include_rest",
     "hm64_bk64_anim_import_path",
@@ -226,6 +245,23 @@ def bk64_properties_register():
         subtype="FILE_PATH",
         description="A BK model resource extracted from bk.o2r. Pick the model itself, not a "
         "_GEO, _VTX or _tex sibling",
+    )
+    bpy.types.Scene.hm64_bk64_level_folder = StringProperty(
+        name="Level Folder",
+        subtype="DIR_PATH",
+        description="Folder holding extracted level resources. Unpack bk.o2r and pick its "
+        "assets/level folder, or the folder you unpacked it into",
+    )
+    bpy.types.Scene.hm64_bk64_level = EnumProperty(
+        name="Level",
+        items=bk64_level_enum,
+        description="Which level to read",
+    )
+    bpy.types.Scene.hm64_bk64_level_layer = EnumProperty(
+        name="Halves",
+        items=bk64_level_layer_enum,
+        default="BOTH",
+        description="Which of the level's two models to bring in",
     )
     bpy.types.Scene.hm64_bk64_import_bone_length = FloatProperty(
         name="Bone Length",
