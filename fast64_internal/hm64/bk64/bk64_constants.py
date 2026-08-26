@@ -253,6 +253,8 @@ def bk64_surface_decode(flags: int) -> dict | None:
     medium = (flags & BK_COLLISION_MEDIUM_MASK) >> BK_COLLISION_MEDIUM_SHIFT
     if sound not in BK_SOUND_TYPE.values() or medium not in BK_MEDIUM_TYPE.values():
         return None
+    if medium and sound == BK_SOUND_TYPE["MAP_DEFAULT"]:
+        return None
 
     fields = {name: bool(flags & mask) for name, mask in BK_COLLISION_FLAG_BITS.items()}
     fields["sound"] = sound
@@ -264,6 +266,8 @@ def bk64_surface_decode(flags: int) -> dict | None:
 def bk64_surface_encode(fields: dict) -> int:
     """The flag word for those fields"""
     flags = fields.get("sound", 0) & BK_COLLISION_SOUND_MASK
+    if fields.get("medium") and flags == BK_SOUND_TYPE["MAP_DEFAULT"]:
+        flags = 0
     flags |= (fields.get("medium", 0) << BK_COLLISION_MEDIUM_SHIFT) & BK_COLLISION_MEDIUM_MASK
     flags |= fields.get("extra", 0) & BK_COLLISION_EXTRA_MASK
     for name, mask in BK_COLLISION_FLAG_BITS.items():
