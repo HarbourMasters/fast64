@@ -20,6 +20,7 @@ from ...f3d.f3d_gbi import (
     SPEndDisplayList,
     SPTexture,
 )
+from ...f3d.f3d_material import get_output_method
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ...utility import (
     PluginError,
@@ -1283,7 +1284,11 @@ def _check_large_textures(mesh_objects):
 
 def _draw_layer_of(material, scene_layer: str):
     layer = getattr(material, "hm64_bk64_draw_layer", "SCENE") if material is not None else "SCENE"
-    return scene_layer if layer == "SCENE" else layer
+    if layer != "SCENE":
+        return layer
+    if material is not None and get_output_method(material) == "XLU":
+        return "TRANSLUCENT_NO_AA" if scene_layer.endswith("_NO_AA") else "TRANSLUCENT"
+    return scene_layer
 
 
 def _draw_key_of(material, scene_layer: str):
