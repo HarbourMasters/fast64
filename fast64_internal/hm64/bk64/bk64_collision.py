@@ -11,6 +11,7 @@ from .bk64_constants import (
     BK_COLLISION_FLAG_BITS,
     BK_COLLISION_MAX_CELLS,
     BK_COLLISION_MAX_ENTRIES,
+    BK_COLLISION_MEDIUM_MASK,
     BK_COLLISION_SCALE_MAX,
     BK_COLLISION_SCALE_MIN,
     BK_COLLISION_SCALE_STEP,
@@ -268,6 +269,24 @@ def material_surfaces(fModel: FModel):
         if surface is not None:
             surfaces[id(value[0])] = surface
     return surfaces
+
+
+def check_camera_water_reads(mesh_objects, warnings):
+    """Warn for a surface the camera's water ray can't tell from water"""
+    # core2/nc/camera_fog.c rays up with filter 0xF800FF0F, and ordinary
+    # floors only stay out of it through their sound bits
+    for mesh_obj in mesh_objects:
+        for slot in mesh_obj.material_slots:
+            surface = surface_of_material(slot.material) if slot.material else None
+            if surface is None:
+                continue
+            flags = surface[0]
+            if flags & (0xF800FF0F | BK_COLLISION_MEDIUM_MASK):
+                continue
+            warnings.append(
+                f"'{slot.material.name}' collides with no sound tag, so the camera reads it as "
+                "water and shows the underwater overlay beneath it. Give it a Sound Type."
+            )
 
 
 def collision_from_display_list(dl_words, owners, surfaces):

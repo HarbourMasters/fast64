@@ -101,6 +101,7 @@ from .bk64_constants import (
     WHITE_TEXTURE_DIM,
 )
 from .bk64_collision import (
+    check_camera_water_reads,
     collision_from_display_list,
     material_surfaces,
     surface_of_material,
@@ -1796,6 +1797,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
 
     _check_world_defaults(context.scene)
     _check_cycle_type(mesh_objects)
+    check_camera_water_reads(mesh_objects, settings.warnings)
     _check_large_textures(mesh_objects)
     culling = [obj.name for obj in mesh_objects if obj.use_f3d_culling]
     if culling:
