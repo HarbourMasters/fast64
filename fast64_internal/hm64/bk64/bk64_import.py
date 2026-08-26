@@ -18,13 +18,13 @@ from ...f3d.f3d_material import (
 )
 from ...utility import PluginError, gammaInverse, gammaInverseValue
 from .bk64_constants import (
-    BK_COLLISION_FLAG_BASE,
+    BK_COLLISION_FLAG_BITS,
+    BK_MEDIUM_TYPE,
     BK_PALETTE_SIZE,
     BK_TEX_BITS,
     BK_TEX_TYPE,
-    BK_COLLISION_TYPE,
-    BK_GROUND_TYPE,
     BK_SOUND_TYPE,
+    bk64_surface_decode,
     GEO_CMD_BONE,
     GEO_CMD_CALL,
     GEO_CMD_CAMERA,
@@ -235,8 +235,7 @@ def _read_bin_collision(data: bytes, offset: int):
     return _collision_triangles(data, offset + 0x18 + cell_count * 4, tri_count, ">")
 
 
-COLLISION_NAMES = {value: key for key, value in BK_COLLISION_TYPE.items()}
-GROUND_NAMES = {value: key for key, value in BK_GROUND_TYPE.items()}
+MEDIUM_NAMES = {value: key for key, value in BK_MEDIUM_TYPE.items()}
 SOUND_NAMES = {value: key for key, value in BK_SOUND_TYPE.items()}
 
 
@@ -363,21 +362,15 @@ def _shape_matrix(position, rotation):
 
 
 def _apply_surface(material, flags: int, unk6: int):
-    # the dropdowns only cover the common flag words, anything else is kept raw
-    spelled = (
-        unk6 == 0
-        and (flags >> 24) == BK_COLLISION_FLAG_BASE
-        and ((flags >> 16) & 0xFF) in COLLISION_NAMES
-        and ((flags >> 8) & 0xFF) in SOUND_NAMES
-        and (flags & 0xFF) in GROUND_NAMES
-    )
-    if spelled:
-        material.hm64_bk64_collision_type = COLLISION_NAMES[(flags >> 16) & 0xFF]
-        material.hm64_bk64_sound_type = SOUND_NAMES[(flags >> 8) & 0xFF]
-        material.hm64_bk64_ground_type = GROUND_NAMES[flags & 0xFF]
+    fields = bk64_surface_decode(flags)
+    if fields is not None:
+        material.hm64_bk64_collision_type = MEDIUM_NAMES[fields["medium"]]
+        material.hm64_bk64_sound_type = SOUND_NAMES[fields["sound"]]
+        for name in BK_COLLISION_FLAG_BITS:
+            setattr(material, f"hm64_bk64_{name}", fields[name])
+        material.hm64_bk64_collision_extra = fields["extra"]
+        material.hm64_bk64_collision_unk6 = unk6
         return
-    # the flag word is a u32 and 0x88 in its top byte is ordinary, which an
-    # IntProperty can't hold; the export masks it back
     material.hm64_bk64_collision_raw = flags - 0x100000000 if flags > 0x7FFFFFFF else flags
     material.hm64_bk64_collision_unk6 = unk6
 

@@ -5,6 +5,7 @@ from bpy.utils import register_class, unregister_class
 from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
+from .bk64_constants import BK_COLLISION_FLAG_BITS
 from .bk64_operators import (
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
@@ -162,8 +163,13 @@ class BK64_MaterialPanel(BK64_Panel):
             return
         prop_split(col, material, "hm64_bk64_collision_type", "Collision")
         if material.hm64_bk64_collision_type != "NONE":
-            prop_split(col, material, "hm64_bk64_ground_type", "Ground Type")
             prop_split(col, material, "hm64_bk64_sound_type", "Sound Type")
+            box = col.box().column()
+            box.label(text="Surface Flags")
+            for name in BK_COLLISION_FLAG_BITS:
+                box.prop(material, f"hm64_bk64_{name}")
+            if material.hm64_bk64_collision_extra:
+                prop_split(box, material, "hm64_bk64_collision_extra", "Other Flags")
 
 
 bk64_panel_classes = (

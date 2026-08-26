@@ -186,11 +186,6 @@ WHITE_TEXTURE_DIM = 8
 # scale 0 means one cell holding everything, the path the game takes for it
 BK_COLLISION_SINGLE_CELL_SCALE = 0
 
-# Top byte of the triangle flag word
-BK_COLLISION_FLAG_BASE = 0x88
-
-BK_COLLISION_TYPE = {"GROUND": 0, "DOUBLE_SIDED": 1, "WATER": 3, "WATER2": 4, "NONE": 0xFF}
-BK_GROUND_TYPE = {"NORMAL": 0, "TALON": 25, "UNCLIMBABLE": 64}
 BK_SOUND_TYPE = {
     "NORMAL": 0,
     "METAL": 1,
@@ -203,6 +198,60 @@ BK_SOUND_TYPE = {
     "SAND": 8,
     "SLUSH": 9,
 }
+
+# BKCollisionTriangle.flags is a bit field
+BK_COLLISION_SOUND_SHIFT = 8
+BK_COLLISION_SOUND_MASK = 0x00000F00
+BK_COLLISION_MEDIUM_SHIFT = 17
+BK_COLLISION_MEDIUM_MASK = 0x001E0000  # core2/vtx/listutils.c func_802E7408 tests all four together
+BK_MEDIUM_TYPE = {"GROUND": 0, "WATER": 1, "WATER2": 2}
+
+BK_COLLISION_FLAG_BITS = {
+    "trottable_slope": 0x00000010,
+    "untrottable_slope": 0x00000040,
+    "damage": 0x00002000,  # core2/ba/hazards.c reads it off the floor under the player
+    "double_sided": 0x00010000,  # core2/collision/raycast.c, and listutils.c inverts the normal
+    "non_impeding": 0x00400000,
+    "script_target": 0x08000000,
+    "default_sounds": 0x80000000,
+}
+
+# unidentified bits vanilla sets
+BK_COLLISION_EXTRA_MASK = 0x05A01080
+
+BK_COLLISION_KNOWN_MASK = BK_COLLISION_SOUND_MASK | BK_COLLISION_MEDIUM_MASK | BK_COLLISION_EXTRA_MASK
+for _mask in BK_COLLISION_FLAG_BITS.values():
+    BK_COLLISION_KNOWN_MASK |= _mask
+del _mask
+
+
+def bk64_surface_decode(flags: int) -> dict | None:
+    """The flag word as named fields, or None if it sets a bit we don't recognize"""
+    flags &= 0xFFFFFFFF
+    if flags & ~BK_COLLISION_KNOWN_MASK:
+        return None
+    sound = (flags & BK_COLLISION_SOUND_MASK) >> BK_COLLISION_SOUND_SHIFT
+    medium = (flags & BK_COLLISION_MEDIUM_MASK) >> BK_COLLISION_MEDIUM_SHIFT
+    if sound not in BK_SOUND_TYPE.values() or medium not in BK_MEDIUM_TYPE.values():
+        return None
+
+    fields = {name: bool(flags & mask) for name, mask in BK_COLLISION_FLAG_BITS.items()}
+    fields["sound"] = sound
+    fields["medium"] = medium
+    fields["extra"] = flags & BK_COLLISION_EXTRA_MASK
+    return fields
+
+
+def bk64_surface_encode(fields: dict) -> int:
+    """The flag word for those fields"""
+    flags = (fields.get("sound", 0) << BK_COLLISION_SOUND_SHIFT) & BK_COLLISION_SOUND_MASK
+    flags |= (fields.get("medium", 0) << BK_COLLISION_MEDIUM_SHIFT) & BK_COLLISION_MEDIUM_MASK
+    flags |= fields.get("extra", 0) & BK_COLLISION_EXTRA_MASK
+    for name, mask in BK_COLLISION_FLAG_BITS.items():
+        if fields.get(name):
+            flags |= mask
+    return flags
+
 
 NO_PARENT = 0xFFFF
 

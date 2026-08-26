@@ -16,15 +16,8 @@ from .bk64_constants import (
 bk64_collision_type_enum = (
     ("NONE", "No Collision", "Not written into the collision list"),
     ("GROUND", "Ground", "Solid, walked on from above"),
-    ("DOUBLE_SIDED", "Double Sided", "Solid from either face"),
     ("WATER", "Water", "Swimmable"),
     ("WATER2", "Water 2", "The second water type"),
-)
-
-bk64_ground_type_enum = (
-    ("NORMAL", "Normal", "Nothing special"),
-    ("TALON", "Talon", "Needs the Talon Trot to climb"),
-    ("UNCLIMBABLE", "Unclimbable", "Slides off"),
 )
 
 bk64_sound_type_enum = (
@@ -146,8 +139,15 @@ _BK64_BONE_PROPS = (
 
 _BK64_MATERIAL_PROPS = (
     "hm64_bk64_collision_type",
-    "hm64_bk64_ground_type",
     "hm64_bk64_sound_type",
+    "hm64_bk64_trottable_slope",
+    "hm64_bk64_untrottable_slope",
+    "hm64_bk64_damage",
+    "hm64_bk64_double_sided",
+    "hm64_bk64_non_impeding",
+    "hm64_bk64_script_target",
+    "hm64_bk64_default_sounds",
+    "hm64_bk64_collision_extra",
     "hm64_bk64_draw_layer",
     "hm64_bk64_collision_raw",
     "hm64_bk64_collision_unk6",
@@ -264,14 +264,41 @@ def bk64_properties_register():
         name="Collision",
         items=bk64_collision_type_enum,
         default="NONE",
-        description="Whether faces using this material go into the model's collision list, and how "
-        "Banjo meets them. Characters carry no collision, scenery does",
+        description="Whether faces using this material go into the model's collision list, and what "
+        "kind of surface they are. Characters carry no collision, scenery does",
     )
-    bpy.types.Material.hm64_bk64_ground_type = EnumProperty(
-        name="Ground Type",
-        items=bk64_ground_type_enum,
-        default="NORMAL",
-        description="How the surface behaves underfoot",
+    bpy.types.Material.hm64_bk64_trottable_slope = BoolProperty(
+        name="Trottable Slope",
+        description="Slippery unless the player is in Talon Trot",
+    )
+    bpy.types.Material.hm64_bk64_untrottable_slope = BoolProperty(
+        name="Untrottable Slope",
+        description="Slippery in any move except a transformation",
+    )
+    bpy.types.Material.hm64_bk64_damage = BoolProperty(
+        name="Damage",
+        description="Damages the player on contact",
+    )
+    bpy.types.Material.hm64_bk64_double_sided = BoolProperty(
+        name="Double Sided",
+        description="Solid from either face",
+    )
+    bpy.types.Material.hm64_bk64_non_impeding = BoolProperty(
+        name="Non-Impeding",
+        description="Detected but does not block movement",
+    )
+    bpy.types.Material.hm64_bk64_script_target = BoolProperty(
+        name="Script Target",
+        description="Targeted by the map's event scripts",
+    )
+    bpy.types.Material.hm64_bk64_default_sounds = BoolProperty(
+        name="Default Sounds",
+        description="Take the Sound Type from the shared table instead of the map's",
+    )
+    bpy.types.Material.hm64_bk64_collision_extra = IntProperty(
+        name="Other Flags",
+        default=0,
+        description="Unidentified flag bits, kept so an imported surface exports unchanged",
     )
     bpy.types.Material.hm64_bk64_sound_type = EnumProperty(
         name="Sound Type",
@@ -289,16 +316,15 @@ def bk64_properties_register():
     bpy.types.Material.hm64_bk64_collision_raw = IntProperty(
         name="Raw Flags",
         default=0,
-        description="The flag word an imported surface came in with, written back as it is. Vanilla "
-        "uses combinations the choices above can't describe. Set it to 0 to author with them instead",
+        description="The flag word an imported surface came in with, written back as it is. Only set "
+        "when the word holds a bit the choices above can't describe. Set it to 0 to author with them",
     )
     bpy.types.Material.hm64_bk64_collision_unk6 = IntProperty(
         name="Raw Unk6",
         default=0,
         min=0,
         max=0xFFFF,
-        description="The unidentified halfword an imported collision triangle came in with. Nothing "
-        "is known about it, and it's written back untouched",
+        description="The unidentified halfword an imported collision triangle came in with, written back untouched",
     )
     bpy.types.Material.hm64_bk64_anim_tex = EnumProperty(
         name="Animated Texture",

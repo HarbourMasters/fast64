@@ -34,10 +34,10 @@ from .bk64_constants import (
     BK_PALETTE_SIZE,
     BK_TEX_TYPE,
     bk64_world_defaults,
-    BK_COLLISION_FLAG_BASE,
+    BK_COLLISION_FLAG_BITS,
     BK_COLLISION_SINGLE_CELL_SCALE,
-    BK_COLLISION_TYPE,
-    BK_GROUND_TYPE,
+    BK_MEDIUM_TYPE,
+    bk64_surface_encode,
     COLLISION_COLOR_ATTR,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
@@ -1479,13 +1479,11 @@ def _surface_of_material(material):
     collision = getattr(material, "hm64_bk64_collision_type", "NONE")
     if collision == "NONE":
         return None
-    flags = (
-        (BK_COLLISION_FLAG_BASE << 24)
-        | (BK_COLLISION_TYPE[collision] << 16)
-        | (BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "NORMAL")] << 8)
-        | BK_GROUND_TYPE[getattr(material, "hm64_bk64_ground_type", "NORMAL")]
-    )
-    return (flags, 0)
+    fields = {name: getattr(material, f"hm64_bk64_{name}", False) for name in BK_COLLISION_FLAG_BITS}
+    fields["medium"] = BK_MEDIUM_TYPE[collision]
+    fields["sound"] = BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "NORMAL")]
+    fields["extra"] = getattr(material, "hm64_bk64_collision_extra", 0)
+    return (bk64_surface_encode(fields), getattr(material, "hm64_bk64_collision_unk6", 0))
 
 
 def _material_surfaces(fModel: FModel):
