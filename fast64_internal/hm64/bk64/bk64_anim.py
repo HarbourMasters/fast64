@@ -20,7 +20,7 @@ from .bk64_constants import (
     NO_PARENT,
     RT_BK_ANIM,
 )
-from .bk64_model import otr_header
+from .bk64_constants import otr_header
 from .bk64_skeleton import build_bone_table
 
 CHANNEL_NAMES = ("rotation X", "rotation Y", "rotation Z", "scale X", "scale Y", "scale Z", "X", "Y", "Z")

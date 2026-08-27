@@ -1,3 +1,5 @@
+import struct
+
 # Torch ResourceType fourccs, little endian
 RT_BK_MODEL = 0x424B4D4F
 RT_BK_ANIM = 0x424B414E
@@ -63,7 +65,7 @@ BK_TEX_BITS = {"CI4": 4, "CI8": 8, "RGBA16": 16, "RGBA32": 32, "IA8": 8}
 # frame the game slides that segment's base on by frame_size bytes.
 SEG_ANIM_BASE = 15
 ANIM_TEX_SLOT_COUNT = 4
-ANIM_FRAME_FORMATS = frozenset(("RGBA16", "RGBA32", "IA8"))  # a CI frame would animate its palette too
+ANIM_FRAME_FORMATS = frozenset(("RGBA16", "RGBA32", "IA8", "CI4", "CI8"))  # a CI frame carries its palette with it
 
 MAX_TEXTURE_DIM = 255  # BKTextureInfo stores width/height as u8
 
@@ -186,25 +188,38 @@ SEG_TEX_BLOB = 2  # offset into the model's own texture blob
 # texture instead. The game never looks, its combiner takes SHADE.
 WHITE_TEXTURE_DIM = 8
 
-# scale 0 means one cell holding everything, the path the game takes for it
-BK_COLLISION_SINGLE_CELL_SCALE = 0
+# the grid a collision query walks. Vanilla's scales are multiples of 100, at
+# around five triangles a cell
+BK_COLLISION_SCALE_STEP = 100
+BK_COLLISION_SCALE_MIN = 300
+BK_COLLISION_SCALE_MAX = 8000
+BK_COLLISION_CELL_TRIANGLES = 5
+BK_COLLISION_MAX_CELLS = 16384  # vanilla tops out at 12441
+BK_COLLISION_MAX_ENTRIES = 32000  # tri_cnt and start_tri_index are both s16
 
+# The sound field holds a map sound slot, or with bit 31 one of the shared
+# sounds. core2/map/audioconfig.c resolves the slots through a per-map table.
+BK_COLLISION_SOUND_MASK = 0x80001F00
 BK_SOUND_TYPE = {
-    "NORMAL": 0,
-    "METAL": 1,
-    "HARD_GROUND": 2,
-    "STONE": 3,
-    "WOOD": 4,
-    "SNOW": 5,
-    "LEAVES": 6,
-    "SWAMP": 7,
-    "SAND": 8,
-    "SLUSH": 9,
+    "NONE": 0x00000000,
+    "MAP_DEFAULT": 0x00000100,
+    "MAP_1": 0x00000200,
+    "MAP_2": 0x00000400,
+    "MAP_3": 0x00000800,
+    "MAP_4": 0x00001000,
+    "NORMAL": 0x80000000,
+    "METAL": 0x80000100,
+    "HARD_GROUND": 0x80000200,
+    "STONE": 0x80000300,
+    "WOOD": 0x80000400,
+    "SNOW": 0x80000500,
+    "LEAVES": 0x80000600,
+    "SWAMP": 0x80000700,
+    "SAND": 0x80000800,
+    "SLUSH": 0x80000900,
 }
 
 # BKCollisionTriangle.flags is a bit field
-BK_COLLISION_SOUND_SHIFT = 8
-BK_COLLISION_SOUND_MASK = 0x00000F00
 BK_COLLISION_MEDIUM_SHIFT = 17
 BK_COLLISION_MEDIUM_MASK = 0x001E0000  # core2/vtx/listutils.c func_802E7408 tests all four together
 BK_MEDIUM_TYPE = {"GROUND": 0, "WATER": 1, "WATER2": 2}
@@ -212,15 +227,16 @@ BK_MEDIUM_TYPE = {"GROUND": 0, "WATER": 1, "WATER2": 2}
 BK_COLLISION_FLAG_BITS = {
     "trottable_slope": 0x00000010,
     "untrottable_slope": 0x00000040,
-    "damage": 0x00002000,  # core2/ba/hazards.c reads it off the floor under the player
+    "hazard_1": 0x00002000,  # ba/hazards.c reads 0xE000 as a group, gated per map
+    "hazard_2": 0x00004000,  # GV's sand tests this one alone
+    "hazard_3": 0x00008000,
     "double_sided": 0x00010000,  # core2/collision/raycast.c, and listutils.c inverts the normal
     "non_impeding": 0x00400000,
     "script_target": 0x08000000,
-    "default_sounds": 0x80000000,
 }
 
 # unidentified bits vanilla sets
-BK_COLLISION_EXTRA_MASK = 0x05A01080
+BK_COLLISION_EXTRA_MASK = 0x47A00086
 
 BK_COLLISION_KNOWN_MASK = BK_COLLISION_SOUND_MASK | BK_COLLISION_MEDIUM_MASK | BK_COLLISION_EXTRA_MASK
 for _mask in BK_COLLISION_FLAG_BITS.values():
@@ -233,9 +249,11 @@ def bk64_surface_decode(flags: int) -> dict | None:
     flags &= 0xFFFFFFFF
     if flags & ~BK_COLLISION_KNOWN_MASK:
         return None
-    sound = (flags & BK_COLLISION_SOUND_MASK) >> BK_COLLISION_SOUND_SHIFT
+    sound = flags & BK_COLLISION_SOUND_MASK
     medium = (flags & BK_COLLISION_MEDIUM_MASK) >> BK_COLLISION_MEDIUM_SHIFT
     if sound not in BK_SOUND_TYPE.values() or medium not in BK_MEDIUM_TYPE.values():
+        return None
+    if medium and sound == BK_SOUND_TYPE["MAP_DEFAULT"]:
         return None
 
     fields = {name: bool(flags & mask) for name, mask in BK_COLLISION_FLAG_BITS.items()}
@@ -247,7 +265,9 @@ def bk64_surface_decode(flags: int) -> dict | None:
 
 def bk64_surface_encode(fields: dict) -> int:
     """The flag word for those fields"""
-    flags = (fields.get("sound", 0) << BK_COLLISION_SOUND_SHIFT) & BK_COLLISION_SOUND_MASK
+    flags = fields.get("sound", 0) & BK_COLLISION_SOUND_MASK
+    if fields.get("medium") and flags == BK_SOUND_TYPE["MAP_DEFAULT"]:
+        flags = 0
     flags |= (fields.get("medium", 0) << BK_COLLISION_MEDIUM_SHIFT) & BK_COLLISION_MEDIUM_MASK
     flags |= fields.get("extra", 0) & BK_COLLISION_EXTRA_MASK
     for name, mask in BK_COLLISION_FLAG_BITS.items():
@@ -257,6 +277,27 @@ def bk64_surface_encode(fields: dict) -> int:
 
 
 NO_PARENT = 0xFFFF
+
+
+def otr_header(resource_type: int, version: int = 0):
+    # byte order, is custom, 2 unused, type, version, id
+    data = bytearray(struct.pack("<BBBBIIQ", 0, 1, 0, 0, resource_type, version, OTR_ID))
+    data.extend(b"\x00" * (OTR_HEADER_SIZE - len(data)))
+    return data
+
+
+def s16(value):
+    """Rounded and clamped, a coordinate past the range would wrap"""
+    return max(-32768, min(32767, int(round(value))))
+
+
+def tri_indices(word, cache):
+    """The three vertices a G_TRI word names, or None when a slot holds nothing yet"""
+    try:
+        return [cache[((word >> shift) & 0xFF) // 2] for shift in (16, 8, 0)]
+    except KeyError:
+        return None
+
 
 MAX_VERTEX_COUNT = 32767  # the header count is an s16, the port drops indices past it
 
@@ -270,6 +311,14 @@ NATIVE_SIZE_PROP = "hm64_bk64_native_size"
 # a fingerprint of the base they were drawn from.
 MIP_PYRAMID_PROP = "hm64_bk64_mip_pyramid"
 MIP_BASE_PROP = "hm64_bk64_mip_base"
+
+# the display list chunk each imported face was drawn in, on the mesh rather
+# than the material so identical materials can share one slot
+SOURCE_CHUNK_ATTR = "hm64_bk64_source"
+
+# the cell grid a model's collision came with, written back while the surface
+# set still matches
+COLLISION_GRID_PROP = "hm64_bk64_collision_grid"
 
 # markers on helper objects, found by walking the root's children on export
 SHAPE_KIND = "hm64_bk64_shape"

@@ -3,9 +3,10 @@ from __future__ import annotations
 import struct
 
 from ...utility import PluginError
+from .bk64_collision import write_collision_list
 from .bk64_constants import (
-    BK_COLLISION_SINGLE_CELL_SCALE,
     GEO_CMD_SKINNING,
+    s16,
     BKMODEL_HEADER_SIZE,
     BKMODEL_MAGIC,
     GEO_BONE_BRANCH_OFFSET,
@@ -49,14 +50,6 @@ def vertex_records(vertices, endian: str = "<"):
         )
         data.extend(bytes(channel & 0xFF for channel in color))
     return bytes(data)
-
-
-def tri_indices(word, cache):
-    """The three vertices a G_TRI word names, or None when a slot holds nothing yet"""
-    try:
-        return [cache[((word >> shift) & 0xFF) // 2] for shift in (16, 8, 0)]
-    except KeyError:
-        return None
 
 
 def _loaddl(gfx_index: int, next_offset: int, endian: str = "<"):
@@ -377,11 +370,6 @@ def _pad8(data: bytearray):
     data.extend(bytes(-len(data) % 8))
 
 
-def s16(value):
-    """Rounded and clamped, a coordinate past the range would wrap"""
-    return max(-32768, min(32767, int(round(value))))
-
-
 def write_bkmodelbin(
     geo_type,
     tri_count,
@@ -398,6 +386,7 @@ def write_bkmodelbin(
     bound_vertices,
     meshes,
     animated_slots,
+    collision_grid_stored=None,
 ):
     """One BKModelBin, the ROM's own layout.
 
@@ -447,12 +436,7 @@ def write_bkmodelbin(
         offsets["collision"] = len(out)
         # BKCollisionList counts its cells before the scale, the other way
         # round from _write_collision's stream
-        out.extend(struct.pack(">hhhhhh", 0, 0, 0, 0, 0, 0))
-        out.extend(struct.pack(">HHHHH", 0, 0, 1, BK_COLLISION_SINGLE_CELL_SCALE, len(collision)))
-        out.extend(bytes(2))
-        out.extend(struct.pack(">HH", 0, len(collision)))
-        for indices, flags, unk6 in collision:
-            out.extend(struct.pack(">HHHHI", indices[0], indices[1], indices[2], unk6, flags & 0xFFFFFFFF))
+        out.extend(write_collision_list(collision, vertices, collision_grid_stored, ">"))
 
     if bones:
         _pad8(out)

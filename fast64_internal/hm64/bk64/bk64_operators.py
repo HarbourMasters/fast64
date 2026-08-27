@@ -366,7 +366,7 @@ class BK64_ImportAnimation(Operator):
 
 
 def _level_resource(folder: str, index: int, stem: str, layer: str):
-    """Where a level's half was extracted to, or None if it isn't there."""
+    """Where a level's half was extracted to, or None if it isn't there"""
     name = f"ASSET_{index:04X}_{stem}_{layer}"
     for candidate in (os.path.join(folder, name), os.path.join(folder, "assets", "level", name)):
         if os.path.isfile(candidate):
@@ -450,6 +450,11 @@ class BK64_ImportModel(Operator):
                         )
                 if model["shapes"]:
                     notes.append(f"{len(model['shape_objects'])} collision shapes are in their own collection.")
+                if model["dropped"]:
+                    notes.append(
+                        f"{model['dropped']} triangles reference vertices no G_VTX loads, and came "
+                        "in without them. The display list is malformed, likely a romhack tool's."
+                    )
                 if model["unbound_textures"]:
                     notes.append(
                         f"{model['unbound_textures']} of its textures aren't bound by the display list, "

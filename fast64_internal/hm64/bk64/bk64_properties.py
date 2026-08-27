@@ -37,6 +37,12 @@ bk64_level_layer_enum = (
 )
 
 bk64_sound_type_enum = (
+    ("NONE", "None", "No sound tag. Vanilla water and ceilings carry none"),
+    ("MAP_DEFAULT", "Map Default", "The map's default footstep, sand on TTC and snow on FP"),
+    ("MAP_1", "Map Sound 1", "One of the map's own footsteps, wood on TTC"),
+    ("MAP_2", "Map Sound 2", "One of the map's own footsteps, stone on TTC"),
+    ("MAP_3", "Map Sound 3", "One of the map's own footsteps"),
+    ("MAP_4", "Map Sound 4", "One of the map's own footsteps"),
     ("NORMAL", "Normal", "Default footstep"),
     ("METAL", "Metal", "Metal footstep"),
     ("HARD_GROUND", "Hard Ground", "Hard ground footstep"),
@@ -161,11 +167,12 @@ _BK64_MATERIAL_PROPS = (
     "hm64_bk64_sound_type",
     "hm64_bk64_trottable_slope",
     "hm64_bk64_untrottable_slope",
-    "hm64_bk64_damage",
+    "hm64_bk64_hazard_1",
+    "hm64_bk64_hazard_2",
+    "hm64_bk64_hazard_3",
     "hm64_bk64_double_sided",
     "hm64_bk64_non_impeding",
     "hm64_bk64_script_target",
-    "hm64_bk64_default_sounds",
     "hm64_bk64_collision_extra",
     "hm64_bk64_draw_layer",
     "hm64_bk64_collision_raw",
@@ -311,9 +318,17 @@ def bk64_properties_register():
         name="Untrottable Slope",
         description="Slippery in any move except a transformation",
     )
-    bpy.types.Material.hm64_bk64_damage = BoolProperty(
-        name="Damage",
-        description="Damages the player on contact",
+    bpy.types.Material.hm64_bk64_hazard_1 = BoolProperty(
+        name="Hazard 1",
+        description="Damages the player where the map has a matching hazard. Piranha water and thorns",
+    )
+    bpy.types.Material.hm64_bk64_hazard_2 = BoolProperty(
+        name="Hazard 2",
+        description="Damages the player where the map has a matching hazard. GV's sand",
+    )
+    bpy.types.Material.hm64_bk64_hazard_3 = BoolProperty(
+        name="Hazard 3",
+        description="The third hazard bit. Vanilla never sets it, the game reads all three",
     )
     bpy.types.Material.hm64_bk64_double_sided = BoolProperty(
         name="Double Sided",
@@ -327,10 +342,6 @@ def bk64_properties_register():
         name="Script Target",
         description="Targeted by the map's event scripts",
     )
-    bpy.types.Material.hm64_bk64_default_sounds = BoolProperty(
-        name="Default Sounds",
-        description="Take the Sound Type from the shared table instead of the map's",
-    )
     bpy.types.Material.hm64_bk64_collision_extra = IntProperty(
         name="Other Flags",
         default=0,
@@ -339,7 +350,7 @@ def bk64_properties_register():
     bpy.types.Material.hm64_bk64_sound_type = EnumProperty(
         name="Sound Type",
         items=bk64_sound_type_enum,
-        default="NORMAL",
+        default="MAP_DEFAULT",
         description="Which footstep sound the surface makes",
     )
     bpy.types.Material.hm64_bk64_source_chunk = IntProperty(

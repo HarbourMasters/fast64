@@ -20,6 +20,7 @@ from ...f3d.f3d_gbi import (
     SPEndDisplayList,
     SPTexture,
 )
+from ...f3d.f3d_material import get_output_method
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ...utility import (
     PluginError,
@@ -29,98 +30,72 @@ from ...utility import (
     normToSigned8Vector,
 )
 from .bk64_constants import (
-    ANIM_FRAME_FORMATS,
     ANIM_TEX_SLOT_COUNT,
-    BIN_TEX_FORMATS,
-    BK_PALETTE_SIZE,
-    BK_TEX_TYPE,
     bk64_world_defaults,
-    BK_COLLISION_FLAG_BITS,
-    BK_COLLISION_SINGLE_CELL_SCALE,
-    BK_MEDIUM_TYPE,
-    bk64_surface_encode,
     COLLISION_COLOR_ATTR,
+    COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
-    BK_SOUND_TYPE,
+    SOURCE_CHUNK_ATTR,
     CYCLE_TYPE_2CYCLE,
     DEFAULT_LIGHT_DIR,
-    F3D_FMT_TO_OTEX,
-    G_LIGHTING,
-    G_TEXTURE_GEN,
-    GEO_LAYOUT_PROP,
-    MAX_APPENDAGE_ID,
     MAX_DRAWABLE_BONE_INDEX,
-    MAX_TEXTURE_DIM,
     MAX_VERTEX_COUNT,
     MESH_GROUP_PREFIX,
-    MIP_BASE_PROP,
-    MIP_LOAD_BLOCK,
-    MIP_LOAD_TILE,
-    MIP_PYRAMID_PROP,
-    MIP_PYRAMID_SIZE,
-    MIP_ROW_BYTES,
     MIP_SPTEXTURE_LEVEL,
     MIP_SPTEXTURE_TILE,
     MIP_TEXTURE_DIM,
     NO_PARENT,
-    OP_CLEARGEOMETRYMODE,
-    OP_CULLDL,
-    OP_DL,
-    OP_ENDDL,
-    OP_LOADBLOCK,
-    OP_MOVEMEM,
-    OP_MOVEWORD,
-    OP_POPMTX,
-    OP_SETCOMBINE,
-    OP_SETGEOMETRYMODE,
-    OP_SETTILE,
-    OP_SETTILESIZE,
-    OP_SETTIMG,
-    OP_TRI1,
-    OP_TRI2,
-    OP_VTX,
-    OTEX_TYPE,
-    OTR_HEADER_SIZE,
-    OTR_ID,
-    OTR_TEXTURE_V0,
-    OTR_TEXTURE_V1,
-    PALETTED_FORMATS,
-    RENDERMODE_ENTRY_STRIDE,
-    SHADE_FOLD_FORMATS,
-    TEX_FLAG_LOAD_AS_RAW,
+    otr_header,
     RT_BK_MODEL,
     RT_BLOB,
-    RT_TEXTURE,
     RT_VERTEX,
-    SEG_RENDERMODE,
-    SEG_TEX,
+    s16,
     SEG_ANIM_BASE,
+    SEG_TEX,
     SEG_TEX_BLOB,
     SEG_VTX,
     SHAPE_KIND,
     SHAPE_PIVOT,
-    WHITE_TEXTURE_DIM,
+)
+from .bk64_texture import (
+    animated_slots,
+    draw_layer_of,
+    collect_textures,
+    f3d_materials,
+    f3d_settings,
+    image_folds,
+    image_opacity,
+    reads_texel1,
+)
+from .bk64_geo import (
+    count_triangles,
+    fixup_chunk,
+    flatten_gfx_list,
+    geo_records,
+    layout_refpoints,
+    relink_layout,
+    split_skinning,
+    stored_layout,
+)
+from .bk64_collision import (
+    check_camera_water_reads,
+    collision_from_display_list,
+    material_surfaces,
+    surface_of_material,
+    unpack_collision_grid,
+    write_collision_list,
 )
 from .bk64_rom import (
     collision_shapes,
     geo_body,
     layout_records,
     mesh_list,
-    s16,
-    tri_indices,
     vertex_bone_map,
     vertex_records,
     write_bkmodelbin,
 )
 from .bk64_skeleton import BK64Bone, BLENDER_TO_BK, build_bone_table
-
-
-def otr_header(resource_type: int, version: int = 0):
-    # byte order, is custom, 2 unused, type, version, id
-    data = bytearray(struct.pack("<BBBBIIQ", 0, 1, 0, 0, resource_type, version, OTR_ID))
-    data.extend(b"\x00" * (OTR_HEADER_SIZE - len(data)))
-    return data
 
 
 def _write_vertex_resource(vertices):
@@ -163,42 +138,6 @@ def _write_geo_layout(records):
     return data
 
 
-def _write_texture_resource(otex_format: str, width: int, height: int, pixels: bytes, hd_scale=None):
-    """u32 type, u32 width, u32 height, u32 byte count, then native N64 pixels.
-
-    An HD texture goes out as V1, which fits the raw flag and the two scales in
-    ahead of the count. Width and height stay the sizes the display list tiles,
-    and the pixels behind them are RGBA8 at the real size.
-    """
-    if hd_scale is None:
-        data = otr_header(RT_TEXTURE, OTR_TEXTURE_V0)
-        data.extend(struct.pack("<IIII", OTEX_TYPE[otex_format], width, height, len(pixels)))
-    else:
-        h_scale, v_scale = hd_scale
-        data = otr_header(RT_TEXTURE, OTR_TEXTURE_V1)
-        data.extend(
-            struct.pack(
-                "<IIIIffI",
-                OTEX_TYPE[otex_format],
-                width,
-                height,
-                TEX_FLAG_LOAD_AS_RAW,
-                h_scale,
-                v_scale,
-                len(pixels),
-            )
-        )
-    data.extend(pixels)
-    return data
-
-
-def _hd_scale_of(fImage):
-    """(h byte scale, v pixel scale) when an image was spoofed down, else None"""
-    h_scale = getattr(fImage, "hd_byte_scale", 1.0)
-    v_scale = getattr(fImage, "hd_pixel_scale", 1.0)
-    return None if h_scale == 1.0 and v_scale == 1.0 else (h_scale, v_scale)
-
-
 def _write_model_resource(
     geo_type,
     tri_count,
@@ -214,6 +153,8 @@ def _write_model_resource(
     bound_vertices,
     meshes,
     animated_slots,
+    vertices,
+    collision_grid_stored=None,
 ):
     """The main BKMO resource, field for field"""
     has_anim = len(bones) > 0
@@ -261,7 +202,7 @@ def _write_model_resource(
         for bone in bones:
             data.extend(struct.pack("<fffHH", *bone.position, bone.bone_id & 0xFFFF, bone.parent_index & 0xFFFF))
     if collision:
-        data.extend(_write_collision(collision))
+        data.extend(write_collision_list(collision, vertices, collision_grid_stored, "<"))
     if shapes:
         data.extend(collision_shapes(shapes))
     if meshes:
@@ -327,25 +268,10 @@ def _bmesh_to_object(context, bm, name: str, material_source, face_indices=None)
     return part_obj
 
 
-def _f3d_settings(material):
-    """The f3d_mat a material keeps its settings on, or the material before Fast64 4"""
-    return material.f3d_mat if material.mat_ver > 3 else material
-
-
-def _f3d_materials(mesh_objects):
-    """(material, its f3d settings) for every F3D material on these objects"""
-    for mesh_obj in mesh_objects:
-        for slot in mesh_obj.material_slots:
-            material = slot.material
-            if material is None or not getattr(material, "is_f3d", False):
-                continue
-            yield material, _f3d_settings(material)
-
-
 def promote_materials_to_2_cycle(mesh_obj):
     # the second cycle is the identity and there's nothing to decide
     changed = 0
-    for _material, f3d_mat in _f3d_materials([mesh_obj]):
+    for _material, f3d_mat in f3d_materials([mesh_obj]):
         if f3d_mat.rdp_settings.g_mdsft_cycletype == CYCLE_TYPE_2CYCLE:
             continue
         f3d_mat.rdp_settings.g_mdsft_cycletype = CYCLE_TYPE_2CYCLE
@@ -441,18 +367,15 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
 
     # an imported face keeps its chunk's bone from the layout, not a weight
     # vote that could land it across the seam
-    bone_of_slot = {}
-    if source_bones:
-        for slot_index, slot in enumerate(mesh_obj.material_slots):
-            source = getattr(slot.material, "hm64_bk64_source_chunk", -1) if slot.material else -1
-            if source in source_bones:
-                bone_of_slot[slot_index] = source_bones[source]
+    source_of_face = _face_sources(mesh_obj.data) if source_bones else []
 
     deform_layer = bm.verts.layers.deform.active
     bone_of_face, faces_by_bone = {}, {}
     unweighted = 0
     for face in bm.faces:
-        bone_name = bone_of_slot.get(face.material_index)
+        bone_name = None
+        if source_bones and face.index < len(source_of_face):
+            bone_name = source_bones.get(source_of_face[face.index])
         if bone_name is None:
             group_index = _face_bone_group(face, deform_layer, group_index_to_bone)
             if group_index is None:
@@ -490,202 +413,6 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
         if part_obj is not None:
             parts[bone_name] = [part_obj]
     return parts
-
-
-def _subtree_points(index, children, chunk_points):
-    """Every vertex the bone and everything under it draws, in BK units"""
-    points = list(chunk_points.get(index, []))
-    for child in children.get(index, []):
-        points += _subtree_points(child, children, chunk_points)
-    return points
-
-
-def _stored_layout(root_obj):
-    """The layout an imported model came with, or None.
-
-    JSON, because a Blender custom property can't hold a nested tuple tree.
-    """
-    raw = root_obj.get(GEO_LAYOUT_PROP)
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return None
-
-
-def _relink_layout(records, from_source):
-    """The stored layout with every original chunk index swapped for the new ones.
-
-    None when nothing it draws survived, since a layout with no geometry left in
-    it is worse than the flat one the bone tree gives.
-    """
-    kept = 0
-
-    def relink(nodes):
-        nonlocal kept
-        out = []
-        for record in nodes:
-            kind = record[0]
-            if kind == "loaddl":
-                # a chunk that drew nothing has no faces to carry a source, and
-                # vanilla writes plenty of those to set state for the next one
-                indices = from_source.get(record[1])
-                if not indices:
-                    continue
-                kept += 1
-                out += [("loaddl", index) for index in indices]
-            elif kind == "skinning":
-                indices = [i for source in record[1] for i in from_source.get(source, [])]
-                if not indices:
-                    continue
-                kept += 1
-                out.append(("skinning", indices))
-            elif kind == "bonebranch":
-                out.append(("bonebranch", record[1], relink(record[2])))
-            elif kind == "selector":
-                out.append(("selector", record[1], [relink(option) for option in record[2]]))
-            elif kind == "sort":
-                out.append(
-                    ("sort", tuple(record[1]), tuple(record[2]), relink(record[3]), relink(record[4]), record[5])
-                )
-            elif kind == "lod":
-                out.append(("lod", record[1], record[2], tuple(record[3]), relink(record[4])))
-            elif kind == "drawdist":
-                out.append(("drawdist", tuple(record[1]), tuple(record[2]), relink(record[3])))
-            elif kind == "refpoint":
-                out.append(("refpoint", record[1], record[2], tuple(record[3])))
-            else:
-                out.append(tuple(record))
-        return out
-
-    relinked = relink(records)
-    return relinked if kept else None
-
-
-def _layout_refpoints(records):
-    """Every REFPOINT in a stored layout, whatever it sits under"""
-    return [
-        ("refpoint", record[1], record[2], tuple(record[3]))
-        for kind, _indices, _matrix, _parent, record in layout_records(records)
-        if kind == "refpoint"
-    ]
-
-
-def _bound_refpoints(bones, armature_obj):
-    """Every REFPOINT bone of a model that draws under no bone of its own"""
-    # a selector has nothing to choose without per bone geometry, a refpoint only reports a joint
-    if armature_obj is None:
-        return []
-    records = []
-    for index, entry in enumerate(bones):
-        bone = armature_obj.data.bones[entry.name]
-        if getattr(bone, "hm64_bk64_geo_type", "NONE") == "REFPOINT":
-            records.append(("refpoint", getattr(bone, "hm64_bk64_geo_index", 0), index, tuple(entry.position)))
-    return records
-
-
-def _geo_records(bones, chunks, armature_obj, rigged: bool, chunk_bounds=None):
-    # depth first matches the order the chunks were built in. A selector pulls
-    # its child bones' subtrees out of that run.
-    if not rigged:
-        records = [("loaddl", gfx_index) for _bone_index, gfx_index in chunks]
-        return records + _bound_refpoints(bones, armature_obj)
-
-    chunks_by_bone = {}
-    for bone_index, gfx_index in chunks:
-        chunks_by_bone.setdefault(bone_index, []).append(gfx_index)
-
-    children = {}
-    for index, bone in enumerate(bones):
-        if bone.parent_index != NO_PARENT:
-            children.setdefault(bone.parent_index, []).append(index)
-
-    chunk_points = {}
-    for position, (bone_index, _gfx_index) in enumerate(chunks):
-        chunk_points.setdefault(bone_index, []).extend(chunk_bounds[position] if chunk_bounds else [])
-
-    def node_of(index):
-        if armature_obj is None:
-            return "NONE", 0
-        bone = armature_obj.data.bones[bones[index].name]
-        return getattr(bone, "hm64_bk64_geo_type", "NONE"), getattr(bone, "hm64_bk64_geo_index", 0)
-
-    def guarded(index, records):
-        bone = armature_obj.data.bones[bones[index].name]
-        geo_type = getattr(bone, "hm64_bk64_geo_type", "NONE")
-        points = _subtree_points(index, children, chunk_points)
-
-        if geo_type == "LOD":
-            far = getattr(bone, "hm64_bk64_lod_far", 0.0)
-            if far <= 0.0:
-                raise PluginError(
-                    f"Bone '{bones[index].name}' is a Level Of Detail with no Far Distance, and would never draw."
-                )
-            return [("lod", far, getattr(bone, "hm64_bk64_lod_near", 0.0), tuple(bones[index].position), records)]
-
-        if geo_type == "DRAWDIST":
-            if not points:
-                raise PluginError(
-                    f"Bone '{bones[index].name}' is a Draw Distance with no geometry under it to " "make a box from."
-                )
-            low = tuple(min(point[axis] for point in points) for axis in range(3))
-            high = tuple(max(point[axis] for point in points) for axis in range(3))
-            return [("drawdist", low, high, records)]
-
-        return records
-
-    def subtree(index):
-        records = [("bone", index, gfx_index) for gfx_index in chunks_by_bone.get(index, [])]
-        geo_type, geo_index = node_of(index)
-
-        if geo_type == "SORT":
-            branches = [subtree(child) for child in children.get(index, [])]
-            if len(branches) != 2:
-                raise PluginError(
-                    f"Bone '{bones[index].name}' is a Sort with {len(branches)} child bones, and it "
-                    "orders exactly two."
-                )
-            middles = []
-            for child in children[index]:
-                points = _subtree_points(child, children, chunk_points)
-                middles.append(
-                    tuple(sum(point[axis] for point in points) / len(points) for axis in range(3))
-                    if points
-                    else tuple(bones[child].position)
-                )
-            # bit 0 set draws only the half the camera faces. Leave it clear and
-            # both halves draw back to front, the ordering a Sort is for.
-            records.append(("sort", middles[0], middles[1], branches[0], branches[1], 0))
-            return guarded(index, records)
-
-        if geo_type == "SELECTOR":
-            if not 1 <= geo_index <= MAX_APPENDAGE_ID:
-                raise PluginError(
-                    f"Bone '{bones[index].name}' is a Selector with appendage id {geo_index}. The "
-                    f"game treats 0 as unset and its table holds {MAX_APPENDAGE_ID}. Use 1 to "
-                    f"{MAX_APPENDAGE_ID}."
-                )
-            if not children.get(index):
-                raise PluginError(
-                    f"Bone '{bones[index].name}' is a Selector with no child bones. Parent one bone "
-                    "per option to it."
-                )
-            records.append(("selector", geo_index, [subtree(child) for child in children[index]]))
-        else:
-            for child in children.get(index, []):
-                records += subtree(child)
-
-        if geo_type == "REFPOINT":
-            # the game puts it through this bone's matrix and it rides the joint
-            records.append(("refpoint", geo_index, index, tuple(bones[index].position)))
-        return guarded(index, records)
-
-    records = []
-    for index, bone in enumerate(bones):
-        if bone.parent_index == NO_PARENT:
-            records += subtree(index)
-    return records
 
 
 def _to_bk_space(root_obj, scale: float):
@@ -787,7 +514,7 @@ def read_collision_only(context, root_obj, scale: float):
         try:
             for face in bm.faces:
                 material = obj.material_slots[face.material_index].material if obj.material_slots else None
-                surface = _surface_of_material(material) if material else None
+                surface = surface_of_material(material) if material else None
                 if surface is None:
                     raise PluginError(
                         f"'{obj.name}' is marked collision only but face {face.index} has no collision material. "
@@ -818,441 +545,10 @@ def read_collision_only(context, root_obj, scale: float):
     return vertices, triangles
 
 
-def _flatten_gfx_list(gfx_list, f3d, segments, seen=None):
-    # BK walks from a start index until G_ENDDL. A sub list call has no target
-    seen = seen if seen is not None else set()
-    if id(gfx_list) in seen:
-        raise PluginError(f"Recursive display list '{gfx_list.name}' cannot be flattened.")
-    seen = seen | {id(gfx_list)}
-
-    words = []
-    for command in gfx_list.commands:
-        if isinstance(command, SPDisplayList):
-            words += _flatten_gfx_list(command.displayList, f3d, segments, seen)
-        elif not isinstance(command, SPEndDisplayList):
-            # big endian, and a macro can expand to several commands
-            raw = command.to_binary(f3d, segments)
-            words += [struct.unpack_from(">II", raw, offset) for offset in range(0, len(raw), 8)]
-    return words
-
-
-def _reads_texel1(f3d_mat):
-    for cycle in (f3d_mat.combiner1, f3d_mat.combiner2):
-        for name in ("A", "B", "C", "D", "A_alpha", "B_alpha", "C_alpha", "D_alpha"):
-            if "TEXEL1" in getattr(cycle, name):
-                return True
-    return False
-
-
-def _kept_pyramid(image, base: bytes):
-    """The mip levels the image was imported with, or None once its base moves."""
-    stored = image.get(MIP_PYRAMID_PROP) if image is not None else None
-    if not stored or image.get(MIP_BASE_PROP) != f"{zlib.crc32(base):08x}":
-        return None
-    kept = bytes.fromhex(stored)
-    return kept if len(kept) == MIP_PYRAMID_SIZE else None
-
-
-def _mip_pyramid(pixels: bytes) -> bytes:
-    """The 16 down to 1 texel levels of a 32x32 RGBA16 base."""
-
-    def decode(data, size):
-        out = []
-        for index in range(size * size):
-            value = (data[index * 2] << 8) | data[index * 2 + 1]
-            out.append(((value >> 11) & 31, (value >> 6) & 31, (value >> 1) & 31, value & 1))
-        return out
-
-    def shrink(texels, size):
-        half = size // 2
-        out = []
-        for y in range(half):
-            for x in range(half):
-                cells = [texels[(y * 2 + dy) * size + x * 2 + dx] for dy in (0, 1) for dx in (0, 1)]
-                color = tuple(sum(cell[channel] for cell in cells) // 4 for channel in range(3))
-                out.append(color + (1 if sum(cell[3] for cell in cells) >= 2 else 0,))
-        return out
-
-    rows = [bytearray(MIP_ROW_BYTES) for _ in range(MIP_PYRAMID_SIZE // MIP_ROW_BYTES)]
-    level = decode(pixels, MIP_TEXTURE_DIM)
-    size = MIP_TEXTURE_DIM
-    while size > 1:
-        level = shrink(level, size)
-        size //= 2
-        data = bytearray()
-        for red, green, blue, alpha in level:
-            value = (red << 11) | (green << 6) | (blue << 1) | alpha
-            data += bytes((value >> 8, value & 0xFF))
-        stride = size * 2
-        at = MIP_ROW_BYTES - stride * 2
-        for row in range(size):
-            rows[row][at : at + stride] = data[row * stride : (row + 1) * stride]
-    return b"".join(bytes(row) for row in rows)
-
-
-def _vtx_loads(pairs):
-    """gSPVertex words for (record, slot) pairs, split where either run breaks"""
-    words = []
-    index = 0
-    while index < len(pairs):
-        end = index + 1
-        while end < len(pairs) and pairs[end][0] == pairs[end - 1][0] + 1 and pairs[end][1] == pairs[end - 1][1] + 1:
-            end += 1
-        count = end - index
-        record, slot = pairs[index]
-        words.append(
-            (
-                (OP_VTX << 24) | ((slot * 2) << 16) | (count << 10) | (VTX_SIZE * count - 1),
-                (SEG_VTX << 24) | (record * VTX_SIZE),
-            )
-        )
-        index = end
-    return words
-
-
-def _split_skinning(words, vertices, owner_of_pos, parent_bone):
-    """The chunk as SKINNING's two lists, or None when there's nothing to blend.
-
-    The first list's POPMTX puts its loads under the parent's matrix, the
-    handler pushes the bone's own back for the second, and triangles there mix
-    both. That's BK's joint blend, and one rigid list tears the shoulder open.
-    """
-    slot_record = {}
-    items = []
-    try:
-        for w0, w1 in words:
-            opcode = (w0 >> 24) & 0xFF
-            if opcode == OP_ENDDL:
-                break
-            if opcode == OP_VTX:
-                first = ((w0 >> 16) & 0xFF) // 2
-                count = (w0 & 0xFFFF) >> 10
-                base = (w1 & 0xFFFFFF) // VTX_SIZE
-                for step in range(count):
-                    slot_record[first + step] = base + step
-            elif opcode == OP_TRI1:
-                items.append(("tri", tuple(slot_record[((w1 >> shift) & 0xFF) // 2] for shift in (16, 8, 0))))
-            elif opcode == OP_TRI2:
-                for packed in (w0 & 0xFFFFFF, w1):
-                    items.append(("tri", tuple(slot_record[((packed >> shift) & 0xFF) // 2] for shift in (16, 8, 0))))
-            else:
-                items.append(("word", w0, w1))
-    except KeyError:
-        return None  # indexes a slot loaded outside the chunk
-
-    def owner(record):
-        return owner_of_pos.get(tuple(s16(value) for value in vertices[record][0]))
-
-    parent_records = []
-    for kind, *rest in items:
-        if kind == "tri":
-            for record in rest[0]:
-                if record not in parent_records and owner(record) == parent_bone:
-                    parent_records.append(record)
-    if not parent_records or len(parent_records) > 24:
-        return None
-
-    reserved = {record: slot for slot, record in enumerate(parent_records)}
-    window = 32 - len(parent_records)
-    list_a = [(OP_POPMTX << 24, 0)]
-    list_a += _vtx_loads(sorted(((record, slot) for record, slot in reserved.items()), key=lambda pair: pair[1]))
-    list_a.append((OP_ENDDL << 24, 0))
-
-    list_b = []
-    loaded = {}
-    fresh = []
-    pending = []
-
-    def flush():
-        nonlocal fresh, pending
-        list_b.extend(_vtx_loads(sorted(fresh, key=lambda pair: pair[1])))
-        for triangle in pending:
-            slots = [reserved.get(record, loaded.get(record)) for record in triangle]
-            list_b.append((OP_TRI1 << 24, ((slots[0] * 2) << 16) | ((slots[1] * 2) << 8) | (slots[2] * 2)))
-        fresh, pending = [], []
-
-    for kind, *rest in items:
-        if kind == "word":
-            flush()
-            list_b.append((rest[0], rest[1]))
-            continue
-        triangle = rest[0]
-        needed = list(dict.fromkeys(r for r in triangle if r not in reserved and r not in loaded))
-        if len(loaded) + len(needed) > window:
-            flush()
-            loaded.clear()
-            needed = list(dict.fromkeys(r for r in triangle if r not in reserved))
-        for record in needed:
-            slot = len(parent_records) + len(loaded)
-            loaded[record] = slot
-            fresh.append((record, slot))
-        pending.append(triangle)
-    flush()
-    list_b.append((OP_ENDDL << 24, 0))
-    return list_a, list_b
-
-
-def _fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, mip_textures=frozenset()):
-    # a reflective chunk keeps its lighting bit. That bit transforms the normal
-    # texture gen reads, and modelRender hands it a LookAt and no lights, the
-    # same as vanilla.
-    reflective = any(((w0 >> 24) & 0xFF) == OP_SETGEOMETRYMODE and (w1 & G_TEXTURE_GEN) for w0, w1 in words)
-    out = [] if reflective else [(OP_CLEARGEOMETRYMODE << 24, G_LIGHTING)]  # the model path loads no lights
-    if rendermode_entry is not None:
-        # jump into the table instead of setting a mode, leaving the actor's depth mode to hold
-        out.append((OP_DL << 24, (SEG_RENDERMODE << 24) | (rendermode_entry * RENDERMODE_ENTRY_STRIDE)))
-    mip_active = False
-    for w0, w1 in words:
-        opcode = (w0 >> 24) & 0xFF
-        if opcode in {OP_ENDDL, OP_CULLDL}:  # BK culls off the vertex header
-            continue
-        if opcode in {OP_MOVEMEM, OP_MOVEWORD}:
-            # SPSetLights and its count. The structs never got addresses, so
-            # the RSP would read vertices as lights.
-            continue
-        if opcode == OP_SETGEOMETRYMODE and (w1 & G_LIGHTING) and not reflective:
-            w1 &= ~G_LIGHTING
-            if w1 == 0:
-                continue
-        if opcode == OP_SETTIMG:  # seg 0xFF indexes _tex_<i>, seg 2 offsets into the blob
-            segment, index = w1 >> 24, w1 & 0x00FFFFFF
-            animated_segment = SEG_ANIM_BASE - ANIM_TEX_SLOT_COUNT < segment <= SEG_ANIM_BASE
-            if not animated_segment and segment != SEG_TEX_BLOB and (segment != SEG_TEX or index >= texture_count):
-                raise PluginError(
-                    f"A G_SETTIMG points at 0x{w1:08X}, which is not one of the {texture_count} "
-                    "textures or a palette in the blob."
-                )
-            mip_active = segment == SEG_TEX and index in mip_textures
-        elif mip_active:
-            # a mipmapped chunk renders from the wrap DL's tile pyramid, so its
-            # own setup is one load of base plus pyramid and no render tile
-            if opcode == OP_SETTILE:
-                if (w1 >> 24) & 7 == 7:
-                    out.append(MIP_LOAD_TILE)
-                continue
-            if opcode == OP_LOADBLOCK:
-                out.append(MIP_LOAD_BLOCK)
-                continue
-            if opcode == OP_SETTILESIZE:
-                mip_active = False
-                continue
-        out.append((w0, w1))
-    if white_offset is not None:
-        out = _bind_untextured(out, white_offset)
-    out.append((OP_ENDDL << 24, 0))
-    return out
-
-
-def _bind_untextured(words, white_offset: int):
-    # a reader picks the texture up at the vertex load. Bind ahead of that.
-    runs, current = [], []
-    for word in words:
-        if (word[0] >> 24) & 0xFF == OP_SETCOMBINE and current:
-            runs.append(current)
-            current = []
-        current.append(word)
-    runs.append(current)
-
-    # G_SETTILE carries the format. Send it too or the white texture reads
-    # as whatever the last material used.
-    setimg = (OP_SETTIMG << 24) | (2 << 19) | (WHITE_TEXTURE_DIM - 1)
-    line = WHITE_TEXTURE_DIM * 2 // 8
-    settile = ((OP_SETTILE << 24) | (2 << 19) | (line << 9), (2 << 18) | (2 << 8))
-    out = []
-    for run in runs:
-        opcodes = [(w0 >> 24) & 0xFF for w0, _w1 in run]
-        if any(opcode in {OP_TRI1, OP_TRI2} for opcode in opcodes) and OP_SETTIMG not in opcodes:
-            at = opcodes.index(OP_VTX) if OP_VTX in opcodes else len(run)
-            bind = [(setimg, (SEG_TEX_BLOB << 24) | white_offset), settile]
-            run = run[:at] + bind + run[at:]
-        out += run
-    return out
-
-
-def _count_triangles(words):
-    total = 0
-    for w0, _w1 in words:
-        opcode = (w0 >> 24) & 0xFF
-        if opcode == OP_TRI1:
-            total += 1
-        elif opcode == OP_TRI2:
-            total += 2
-    return total
-
-
-def _collect_textures(
-    fModel: FModel, embed_images: bool, image_folds=None, opaque_images=None, mip_images=None, animated=None
-):
-    # a resource puts images in _tex_<i> siblings behind segment 0xFF, a ROM
-    # puts everything in the blob behind segment 2
-    resources, infos, blob = [], [], bytearray()
-    animated_offsets = {}
-
-    palette_size = {}
-    for key, fImage in fModel.textures.items():
-        otex_format = F3D_FMT_TO_OTEX.get((fImage.fmt, fImage.bitSize))
-        if otex_format is None:
-            raise PluginError(
-                f"Texture '{fImage.name}' uses {fImage.fmt}/{fImage.bitSize}, which has no BK equivalent."
-            )
-        if isinstance(key, FPaletteKey):
-            continue
-        if embed_images and otex_format not in BIN_TEX_FORMATS:
-            raise PluginError(
-                f"Texture '{fImage.name}' is {otex_format}, which BKTextureInfo has no type bit "
-                "for. Use RGBA16, RGBA32, IA8, CI4 or CI8."
-            )
-        if embed_images and _hd_scale_of(fImage) is not None:
-            raise PluginError(
-                f"Texture '{fImage.name}' is HD. A .bin holds its images as bare bytes in the "
-                "model's own blob, with no resource header to carry the scales. Export o2r."
-            )
-        if otex_format in PALETTED_FORMATS:
-            shared = key.imagesSharingPalette or (key.image,)
-            palette_size[shared] = max(palette_size.get(shared, 0), BK_PALETTE_SIZE[otex_format])
-
-    palette_offset, palette_colors, palette_data, palette_address = {}, {}, {}, {}
-    for key, fImage in fModel.textures.items():
-        if not isinstance(key, FPaletteKey):
-            continue
-        if not fImage.converted:
-            raise PluginError(f"Palette '{fImage.name}' was not converted to N64 format.")
-        shared_key = key.imagesSharingPalette
-        padded = bytes(fImage.data) + bytes(palette_size.get(shared_key, 0) - len(fImage.data))
-        if embed_images:
-            opaque = all((opaque_images or {}).get(image, True) for image in shared_key or ())
-            padded = _flatten_shade(
-                padded, "RGBA16", (image_folds or {}).get(shared_key[0] if shared_key else None), opaque
-            )
-        palette_colors[shared_key] = fImage.height
-        palette_data[shared_key] = padded
-        if not embed_images:
-            palette_offset[shared_key] = len(blob)
-            blob.extend(padded)
-
-    for key, fImage in fModel.textures.items():
-        if isinstance(key, FPaletteKey):
-            continue
-        otex_format = F3D_FMT_TO_OTEX[(fImage.fmt, fImage.bitSize)]
-        if fImage.width > MAX_TEXTURE_DIM or fImage.height > MAX_TEXTURE_DIM:
-            raise PluginError(
-                f"Texture '{fImage.name}' is {fImage.width}x{fImage.height}, and BK stores each "
-                f"side in one byte. Scale it under {MAX_TEXTURE_DIM}."
-            )
-        if not fImage.converted:
-            raise PluginError(f"Texture '{fImage.name}' was not converted to N64 format.")
-
-        paletted = otex_format in PALETTED_FORMATS
-        shared = key.imagesSharingPalette or (key.image,)
-        if paletted and shared not in palette_data:
-            raise PluginError(f"Texture '{fImage.name}' is {otex_format} but exported without a palette.")
-
-        animation = (animated or {}).get(key.image)
-        if animation is not None:
-            slot, frames, _rate = animation
-            if otex_format not in ANIM_FRAME_FORMATS:
-                raise PluginError(
-                    f"Animated texture '{fImage.name}' is {otex_format}. A CI frame would have to "
-                    "animate its palette alongside it. Use RGBA16, RGBA32 or IA8."
-                )
-            if _hd_scale_of(fImage) is not None:
-                raise PluginError(
-                    f"Animated texture '{fImage.name}' is HD. The game slides the segment on by a "
-                    "frame of N64 sized bytes and a raw strip no longer matches. Scale it to fit TMEM."
-                )
-            pixels = _strip_pixels(fImage, frames, otex_format)
-            strip_offset = len(blob)
-            if strip_offset > 0xFFFFFF:
-                raise PluginError(f"'{fImage.name}' lands past the 16MB a segment can address. Use fewer textures.")
-            blob.extend(pixels)
-            # the game binds the strip by segment and slides it a frame at a time
-            fImage.startAddress = ((SEG_ANIM_BASE - slot) << 24) | strip_offset
-            frame_bytes = len(pixels) // len(frames)
-            animated_offsets[slot] = (strip_offset, frame_bytes, len(frames))
-            if not embed_images:
-                resources.append(
-                    _write_texture_resource(otex_format, fImage.width, fImage.height * len(frames), pixels)
-                )
-            infos.append(
-                dict(
-                    type=BK_TEX_TYPE.get(otex_format, 0),
-                    width=fImage.width,
-                    height=fImage.height * len(frames),
-                    colors=0,
-                    offset=strip_offset,
-                )
-            )
-            continue
-
-        if embed_images:
-            # the game's layout puts a palette right ahead of its image, even
-            # if a shared one gets written twice
-            entry_offset = len(blob)
-            if paletted:
-                palette = palette_data[shared]
-                blob.extend(palette)
-                palette_address.setdefault(shared, entry_offset)
-            image_offset = len(blob)
-            pixels = bytes(fImage.data)
-            if not paletted:  # a paletted image is recolored through its palette
-                opaque = (opaque_images or {}).get(key.image, True)
-                pixels = _flatten_shade(pixels, otex_format, (image_folds or {}).get(key.image), opaque)
-            blob.extend(pixels)
-            fImage.startAddress = (SEG_TEX_BLOB << 24) | image_offset
-        else:
-            image_offset = None
-            fImage.startAddress = (SEG_TEX << 24) | len(resources)
-            pixels = bytes(fImage.data)
-            hd_scale = _hd_scale_of(fImage)
-            if mip_images and key.image in mip_images:
-                if hd_scale is not None:
-                    raise PluginError(
-                        f"Texture '{fImage.name}' is HD and mipmapped. The pyramid needs N64 sized "
-                        "pixels an HD image no longer carries. Drop TEXEL0 or scale it to fit TMEM."
-                    )
-                pixels += _kept_pyramid(key.image, pixels) or _mip_pyramid(pixels)
-            resources.append(_write_texture_resource(otex_format, fImage.width, fImage.height, pixels, hd_scale))
-
-        # one entry per texture, in display list order. Fewer would slide the
-        # indices and send a CI texture to the wrong palette.
-        infos.append(
-            dict(
-                type=BK_TEX_TYPE.get(otex_format, 0),
-                width=fImage.width,
-                height=fImage.height,
-                colors=palette_colors[shared] if paletted else 0,
-                offset=entry_offset if embed_images else (palette_offset[shared] if paletted else 0),
-            )
-        )
-
-    white_offset = None
-    if embed_images:
-        white_offset = len(blob)
-        blob.extend(bytes([0xFF]) * (WHITE_TEXTURE_DIM * WHITE_TEXTURE_DIM * 2))
-        infos.append(
-            dict(
-                type=BK_TEX_TYPE["RGBA16"],
-                width=WHITE_TEXTURE_DIM,
-                height=WHITE_TEXTURE_DIM,
-                colors=0,
-                offset=white_offset,
-            )
-        )
-
-    # segment 2 is bound to the blob itself, making an offset into it the address
-    if embed_images:
-        palette_offset = palette_address
-    for key, fImage in fModel.textures.items():
-        if isinstance(key, FPaletteKey):
-            fImage.startAddress = (SEG_TEX_BLOB << 24) | palette_offset[key.imagesSharingPalette]
-
-    return resources, infos, bytes(blob), white_offset, animated_offsets
-
-
 def _check_cycle_type(mesh_objects):
     """BK draws models in 2 cycle and a 1 cycle material renders black"""
     offenders = []
-    for material, f3d_mat in _f3d_materials(mesh_objects):
+    for material, f3d_mat in f3d_materials(mesh_objects):
         if f3d_mat.rdp_settings.g_mdsft_cycletype != CYCLE_TYPE_2CYCLE and material.name not in offenders:
             offenders.append(material.name)
     if offenders:
@@ -1277,33 +573,35 @@ def _check_large_textures(mesh_objects):
         )
 
 
-def _draw_layer_of(material, scene_layer: str):
-    layer = getattr(material, "hm64_bk64_draw_layer", "SCENE") if material is not None else "SCENE"
-    return scene_layer if layer == "SCENE" else layer
-
-
-def _draw_key_of(material, scene_layer: str):
-    """(draw layer, source chunk) a material asks for, and chunks split where it differs.
-
-    The source chunk is the display list an imported face was drawn in. Keeping
-    those faces together lets the layout a model came with be written again with
-    the new indices.
-    """
-    source = getattr(material, "hm64_bk64_source_chunk", -1) if material is not None else -1
-    return (_draw_layer_of(material, scene_layer), source)
+def _face_sources(mesh):
+    """The chunk each face was drawn in, off the mesh or an older blend's materials"""
+    layer = mesh.attributes.get(SOURCE_CHUNK_ATTR)
+    if layer is not None and layer.domain == "FACE":
+        return [item.value for item in layer.data]
+    of_slot = [getattr(material, "hm64_bk64_source_chunk", -1) if material else -1 for material in mesh.materials] or [
+        -1
+    ]
+    return [
+        of_slot[polygon.material_index] if polygon.material_index < len(of_slot) else -1 for polygon in mesh.polygons
+    ]
 
 
 def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
-    """The part as (key, object) pairs, cut where its materials disagree"""
+    """The part as (key, object) pairs, cut where its faces disagree"""
     # a chunk jumps into one render mode entry. Other faces need their own.
-    key_of_slot = {
-        index: _draw_key_of(slot.material, scene_layer) for index, slot in enumerate(part_obj.material_slots)
+    layer_of_slot = {
+        index: draw_layer_of(slot.material, scene_layer) for index, slot in enumerate(part_obj.material_slots)
     }
-    default = (scene_layer, -1)
+    sources = _face_sources(part_obj.data)
     part_obj.data.calc_loop_triangles()
-    wanted = {key_of_slot.get(tri.material_index, default) for tri in part_obj.data.loop_triangles}
+    key_of_face = [
+        (layer_of_slot.get(polygon.material_index, scene_layer), sources[index])
+        for index, polygon in enumerate(part_obj.data.polygons)
+    ]
+    default = (scene_layer, -1)
+    wanted = set(key_of_face) or {default}
     if len(wanted) <= 1:
-        return [(wanted.pop() if wanted else default, part_obj)]
+        return [(wanted.pop(), part_obj)]
 
     pieces = []
     for key in sorted(wanted):
@@ -1312,7 +610,7 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
         bm.faces.ensure_lookup_table()
         bmesh.ops.delete(
             bm,
-            geom=[face for face in bm.faces if key_of_slot.get(face.material_index, default) != key],
+            geom=[face for face in bm.faces if key_of_face[face.index] != key],
             context="FACES",
         )
         piece = _bmesh_to_object(context, bm, f"{part_obj.name}_{key[0].lower()}_{key[1]}", part_obj)
@@ -1350,224 +648,13 @@ def _check_world_defaults(scene):
         raise PluginError(f"This world's RDP defaults aren't BK's state. Wrong: {listed}. Pick BK64 again to reset.")
 
 
-def _combiner_fold(f3d_mat):
-    # LERP is Fast64's decal idiom, where the texture's alpha picks a flat base
-    # color or the detail on top
-    cycle = f3d_mat.combiner1
-    signature = (cycle.A, cycle.B, cycle.C, cycle.D)
-    if signature == ("TEXEL0", "SHADE", "TEXEL0_ALPHA", "SHADE"):
-        return "LERP"
-    if signature == ("TEXEL0", "0", "SHADE", "0"):
-        return "MULTIPLY"
-    return None
-
-
-def _image_folds(mesh_objects, shade_by_material):
-    """The (shade, fold) each image is drawn with, keyed by the image"""
-    # an image drawn two ways can't be baked either way. It keeps its colors.
-    folds = {}
-    for material, f3d_mat in _f3d_materials(mesh_objects):
-        fold = _combiner_fold(f3d_mat)
-        shade = shade_by_material.get(material.name, (255, 255, 255, 255))[:3]
-        for tex_slot in (f3d_mat.tex0, f3d_mat.tex1):
-            if tex_slot.tex is None or not tex_slot.tex_set:
-                continue
-            if tex_slot.tex_format not in SHADE_FOLD_FORMATS:
-                # nothing to bake into
-                continue
-            folds.setdefault(tex_slot.tex, set()).add((shade, fold))
-    return {image: next(iter(ways)) for image, ways in folds.items() if len(ways) == 1}
-
-
-def _image_opacity(mesh_objects, scene_layer: str):
-    """Whether each image is only ever drawn on the opaque layer, keyed by the image"""
-    opaque = {}
-    for material, f3d_mat in _f3d_materials(mesh_objects):
-        layer = _draw_layer_of(material, scene_layer)
-        for tex_slot in (f3d_mat.tex0, f3d_mat.tex1):
-            if tex_slot.tex is None or not tex_slot.tex_set:
-                continue
-            opaque[tex_slot.tex] = opaque.get(tex_slot.tex, True) and layer == "OPAQUE"
-    return opaque
-
-
-def _flatten_shade(data: bytes, otex_format: str, fold, opaque: bool):
-    # the game does this with the combiner, a plain texture viewer doesn't
-    if fold is None:
-        return data
-    shade, mode = fold
-    if mode is None or (shade == (255, 255, 255) and not opaque):
-        return data
-
-    out = bytearray(data)
-    if otex_format == "RGBA32":
-        for i in range(0, len(out), 4):
-            for channel in range(3):
-                if mode == "LERP":
-                    out[i + channel] = out[i + channel] if out[i + 3] > 127 else shade[channel]
-                else:
-                    out[i + channel] = out[i + channel] * shade[channel] // 255
-            if opaque:
-                out[i + 3] = 255
-        return bytes(out)
-
-    # RGBA16, either the image itself or a palette entry
-    for i in range(0, len(out) - 1, 2):
-        value = (out[i] << 8) | out[i + 1]
-        channels = [(value >> 11) & 31, (value >> 6) & 31, (value >> 1) & 31]
-        if mode == "LERP" and not value & 1:
-            channels = [shade[c] * 31 // 255 for c in range(3)]
-        elif mode == "MULTIPLY":
-            channels = [channels[c] * shade[c] // 255 for c in range(3)]
-        alpha = 1 if opaque else value & 1
-        value = (channels[0] << 11) | (channels[1] << 6) | (channels[2] << 1) | alpha
-        out[i] = value >> 8
-        out[i + 1] = value & 0xFF
-    return bytes(out)
-
-
-def _strip_pixels(fImage, frames, otex_format: str):
-    """Every frame's N64 bytes end to end, frame 0 first"""
-    from ...f3d.f3d_texture_writer import writeNonCITextureData
-
-    first = bytes(fImage.data)  # frame 0 is already converted, keep it exactly
-    encoded = bytearray(first)
-    for frame in frames[1:]:
-        spare = FImage(frame.name, fImage.fmt, fImage.bitSize, frame.size[0], frame.size[1], None)
-        writeNonCITextureData(frame, spare, otex_format)
-        if len(spare.data) != len(first):
-            raise PluginError(
-                f"Frame '{frame.name}' encodes to {len(spare.data)} bytes and frame 0 to {len(first)}. "
-                "Every frame has to be the same size and format."
-            )
-        encoded += spare.data
-    return bytes(encoded)
-
-
-def _animated_slots(fModel: FModel):
-    """{frame 0's image: (slot, [frames], rate)} for every animated material.
-
-    Keyed by the Blender image so the texture pass can recognize the one it's
-    converting. The rest of the frames follow frame 0 into the strip.
-    """
-    animated, claimed = {}, {}
-    for key, value in fModel.materials.items():
-        material = key[0]
-        if getattr(material, "hm64_bk64_anim_tex", "NONE") == "NONE":
-            continue
-
-        which = material.hm64_bk64_anim_tex
-        source = getattr(material.f3d_mat, which.lower()).tex
-        frames = [entry.image for entry in material.flipbookGroup.flipbook0.textures if entry.image]
-        slot = material.hm64_bk64_anim_slot
-
-        if source is None:
-            raise PluginError(f"'{material.name}' animates {which} but has no texture there.")
-        if len(frames) < 2:
-            raise PluginError(
-                f"'{material.name}' is animated but lists {len(frames)} of the two frames it needs "
-                "at least. Add them under Animated Texture, starting with the one the material uses."
-            )
-        if frames[0] != source:
-            raise PluginError(
-                f"'{material.name}' lists '{frames[0].name}' first but samples '{source.name}'. The "
-                "first frame has to be the texture the material uses."
-            )
-        sizes = {tuple(frame.size) for frame in frames}
-        if len(sizes) > 1:
-            raise PluginError(f"'{material.name}' has frames of {len(sizes)} different sizes. Every frame is one tile.")
-        if slot in claimed and claimed[slot] != frames:
-            raise PluginError(
-                f"'{material.name}' and '{claimed[slot][0].name}'s material both drive slot {slot} "
-                "with different frames. Give one of them another slot."
-            )
-        claimed[slot] = frames
-        animated[frames[0]] = (slot, frames, material.hm64_bk64_anim_rate)
-    return animated
-
-
-def _surface_of_material(material):
-    """(flags, unk6) for a material that asks for collision, None for one that doesn't"""
-    raw = getattr(material, "hm64_bk64_collision_raw", 0)
-    if raw:
-        # an imported surface, kept exactly. Vanilla uses flag words the three
-        # choices can't describe.
-        return (raw & 0xFFFFFFFF, getattr(material, "hm64_bk64_collision_unk6", 0))
-    collision = getattr(material, "hm64_bk64_collision_type", "NONE")
-    if collision == "NONE":
-        return None
-    fields = {name: getattr(material, f"hm64_bk64_{name}", False) for name in BK_COLLISION_FLAG_BITS}
-    fields["medium"] = BK_MEDIUM_TYPE[collision]
-    fields["sound"] = BK_SOUND_TYPE[getattr(material, "hm64_bk64_sound_type", "NORMAL")]
-    fields["extra"] = getattr(material, "hm64_bk64_collision_extra", 0)
-    return (bk64_surface_encode(fields), getattr(material, "hm64_bk64_collision_unk6", 0))
-
-
-def _material_surfaces(fModel: FModel):
-    """The collision a material asks for, keyed by FMaterial id"""
-    surfaces = {}
-    for key, value in fModel.materials.items():
-        surface = _surface_of_material(key[0])
-        if surface is not None:
-            surfaces[id(value[0])] = surface
-    return surfaces
-
-
-def _collision_triangles(dl_words, owners, surfaces):
-    # a collision triangle indexes the model's own vertex buffer, so walking the
-    # display list beats building the faces twice
-    if not surfaces:
-        return []
-
-    material_of = {}
-    for first, last, fmaterial in owners:
-        for index in range(first, last):
-            material_of[index] = fmaterial
-
-    triangles, cache = [], {}
-
-    def emit(word):
-        indices = tri_indices(word, cache)
-        if indices is None:
-            return
-        surface = surfaces.get(material_of.get(indices[0]))
-        if surface is not None:
-            triangles.append((indices, surface[0], surface[1]))
-
-    for w0, w1 in dl_words:
-        opcode = (w0 >> 24) & 0xFF
-        if opcode == OP_VTX:
-            start = ((w0 >> 16) & 0xFF) // 2
-            count = (w0 & 0xFFFF) >> 10
-            base = (w1 & 0xFFFFFF) // VTX_SIZE
-            for step in range(count):
-                cache[start + step] = base + step
-        elif opcode == OP_TRI1:
-            emit(w1)
-        elif opcode == OP_TRI2:
-            emit(w0 & 0xFFFFFF)
-            emit(w1)
-    return triangles
-
-
-def _write_collision(triangles):
-    """BKCollisionList, one cell holding every triangle"""
-    data = bytearray()
-    data.extend(struct.pack("<hhhhhh", 0, 0, 0, 0, 0, 0))  # cell bounds, unused at scale 0
-    data.extend(struct.pack("<HHHHH", 0, 0, BK_COLLISION_SINGLE_CELL_SCALE, 1, len(triangles)))
-    data.extend(struct.pack("<HH", 0, len(triangles)))  # the one cell, holding all of them
-    for indices, flags, unk6 in triangles:
-        data.extend(struct.pack("<HHHHI", indices[0], indices[1], indices[2], unk6, flags & 0xFFFFFFFF))
-    return bytes(data)
-
-
 def _material_lights(fModel: FModel):
     """The lighting each lit FMaterial was authored with, keyed by id"""
     # BK loads no lights. The shading gets worked out here instead.
     lights = {}
     for key, value in fModel.materials.items():
         material = key[0]
-        f3d_mat = _f3d_settings(material)
+        f3d_mat = f3d_settings(material)
         if not getattr(f3d_mat.rdp_settings, "g_lighting", False):
             continue
 
@@ -1591,7 +678,7 @@ def _material_base_colors(fModel: FModel):
     colors = {}
     for key, _value in fModel.materials.items():
         material = key[0]
-        f3d_mat = _f3d_settings(material)
+        f3d_mat = f3d_settings(material)
         if not getattr(f3d_mat.rdp_settings, "g_lighting", False):
             continue
         if not getattr(f3d_mat, "use_default_lighting", False):
@@ -1862,6 +949,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
 
     _check_world_defaults(context.scene)
     _check_cycle_type(mesh_objects)
+    check_camera_water_reads(mesh_objects, settings.warnings)
     _check_large_textures(mesh_objects)
     culling = [obj.name for obj in mesh_objects if obj.use_f3d_culling]
     if culling:
@@ -1882,7 +970,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         rigged = armature_obj is not None and not bind
         # every model keeps its layout. No bound or static one draws under a
         # BONE, and what is left addresses chunks and relinks the same way.
-        stored = _stored_layout(root_obj)
+        stored = stored_layout(root_obj)
         source_bones, source_parents = None, {}
         if stored is not None and rigged:  # only a split mesh gets cut along these
             table = build_bone_table(armature_obj, bone_matrix)[0]
@@ -1939,15 +1027,15 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         rom_format = settings.file_format == "BIN"
         shade_colors = _material_lights(fModel)
         shade_by_material = _material_base_colors(fModel)
-        image_folds = _image_folds(mesh_objects, shade_by_material) if rom_format else None
-        opaque_images = _image_opacity(mesh_objects, settings.draw_layer) if rom_format else None
+        folds = image_folds(mesh_objects, shade_by_material) if rom_format else None
+        opaque_images = image_opacity(mesh_objects, settings.draw_layer) if rom_format else None
 
         # a TEXEL1 combiner blends between the wrap DL's tiles, so it renders
         # from tile 2 at level 2 and its sibling carries the pyramid
         mip_images = set()
         for key, value in fModel.materials.items():
             material = key[0]
-            f3d_mat = _f3d_settings(material)
+            f3d_mat = f3d_settings(material)
             if not any(
                 "TEXEL" in getattr(cycle, name)
                 for cycle in (f3d_mat.combiner1, f3d_mat.combiner2)
@@ -1965,9 +1053,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         if settings.mipmap and not rom_format:
             for key, value in fModel.materials.items():
                 material = key[0]
-                f3d_mat = _f3d_settings(material)
+                f3d_mat = f3d_settings(material)
                 image = f3d_mat.tex0.tex
-                if image is None or not _reads_texel1(f3d_mat):
+                if image is None or not reads_texel1(f3d_mat):
                     continue
                 if tuple(image.size) != (MIP_TEXTURE_DIM, MIP_TEXTURE_DIM) or f3d_mat.tex0.tex_format != "RGBA16":
                     continue
@@ -1980,16 +1068,16 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                         if isinstance(command, SPTexture):
                             command.level, command.tile = MIP_SPTEXTURE_LEVEL, MIP_SPTEXTURE_TILE
 
-        animated = _animated_slots(fModel)
-        texture_resources, tex_infos, tex_blob, white_offset, animated_offsets = _collect_textures(
-            fModel, rom_format, image_folds, opaque_images, mip_images, animated
+        animated = animated_slots(fModel)
+        texture_resources, tex_infos, tex_blob, white_offset, animated_offsets = collect_textures(
+            fModel, rom_format, folds, opaque_images, mip_images, animated
         )
-        animated_slots = [(0, 0, 0.0)] * ANIM_TEX_SLOT_COUNT
+        slot_table = [(0, 0, 0.0)] * ANIM_TEX_SLOT_COUNT
         for image, (slot, frames, rate) in animated.items():
             offset, frame_bytes, count = animated_offsets[slot]
             if offset + frame_bytes * count > len(tex_blob):
                 raise PluginError(f"'{image.name}' runs {frame_bytes * count} bytes past the end of the texture data.")
-            animated_slots[slot] = (frame_bytes, count, rate)
+            slot_table[slot] = (frame_bytes, count, rate)
         mip_textures = set()
         for key, fImage in fModel.textures.items():
             if not isinstance(key, FPaletteKey) and getattr(key, "image", None) in mip_images:
@@ -1999,18 +1087,18 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             # the texture carries the tint now. Neutralize its SHADE.
             for key, value in fModel.materials.items():
                 material = key[0]
-                f3d_mat = _f3d_settings(material)
+                f3d_mat = f3d_settings(material)
                 if not getattr(f3d_mat.rdp_settings, "g_lighting", False):
                     # only a lit material had a tint to fold. An unlit one folded
                     # against white and keeps its shading in the vertex colors
                     continue
                 used = [slot.tex for slot in (f3d_mat.tex0, f3d_mat.tex1) if slot.tex is not None and slot.tex_set]
-                if used and all((image_folds.get(image) or (None, None))[1] for image in used):
+                if used and all((folds.get(image) or (None, None))[1] for image in used):
                     shade_colors[id(value[0])] = ((255, 255, 255), [])
         reflective = {
             id(value[0])
             for key, value in fModel.materials.items()
-            if getattr(_f3d_settings(key[0]).rdp_settings, "g_tex_gen", False)
+            if getattr(f3d_settings(key[0]).rdp_settings, "g_tex_gen", False)
         }
         vertices, vertex_owners, spans = _collect_vertices(
             ordered_fMeshes, shade_colors, settings.force_unlit, reflective
@@ -2045,20 +1133,24 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         dl_words = []
         chunks = []
         chunk_bounds = []
+        rigid_seams = set()
         from_source = {}  # original chunk -> the indices its faces went out as
         for bone_index, (layer, source), bone_fMeshes in chunk_fMeshes:
             raw = []
             for fMesh in bone_fMeshes:
-                raw += _flatten_gfx_list(fMesh.draw, fModel.f3d, segments)
-            chunk_words = _fixup_chunk(
+                raw += flatten_gfx_list(fMesh.draw, fModel.f3d, segments)
+            chunk_words = fixup_chunk(
                 raw, len(texture_resources), settings.rendermode_entry(layer), white_offset, mip_textures
             )
             first = min(spans[id(fMesh)][0] for fMesh in bone_fMeshes)
             last = max(spans[id(fMesh)][1] for fMesh in bone_fMeshes)
             points = [vertex[0] for vertex in vertices[first:last]]
             pair = None
-            if source in skinning_sources and source_counts.get(source) == 1 and source in source_parents:
-                pair = _split_skinning(chunk_words, vertices, owner_of_pos, source_parents[source])
+            if source in skinning_sources:
+                if source_counts.get(source) == 1 and source in source_parents:
+                    pair = split_skinning(chunk_words, vertices, owner_of_pos, source_parents[source])
+                if pair is None:
+                    rigid_seams.add((source_bones or {}).get(source, f"chunk {source}"))
             for part in pair if pair is not None else (chunk_words,):
                 chunks.append((bone_index, len(dl_words)))
                 chunk_bounds.append(points if part is not (pair[0] if pair else None) else [])
@@ -2066,7 +1158,12 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     from_source.setdefault(source, []).append(len(dl_words))
                 dl_words += part
 
-        collision = _collision_triangles(dl_words, vertex_owners, _material_surfaces(fModel))
+        for name in sorted(rigid_seams):
+            settings.warnings.append(
+                f"The seam at bone '{name}' lost its skinning and can tear in game. It needs its "
+                "faces on one material and draw layer, with up to 24 vertices weighted to the parent bone."
+            )
+        collision = collision_from_display_list(dl_words, vertex_owners, material_surfaces(fModel))
         if shapes:
             index_of_bone = {bone.name: index for index, bone in enumerate(bones)}
             for group in ("boxes", "cylinders", "spheres"):
@@ -2112,7 +1209,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # the game builds no matrix list without one
         bone_table = bones if armature_obj is not None else []
         if stored is not None:
-            records = _relink_layout(stored, from_source)
+            records = relink_layout(stored, from_source)
             if records is not None:
                 # anything the modeller added is outside the layout, hung off its
                 # bone at the end. Anything else draws plainly, off no matrix.
@@ -2123,17 +1220,25 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             if records is None:
                 stored = None
         if stored is None:
-            records = _geo_records(bones, chunks, armature_obj, rigged, chunk_bounds)
+            records = geo_records(bones, chunks, armature_obj, rigged, chunk_bounds)
             # a refpoint names no display list and outlives a relink that gave up
             emitted = {record[1] for record in records if record[0] == "refpoint"}
-            for point in _layout_refpoints(_stored_layout(root_obj) or []):
+            for point in layout_refpoints(stored_layout(root_obj) or []):
                 if point[1] not in emitted:
                     records.append(point)
+        stored_grid = next(
+            (
+                unpack_collision_grid(obj[COLLISION_GRID_PROP])
+                for obj in [root_obj] + mesh_objects
+                if COLLISION_GRID_PROP in obj.keys()
+            ),
+            None,
+        )
         if rom_format:
             return {
                 "": write_bkmodelbin(
                     settings.geo_type_bits(),
-                    _count_triangles(dl_words),
+                    count_triangles(dl_words),
                     bounds,
                     dl_words,
                     records,
@@ -2146,14 +1251,15 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     shapes,
                     bound_vertices,
                     meshes,
-                    animated_slots,
+                    slot_table,
+                    stored_grid,
                 )
             }
 
         resources = {
             "": _write_model_resource(
                 settings.geo_type_bits(),
-                _count_triangles(dl_words),
+                count_triangles(dl_words),
                 bounds,
                 dl_words,
                 len(chunks),
@@ -2165,7 +1271,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 shapes,
                 bound_vertices,
                 meshes,
-                animated_slots,
+                slot_table,
+                vertices,
+                stored_grid,
             ),
             "_VTX": _write_vertex_resource(vertices),
             "_GEO": _write_geo_layout(records),

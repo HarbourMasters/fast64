@@ -113,7 +113,7 @@ An animation loops by returning to progress zero. For anything that repeats, mak
 ### Collision
 Scenery carries collision, characters don't: no vanilla character model has any, while over half the models that do are props, platforms and doors.
 
-Collision is set per material, under BK64 Collision in the material tab. Leave it at No Collision and those faces stay out of the list, which is how an ordinary model exports with none. Set it to Ground and Banjo can stand on those faces. Ground Type covers Talon Trot and unclimbable surfaces, and Sound Type picks the footstep.
+Collision is set per material, under BK64 Collision in the material tab. Leave it at No Collision and those faces stay out of the list, which is how an ordinary model exports with none. Set it to Ground and Banjo can stand on those faces. Sound Type picks the footstep. Map Default and the numbered map sounds resolve through the map the model loads into, so a level replacing TTC gets sand. The named sounds are the same everywhere, and the Surface Flags cover slopes, hazards and the rest.
 
 The triangles reference the model's own vertices. Collision costs a triangle list and nothing more.
 
@@ -179,7 +179,7 @@ The geo layout comes in with the model and goes back out on export: selectors, s
 
 Both rigging methods come in weighted. A Split At Bones model takes its weights from the layout, a bound one from its binding table. Gruntilda, Boggy and Gobi arrive posable, not as a bare mesh sitting beside an armature. The import reports which of the two it found.
 
-The three collision dropdowns describe the common flag words, though vanilla uses many others besides. Anything they can't describe comes in as Raw Flags and goes back out exactly as it arrived. Clear that field to author the surface with the dropdowns instead.
+The collision fields describe every flag word vanilla ships. A word only a romhack sets comes in as Raw Flags and goes back out exactly as it arrived; clear that field to author the surface with the fields instead.
 
 Imported materials come in unlit, apart from the reflective ones, because a BK model already carries its shading in its vertex colors and has nothing to calculate from the normals. Leave them unlit and a re-export keeps those colors exactly. Turn lighting on and the export bakes new shading from the material's lights instead, the right choice for a model you built yourself.
 

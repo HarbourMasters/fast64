@@ -19,13 +19,9 @@ from ...f3d.f3d_material import (
 )
 from ...utility import PluginError, gammaInverse, gammaInverseValue
 from .bk64_constants import (
-    BK_COLLISION_FLAG_BITS,
-    BK_MEDIUM_TYPE,
     BK_PALETTE_SIZE,
     BK_TEX_BITS,
     BK_TEX_TYPE,
-    BK_SOUND_TYPE,
-    bk64_surface_decode,
     GEO_CMD_BONE,
     GEO_CMD_CALL,
     GEO_CMD_CAMERA,
@@ -41,11 +37,13 @@ from .bk64_constants import (
     GEO_CMD_TEXWRAP,
     GEO_CMD_UNK0,
     GEO_LAYOUT_PROP,
+    SOURCE_CHUNK_ATTR,
     MIP_BASE_PROP,
     MIP_LOAD_TILE_INDEX,
     MIP_PYRAMID_PROP,
     MIP_PYRAMID_SIZE,
     BK64_DRAW_LAYER_ENTRY,
+    COLLISION_GRID_PROP,
     OP_DL,
     OP_CLEARGEOMETRYMODE,
     OP_ENDDL,
@@ -80,8 +78,16 @@ from .bk64_constants import (
     SEG_TEX_BLOB,
     SHAPE_KIND,
     SHAPE_PIVOT,
+    tri_indices,
 )
-from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header, tri_indices
+from .bk64_collision import (
+    apply_surface,
+    pack_collision_grid,
+    read_bin_collision,
+    read_collision,
+    read_collision_shapes_data,
+)
+from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header
 from .bk64_skeleton import bone_space_matrix, create_armature_from_bones, read_bone_table
 
 OTEX_FORMAT = {value: key for key, value in OTEX_TYPE.items()}
@@ -131,11 +137,11 @@ def _read_model(data: bytes):
     if bones:
         offset += 6 + len(bones) * 16
 
-    collision, shapes = {}, None
+    collision, collision_grid, shapes = {}, None, None
     if has_collision:
-        collision, offset = _read_collision(data, offset)
+        collision, collision_grid, offset = read_collision(data, offset)
     if has_shapes:
-        shapes, offset = _read_collision_shapes(data, offset)
+        shapes, offset = read_collision_shapes_data(data, offset)
 
     extra, offset = _read_rest(data, offset, flags[3:])
     if offset != len(data):
@@ -157,6 +163,7 @@ def _read_model(data: bytes):
         anim_scale=anim_scale,
         bones=bones,
         collision=collision,
+        collision_grid=collision_grid,
         shapes=shapes,
     )
 
@@ -189,6 +196,7 @@ def _read_model_bin(data: bytes):
         blob = data[blob_at : blob_at + blob_size]
 
     anim_scale, bones = read_bone_table(data)
+    bin_collision = read_bin_collision(data, header["collision"]) if header["collision"] else ({}, None)
     model = dict(
         geo_type=header["geo_type"],
         tri_count=header["tri_count"],
@@ -205,83 +213,12 @@ def _read_model_bin(data: bytes):
         tex_infos=tex_infos,
         anim_scale=anim_scale,
         bones=bones,
-        collision=_read_bin_collision(data, header["collision"]) if header["collision"] else {},
-        shapes=_read_collision_shapes(data, header["unk14"], ">")[0] if header["unk14"] else None,
+        collision=bin_collision[0],
+        collision_grid=bin_collision[1],
+        shapes=read_collision_shapes_data(data, header["unk14"], ">")[0] if header["unk14"] else None,
     )
     # the layout is written last and runs to the end of the file
     return model, vertices, read_geo_body(data[header["geo"] :], ">"), _blob_textures(tex_infos)
-
-
-def _collision_triangles(data: bytes, offset: int, count: int, endian: str):
-    # keyed by vertices, not list position, the display list reorders the faces
-    surfaces = {}
-    for index in range(count):
-        first, second, third, unk6, flags = struct.unpack_from(endian + "HHHHI", data, offset + index * 12)
-        surfaces[tuple(sorted((first, second, third)))] = (flags, unk6)
-    return surfaces
-
-
-def _read_collision(data: bytes, offset: int):
-    """({sorted vertex triple: (flags, unk6)}, where the section ends)"""
-    offset += 12  # the cell grid's bounds, ignored when one cell holds everything
-    _y_stride, _z_stride, _scale, cube_count, tri_count = struct.unpack_from("<5H", data, offset)
-    offset += 10 + cube_count * 4
-    return _collision_triangles(data, offset, tri_count, "<"), offset + tri_count * 12
-
-
-def _read_bin_collision(data: bytes, offset: int):
-    """{sorted vertex triple: (flags, unk6)} from a BKCollisionList.
-
-    The resource stream writes the scale ahead of the cell count and drops the
-    struct's padding, so this reads the game's own layout instead of sharing the
-    resource's reader.
-    """
-    _y_stride, _z_stride, cell_count, _scale, tri_count = struct.unpack_from(">5h", data, offset + 0xC)
-    return _collision_triangles(data, offset + 0x18 + cell_count * 4, tri_count, ">")
-
-
-MEDIUM_NAMES = {value: key for key, value in BK_MEDIUM_TYPE.items()}
-SOUND_NAMES = {value: key for key, value in BK_SOUND_TYPE.items()}
-
-
-def _read_collision_shapes(data: bytes, offset: int, endian: str = "<"):
-    """The header 0x14 shapes and their cull radius"""
-    # a shape's code is a label rather than a setting, and shapes can share one
-    box_count, cylinder_count, sphere_count, cull = struct.unpack_from(endian + "4h", data, offset)
-    offset += 8
-    shapes = {"cull": cull, "boxes": [], "cylinders": [], "spheres": []}
-
-    for _box in range(box_count):
-        values = struct.unpack_from(endian + "3h3h3h3BBbx", data, offset)
-        shapes["boxes"].append(
-            dict(
-                low=values[0:3],
-                high=values[3:6],
-                position=values[6:9],
-                rotation=values[9:12],
-                code=values[12],
-                bone=values[13],
-            )
-        )
-        offset += 24
-    for _cylinder in range(cylinder_count):
-        values = struct.unpack_from(endian + "hh3h3BBbx", data, offset)
-        shapes["cylinders"].append(
-            dict(
-                radius=values[0],
-                height=values[1],
-                position=values[2:5],
-                rotation=values[5:8],
-                code=values[8],
-                bone=values[9],
-            )
-        )
-        offset += 16
-    for _sphere in range(sphere_count):
-        values = struct.unpack_from(endian + "h3hBbxx", data, offset)
-        shapes["spheres"].append(dict(radius=values[0], center=values[1:4], code=values[4], bone=values[5]))
-        offset += 12
-    return shapes, offset
 
 
 def _read_mesh_list(data: bytes, offset: int, endian: str = "<"):
@@ -364,20 +301,6 @@ def _shape_matrix(position, rotation):
     angles = mathutils.Euler([math.radians(value * 2) for value in (rotation[0], rotation[1], rotation[2])], "YXZ")
     pivot = mathutils.Vector(position)
     return mathutils.Matrix.Translation(pivot) @ angles.to_matrix().to_4x4() @ mathutils.Matrix.Translation(-pivot)
-
-
-def _apply_surface(material, flags: int, unk6: int):
-    fields = bk64_surface_decode(flags)
-    if fields is not None:
-        material.hm64_bk64_collision_type = MEDIUM_NAMES[fields["medium"]]
-        material.hm64_bk64_sound_type = SOUND_NAMES[fields["sound"]]
-        for name in BK_COLLISION_FLAG_BITS:
-            setattr(material, f"hm64_bk64_{name}", fields[name])
-        material.hm64_bk64_collision_extra = fields["extra"]
-        material.hm64_bk64_collision_unk6 = unk6
-        return
-    material.hm64_bk64_collision_raw = flags - 0x100000000 if flags > 0x7FFFFFFF else flags
-    material.hm64_bk64_collision_unk6 = unk6
 
 
 def _mux(case: str, value: int):
@@ -620,7 +543,7 @@ def _decode_raw(pixels: bytes, width: int, height: int):
 
 
 def _keep_pyramid(image, data: bytes, at: int, size: int):
-    """Stash the mip levels a texture arrived with, for export to write back."""
+    """Stash the mip levels a texture arrived with, for export to write back"""
     pyramid = data[at + size : at + size + MIP_PYRAMID_SIZE]
     if len(pyramid) < MIP_PYRAMID_SIZE:
         return
@@ -750,12 +673,25 @@ def _load_animated_frames(base: str, model, binds, images):
         if otex_format is None:
             raise PluginError(f"Animated texture in '{base}' is type {info['type']}, which has no BK format.")
 
-        rows = frame_size * 8 // (info["width"] * BK_TEX_BITS[otex_format])
+        # a CI frame's palette rides ahead of its image, sliding along with it
+        pal_size = BK_PALETTE_SIZE.get(otex_format, 0)
+        expected = pal_size + info["width"] * info["height"] * BK_TEX_BITS[otex_format] // 8
+        if pal_size and expected != frame_size:
+            # Don't trust the header, test the stride
+            for candidate in ("CI4", "CI8"):
+                c_pal = BK_PALETTE_SIZE[candidate]
+                c_bytes = info["width"] * info["height"] * BK_TEX_BITS[candidate] // 8
+                if c_pal + c_bytes == frame_size:
+                    otex_format, pal_size = candidate, c_pal
+                    break
+        rows = (frame_size - pal_size) * 8 // (info["width"] * BK_TEX_BITS[otex_format])
         built = []
         for index in range(frame_count):
             at = offset + index * frame_size
             image = bpy.data.images.new(f"{base}_anim{slot}_{index}", info["width"], rows, alpha=True)
-            image.pixels = _decode(blob[at : at + frame_size], otex_format, info["width"], rows, b"")
+            image.pixels = _decode(
+                blob[at + pal_size : at + frame_size], otex_format, info["width"], rows, blob[at : at + pal_size]
+            )
             image.pack()
             built.append(image)
 
@@ -932,9 +868,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     """One material per distinct draw state, and the image each slot samples"""
     # texture, tile, combiner and collision, all four read back off materials
     keys = {
-        (draw, surfaces.get(tuple(sorted(indices))), source)
-        for _matrix, source, faces in geometry
-        for indices, draw in faces
+        (draw, surfaces.get(tuple(sorted(indices)))) for _matrix, _source, faces in geometry for indices, draw in faces
     }
     materials, slot_image, slot_scale = {}, {}, {}
     prototypes = {}
@@ -942,7 +876,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     for index, key in enumerate(ordered):
         if progress is not None:
             progress(index / len(ordered), f"material {index + 1} of {len(ordered)}")
-        (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface, source = key
+        (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface = key
         preset = "bk64_shaded_texture" if texture is not None else "bk64_shaded_solid"
         material = _material_from_preset(mesh_obj, preset, prototypes)
         if isinstance(texture, tuple):
@@ -1004,7 +938,6 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
         material.hm64_bk64_draw_layer = layer
         if layer.startswith("TRANSLUCENT"):
             material.f3d_mat.rdp_settings.rendermode_preset_cycle_2 = "G_RM_AA_ZB_XLU_SURF2"
-        material.hm64_bk64_source_chunk = source  # so the export can rebuild the layout
         for bit, flag in GEO_MODE_FLAGS.items():
             setattr(material.f3d_mat.rdp_settings, flag, bool(geomode & bit))
         # BK keeps its shading in vertex colors. A lit material has the export
@@ -1020,7 +953,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
             slot_scale[len(materials)] = (texscale[0] / 0xFFFF, texscale[1] / 0xFFFF)
         if surface is not None:
             material.name += "_collision"
-            _apply_surface(material, *surface)
+            apply_surface(material, *surface)
         # the property update callback resolves its material from the UI context
         # and gives up during an import, leaving tile sizes at 1x1 and the nodes
         # on the preset's combiner. A flat run drops TEXEL0, so the preset's
@@ -1048,8 +981,10 @@ def _build_faces(geometry, surfaces, vertices, materials, to_blender):
                 corners.append(remap[index])
             if len(set(corners)) < 3:
                 continue  # a degenerate triangle carries no surface
-            key = (draw, surfaces.get(tuple(sorted(indices))), source)
-            face_data.append((corners, materials[key], matrix_id, [vertices[i] for i in indices], list(indices)))
+            key = (draw, surfaces.get(tuple(sorted(indices))))
+            face_data.append(
+                (corners, materials[key], matrix_id, [vertices[i] for i in indices], list(indices), source)
+            )
     return face_data, positions, remap
 
 
@@ -1091,7 +1026,7 @@ def _build_collision_only(context, base: str, leftover, vertices, armature_obj, 
     for surface in face_surfaces:
         if surface not in slot_of:
             material = bpy.data.materials.new(f"{base}_collision_{len(slot_of)}")
-            _apply_surface(material, *surface)
+            apply_surface(material, *surface)
             mesh.materials.append(material)
             slot_of[surface] = len(slot_of)
     for polygon, surface in zip(mesh.polygons, face_surfaces):
@@ -1205,9 +1140,12 @@ def _fill_mesh(mesh, positions, face_data, slot_image, slot_scale):
     )
     alpha_layer = mesh.color_attributes.get("Alpha")
 
-    for face_index, (_corners, material_index, _matrix_id, source, _orig_indices) in enumerate(face_data):
+    # the chunk each face was drawn in, for the export to rebuild the layout
+    chunk_layer = mesh.attributes.new(name=SOURCE_CHUNK_ATTR, type="INT", domain="FACE")
+    for face_index, (_corners, material_index, _matrix_id, source, _orig_indices, chunk) in enumerate(face_data):
         polygon = mesh.polygons[face_index]
         polygon.material_index = material_index
+        chunk_layer.data[face_index].value = chunk
         image = slot_image.get(material_index)
         width, height = (image.size[0], image.size[1]) if image else (32, 32)
         scale_s, scale_t = slot_scale.get(material_index, (1.0, 1.0))
@@ -1281,6 +1219,7 @@ def import_bk64_model(context, path: str, settings):
     # Nothing here samples one, and nothing writes one back.
     bound = {draw[0] for _matrix, _source, faces in geometry for _indices, draw in faces}
     model["unbound_textures"] = max(0, len(model["tex_infos"]) - len({t for t in bound if isinstance(t, int)}))
+    model["dropped"] = state["dropped"]
 
     armature_obj = None
     bone_names = {}
@@ -1302,6 +1241,8 @@ def import_bk64_model(context, path: str, settings):
     context.scene.collection.objects.link(mesh_obj)
     # on whichever object the export is handed, the armature when there's one
     (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
+    if model.get("collision_grid"):
+        mesh_obj[COLLISION_GRID_PROP] = pack_collision_grid(model["collision_grid"], vertices)
 
     if model["shapes"]:
         model["shape_objects"] = _build_collision_shapes(
@@ -1359,7 +1300,7 @@ def import_bk64_model(context, path: str, settings):
         # to the child and tear the joint open the moment it bends.
         owner_of = state["vertex_owner"]
         fallback = {}
-        for corners, _material, matrix_id, _source, orig_indices in face_data:
+        for corners, _material, matrix_id, _source, orig_indices, _chunk in face_data:
             for orig in orig_indices:
                 fallback.setdefault(orig, matrix_id)
         groups = {}
