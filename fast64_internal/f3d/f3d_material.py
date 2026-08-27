@@ -44,6 +44,7 @@ from .f3d_material_presets import *
 from ..utility import *
 from ..render_settings import (
     Fast64RenderSettings_Properties,
+    getGroupOutputNode,
     update_scene_props_from_render_settings,
     ManualUpdatePreviewOperator,
 )
@@ -2552,7 +2553,7 @@ def createOrUpdateSceneProperties():
         _nodeLight1Size: NodeSocketInt = new_group.outputs.new("NodeSocketInt", "Light1Size")
 
     # Set outputs from render settings
-    sceneOutputs: NodeGroupOutput = new_group.nodes["Group Output"]
+    sceneOutputs: NodeGroupOutput = getGroupOutputNode(new_group)
     renderSettings: "Fast64RenderSettings_Properties" = bpy.context.scene.fast64.renderSettings
 
     update_scene_props_from_render_settings(sceneOutputs, renderSettings)

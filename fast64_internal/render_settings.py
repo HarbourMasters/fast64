@@ -187,13 +187,25 @@ def update_scene_props_from_render_settings(
     sceneOutputs.inputs["Blender_Game_Scale"].default_value = float(get_blender_to_game_scale(bpy.context))
 
 
+def getGroupOutputNode(nodeTree):
+    # Translation > New Data names a new node in the UI language, so "Group Output" isn't there to look up
+    for node in nodeTree.nodes:
+        if node.type == "GROUP_OUTPUT":
+            return node
+    return None
+
+
 def getSceneOutputs():
     sceneProps = bpy.data.node_groups.get("SceneProperties")
     if sceneProps == None:
         print("Could not locate SceneProperties!")
         return None
 
-    sceneOutputs: bpy.types.NodeGroupOutput = sceneProps.nodes["Group Output"]
+    sceneOutputs: bpy.types.NodeGroupOutput = getGroupOutputNode(sceneProps)
+    if sceneOutputs is None:
+        print("SceneProperties has no group output!")
+        return None
+
     return sceneOutputs
 
 
