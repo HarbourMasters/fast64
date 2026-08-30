@@ -27,6 +27,7 @@ from .bk64_model import (
     export_bk64_model,
     LEVEL_HALVES,
     level_half_objects,
+    level_half_of,
     promote_materials_to_2_cycle,
     read_collision_only,
     read_collision_shapes,
@@ -185,9 +186,7 @@ class BK64_ExportLevelHalves(Operator):
                     else [child for child in root_obj.children_recursive if child.type == "MESH"]
                 )
                 hidden = [obj for obj in sources if obj.get(COLLISION_ONLY_PROP)]
-                hidden_of = {
-                    half: [obj for obj in hidden if obj.hm64_bk64_level_half == half] for half, _ in LEVEL_HALVES
-                }
+                hidden_of = {half: [obj for obj in hidden if level_half_of(obj) == half] for half, _ in LEVEL_HALVES}
                 sources = [obj for obj in sources if not obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)]
                 if not sources:
                     raise PluginError(f"Nothing to export, '{root_obj.name}' has no mesh geometry.")
@@ -237,6 +236,12 @@ class BK64_ExportLevelHalves(Operator):
                 settings.name = base_name
                 for warning in settings.warnings:
                     self.report({"WARNING"}, warning)
+                for layer in blanked:
+                    self.report(
+                        {"WARNING"},
+                        f"Give a material Translucent, or set Level Half on the objects that belong in "
+                        f"the {layer} half.",
+                    )
                 note = f" {' and '.join(blanked)} had no geometry and went out blank." if blanked else ""
                 self.report({"INFO"}, f"Exported {' and '.join(written)} to {export_dir}.{note}")
             return {"FINISHED"}

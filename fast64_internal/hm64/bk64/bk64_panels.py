@@ -6,6 +6,7 @@ from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS
+from .bk64_model import level_half_of
 from .bk64_operators import (
     BK64_AddTextureScroll,
     BK64_ExportAllAnimations,
@@ -65,6 +66,8 @@ class BK64_ExportModelPanel(BK64_Panel):
         obj = context.object
         if obj is not None and obj.type == "MESH":
             prop_split(col, obj, "hm64_bk64_level_half", "Level Half")
+            if obj.hm64_bk64_level_half == "AUTO":
+                col.label(text=f"Its materials read as {level_half_of(obj).lower()}.")
         col.operator(BK64_ExportLevelHalves.bl_idname)
 
         box = col.box().column()

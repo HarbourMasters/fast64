@@ -75,6 +75,15 @@ A model built from several objects sorts by object name first, since the export 
 ### Textures
 Fast64 converts textures to native N64 formats and the exporter writes them through untouched. RGBA16, RGBA32, CI4, CI8, I4, I8, IA4, IA8 and IA16 are all supported. BK stores a texture's width and height as a single byte each. Neither can exceed 255. The export fails with a message instead of truncating.
 
+A texture also has to fit TMEM, which holds 4KB, or 2KB for a CI format since the palette takes the rest. The biggest that fit:
+
+- RGBA32: 32x32, 16x64, 8x128
+- RGBA16, IA16 and CI8: 32x64, 64x32, 16x128, 8x256
+- I8, IA8 and CI4: 64x64, 32x128, 128x32, 16x256
+- I4 and IA4: 64x128, 128x64, 32x256, 256x32
+
+Halving one side lets the other double, and the material tab shows what a texture uses against that budget. Going over isn't an error. Fast64 keeps the image whole and writes it as an HD texture: a smaller tile stands in for it in the display list, with the scales beside it saying how much bigger the real image is. Only an o2r export can carry those scales. A `.bin` stores its images as bare bytes with nowhere to record them, and refuses.
+
 A paletted texture is split in two. The image goes out as its own `_tex_<i>` sibling while its palette goes into the model's texture blob, where the game points segment 2. Since Fast64 picks CI8 automatically for an image with few enough colors, a model brought in from elsewhere is often paletted already. This is supported and needs no changes.
 
 Large Texture Mode is not supported. It splits a mesh into pieces that each load part of an image, but BK binds a texture whole, by index for a resource and by offset for a `.bin`. Scale the image down to fit TMEM instead.
@@ -221,13 +230,15 @@ The halves are not opaque and translucent geometry sorted by material. What the 
 
 A level's camera gates come in with it, as wire objects in a `<name>_camera_areas` collection. A CAMERA command in the geo layout names one by index and draws what hangs off it only while the camera is inside that box, or outside it. Move a box to move the gate. Delete one and everything it gated stops drawing.
 
-Level Half on the export panel is that tag. Set it on every object in your level, then "Export Level Halves" writes both models in one go. A level brought in with Halves set to Both is already tagged and needs nothing set.
+Level Half on the export panel is that tag, and it reads From Materials until you say otherwise: an object whose materials are all Translucent goes in the translucent half, anything else in the opaque one. Set it outright when you want a piece somewhere its materials don't imply, and the panel says what From Materials worked out for the object you have selected. Then "Export Level Halves" writes both models in one go.
+
+An object with one translucent material among opaque ones stays in the opaque half, since the translucent half writes no depth and could not hide what is behind it. Split it if the two halves need different pieces of it. A level brought in with Halves set to Both is tagged outright and reads nothing off its materials.
 
 The naming is handled for you. A level of your own gets `_OPA` and `_XLU` on the end of its Resource Path. A vanilla level gets the two names the port loads it by, and those differ by more than the suffix: Gobi's Valley is `ASSET_1474_GV_GOBIS_VALLEY_OPA` and `ASSET_1475_GV_GOBIS_VALLEY_XLU`. Point Resource Path at either one and both come out right.
 
 Both halves go out every time, even an empty one, so replacing a level can't leave its old half standing. A half you gave no geometry is written as a model that draws nothing. An opaque only level still gets a translucent model, named from its own asset, for a hack meaning to add one. The map only draws it once its scene definition names an xlu asset.
 
-Default Draw Layer is not that control. Setting it to Translucent will not move faces between halves, it just puts every material you haven't set explicitly onto that layer, opaque geometry included.
+Default Draw Layer is not that control. It says what a material on From Scene renders as, inside whichever half its object is in. Setting it to Translucent doesn't move faces between halves, it just puts every material you haven't set explicitly onto that layer, opaque geometry included.
 
 ### Replacing A Vanilla Model
 To stand in for a vanilla model, your bone table needs to carry the bone IDs that model's animations address. Starting from the original skeleton is much safer than building one from scratch.

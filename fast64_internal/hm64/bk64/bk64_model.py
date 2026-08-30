@@ -1058,9 +1058,22 @@ def _gather_parts(
 LEVEL_HALVES = (("OPAQUE", "_OPA"), ("TRANSLUCENT", "_XLU"))
 
 
+def level_half_of(mesh_obj):
+    """The half an object belongs to, reading its materials when it hasn't been told"""
+    chosen = mesh_obj.hm64_bk64_level_half
+    if chosen != "AUTO":
+        return chosen
+    materials = [slot.material for slot in mesh_obj.material_slots if slot.material is not None]
+    # every one of them, since the translucent half cannot hide what is behind it
+    translucent = materials and all(
+        getattr(material, "hm64_bk64_draw_layer", "SCENE").startswith("TRANSLUCENT") for material in materials
+    )
+    return "TRANSLUCENT" if translucent else "OPAQUE"
+
+
 def level_half_objects(mesh_objects, half: str):
-    """The meshes marked for this half"""
-    return [obj for obj in mesh_objects if obj.hm64_bk64_level_half == half]
+    """The meshes that belong to this half"""
+    return [obj for obj in mesh_objects if level_half_of(obj) == half]
 
 
 def blank_half_object(context, mesh_objects, half: str, temp_objects):

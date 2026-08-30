@@ -82,6 +82,7 @@ bk64_file_format_enum = (
 )
 
 bk64_level_half_enum = (
+    ("AUTO", "From Materials", "Translucent when every material on it is, opaque otherwise"),
     ("OPAQUE", "Opaque", "Writes depth, so it hides what is behind it"),
     ("TRANSLUCENT", "Translucent", "Tests depth without writing it. Vanilla puts water here"),
 )
@@ -274,9 +275,10 @@ def bk64_properties_register():
     bpy.types.Object.hm64_bk64_level_half = EnumProperty(
         name="Level Half",
         items=bk64_level_half_enum,
-        default="OPAQUE",
-        description="Which of a level's two models Export Level Halves writes this object into. The "
-        "level importer sets it on the halves it brings in",
+        default="AUTO",
+        description="Which of a level's two models Export Level Halves writes this object into. From "
+        "Materials reads it off the materials. The level importer sets it on the halves it brings in. "
+        "It has nothing to do with Default Draw Layer",
     )
     bpy.types.Scene.hm64_bk64_import_path = StringProperty(
         name="Model File",
