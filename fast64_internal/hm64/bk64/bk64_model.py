@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 import struct
 import zlib
@@ -60,6 +59,7 @@ from .bk64_constants import (
     SEG_VTX,
     SHAPE_KIND,
     SHAPE_PIVOT,
+    written_key,
 )
 from .bk64_texture import (
     animated_slots,
@@ -96,6 +96,7 @@ from .bk64_rom import (
     camera_area_list,
     mesh_list,
     vertex_bone_map,
+    vertex_bounds,
     vertex_records,
     write_bkmodelbin,
 )
@@ -181,17 +182,7 @@ def _write_model_resource(
         )
     )
 
-    data.extend(
-        struct.pack(
-            "<hhhhhhhhhhHh",
-            *(s16(value) for value in bounds["min"]),
-            *(s16(value) for value in bounds["max"]),
-            *(s16(value) for value in bounds["center"]),
-            s16(bounds["local_norm"]),
-            bounds["count"],
-            s16(bounds["global_norm"]),
-        )
-    )
+    data.extend(vertex_bounds(bounds))
 
     data.extend(struct.pack("<III", len(dl_words), 0, gfx_sub_count))
     for w0, w1 in dl_words:
@@ -826,15 +817,6 @@ def _shade_from_normal(packed, ambient, sources):
     return tuple(min(255, int(round(channel))) for channel in shade) + (255,)
 
 
-def _written_key(position, scale_matrix=None):
-    """The Vtx coordinate a point is written at, which binding and mesh lists key by"""
-    # scale then round, the order F3DVert.convertPosition uses. Rounding first
-    # keys a point on a half unit to a coordinate no vertex was written at.
-    if scale_matrix is not None:
-        position = scale_matrix @ position
-    return tuple(s16(value) for value in position)
-
-
 def _grouped_vertices(context, mesh_objects, space_matrix, scale_matrix, value_of):
     """(written position, [(value, weight)]) for every vertex in a group value_of names.
 
@@ -861,7 +843,7 @@ def _grouped_vertices(context, mesh_objects, space_matrix, scale_matrix, value_o
                     if index in groups and weight > 0.0
                 ]
                 if held:
-                    yield _written_key(vertex.co, scale_matrix), held
+                    yield written_key(vertex.co, scale_matrix), held
         finally:
             bm.free()
 
@@ -885,7 +867,7 @@ def _vertex_bone_entries(vertices, bound, warnings, space_matrix):
     at_position = {}
     loose = set()
     for index, vertex in enumerate(vertices):
-        key = _written_key(vertex[0])
+        key = written_key(vertex[0])
         if key in bound:
             at_position.setdefault(key, []).append(index)
         else:

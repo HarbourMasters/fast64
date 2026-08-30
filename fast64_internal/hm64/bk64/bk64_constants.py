@@ -297,6 +297,15 @@ def s16(value):
     return max(-32768, min(32767, int(round(value))))
 
 
+def written_key(position, scale_matrix=None):
+    """The Vtx coordinate a point is written at, which binding and mesh lists key by"""
+    # scale then round, the order F3DVert.convertPosition uses. Rounding first
+    # keys a point on a half unit to a coordinate no vertex was written at.
+    if scale_matrix is not None:
+        position = scale_matrix @ position
+    return tuple(s16(value) for value in position)
+
+
 def tri_indices(word, cache):
     """The three vertices a G_TRI word names, or None when a slot holds nothing yet"""
     try:

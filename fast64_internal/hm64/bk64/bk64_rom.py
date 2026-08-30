@@ -30,6 +30,19 @@ from .bk64_constants import (
 )
 
 
+def vertex_bounds(bounds, endian: str = "<"):
+    """The BKVertexList header, the same twelve fields in a resource and in a .bin"""
+    return struct.pack(
+        endian + "hhhhhhhhhhHh",
+        *(s16(value) for value in bounds["min"]),
+        *(s16(value) for value in bounds["max"]),
+        *(s16(value) for value in bounds["center"]),
+        s16(bounds["local_norm"]),
+        bounds["count"],
+        s16(bounds["global_norm"]),
+    )
+
+
 def vertex_records(vertices, endian: str = "<"):
     """N64 Vtx records, 16 bytes each. Little endian for a resource, big endian for a ROM"""
     data = bytearray()
@@ -437,17 +450,7 @@ def write_bkmodelbin(
 
     _pad8(out)
     offsets["vtx"] = len(out)
-    out.extend(
-        struct.pack(
-            ">hhhhhhhhhhHh",
-            *(s16(value) for value in bounds["min"]),
-            *(s16(value) for value in bounds["max"]),
-            *(s16(value) for value in bounds["center"]),
-            s16(bounds["local_norm"]),
-            bounds["count"],
-            s16(bounds["global_norm"]),
-        )
-    )
+    out.extend(vertex_bounds(bounds, ">"))
     out.extend(vertex_records(vertices, ">"))
 
     if shapes:
