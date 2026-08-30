@@ -12,6 +12,7 @@ from .bk64_operators import (
     BK64_ImportAnimation,
     BK64_ExportAnimation,
     BK64_ExportModel,
+    BK64_ExportLevelHalves,
     BK64_ImportLevel,
     BK64_ImportModel,
     BK64_ImportSkeleton,
@@ -60,9 +61,16 @@ class BK64_ExportModelPanel(BK64_Panel):
 
         col.operator(BK64_ExportModel.bl_idname)
 
+        col.separator()
+        obj = context.object
+        if obj is not None and obj.type == "MESH":
+            prop_split(col, obj, "hm64_bk64_level_half", "Level Half")
+        col.operator(BK64_ExportLevelHalves.bl_idname)
+
         box = col.box().column()
         box.label(text="Select the armature, or the mesh for a static model.")
         box.label(text="Split At Bones needs the mesh cut first, Bind Vertices doesn't.")
+        box.label(text="Level Half picks which model, Export Level Halves writes both.")
         box.label(text="Pack the folder with: torch pack <folder> <name>.o2r o2r")
 
 

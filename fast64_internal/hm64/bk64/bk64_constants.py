@@ -332,6 +332,9 @@ SHAPE_KIND = "hm64_bk64_shape"
 SHAPE_PIVOT = "hm64_bk64_shape_pivot"  # the point a box turns about, kept to export it back in place
 COLLISION_ONLY_PROP = "hm64_bk64_collision_only"
 
+# a stand-in root has to carry these, or the section each feeds ships empty
+MODEL_STASH_PROPS = (GEO_LAYOUT_PROP, COLLISION_GRID_PROP)
+
 # what an undrawn collision vertex carried. Nothing reads them, a round trip does.
 COLLISION_COLOR_ATTR = "hm64_bk64_vtx_color"
 COLLISION_UV_ATTR = "hm64_bk64_vtx_uv"

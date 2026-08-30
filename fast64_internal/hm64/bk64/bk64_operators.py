@@ -10,16 +10,22 @@ from bpy.utils import register_class, unregister_class
 from ...utility import PluginError, raisePluginError
 from .bk64_anim import actions_for, export_bk64_animation, import_bk64_animation
 from .bk64_constants import (
+    CAMERA_AREA_KIND,
     COLLISION_ONLY_PROP,
     GEO_TYPE_ENV_MAP,
     GEO_TYPE_MIPMAP_TRILINEAR,
     MESH_GROUP_PREFIX,
+    MODEL_STASH_PROPS,
     SCROLL_UID_BASE,
+    SHAPE_KIND,
 )
 from .bk64_import import import_bk64_model
-from .bk64_level_models import bk64_level_layers
+from .bk64_level_models import bk64_level_half_paths, bk64_level_layers
 from .bk64_model import (
+    blank_half_object,
     export_bk64_model,
+    LEVEL_HALVES,
+    level_half_objects,
     promote_materials_to_2_cycle,
     read_collision_only,
     read_collision_shapes,
@@ -121,6 +127,119 @@ class BK64_ExportModel(Operator):
         except Exception as exc:
             raisePluginError(self, exc)
             return {"CANCELLED"}
+
+
+def _half_holder(context, name, objects, temp_objects):
+    """An empty standing in for one half's model, holding what the export reads off a root"""
+    holder = bpy.data.objects.new(name, None)
+    context.scene.collection.objects.link(holder)
+    temp_objects.append(holder)
+    for prop in MODEL_STASH_PROPS:
+        stashed = next((obj[prop] for obj in objects if prop in obj), None)
+        if stashed is not None:
+            holder[prop] = stashed
+    # a real property rather than a custom one, so MODEL_STASH_PROPS can't carry it
+    holder.hm64_bk64_geo_type_raw = next(
+        (obj.hm64_bk64_geo_type_raw for obj in objects if obj.hm64_bk64_geo_type_raw), 0
+    )
+    return holder
+
+
+class BK64_ExportLevelHalves(Operator):
+    bl_idname = "scene.hm64_bk64_export_level_halves"
+    bl_label = "Export Level Halves"
+    bl_description = (
+        "Write the selected level as its opaque and translucent models. A vanilla level's halves go "
+        "out under their own asset names, which differ from each other"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        scene = context.scene
+        temp_objects = []
+        try:
+            with object_mode(context):
+                root_obj = resolve_root(context)
+                if root_obj.type == "ARMATURE":
+                    raise PluginError("A level is a static model. Select the level geometry, not an armature.")
+
+                settings = BK64_Settings(scene)
+                export_dir = bpy.path.abspath(scene.hm64_bk64_export_path)
+                if not export_dir:
+                    raise PluginError("Set an export folder first.")
+                if not settings.name:
+                    raise PluginError("Set a resource path first, e.g. levels/mylevel.")
+
+                sources = (
+                    [root_obj]
+                    if root_obj.type == "MESH"
+                    else [child for child in root_obj.children_recursive if child.type == "MESH"]
+                )
+                hidden = [obj for obj in sources if obj.get(COLLISION_ONLY_PROP)]
+                hidden_of = {
+                    half: [obj for obj in hidden if obj.hm64_bk64_level_half == half] for half, _ in LEVEL_HALVES
+                }
+                sources = [obj for obj in sources if not obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)]
+                if not sources:
+                    raise PluginError(f"Nothing to export, '{root_obj.name}' has no mesh geometry.")
+
+                base_name, written, blanked = settings.name, [], []
+                extension = ".bin" if settings.file_format == "BIN" else ""
+                paths = bk64_level_half_paths(base_name)
+
+                for half, suffix in LEVEL_HALVES:
+                    layer = suffix.lstrip("_")
+                    halves = level_half_objects(sources, half)
+                    if not halves:
+                        halves = [blank_half_object(context, sources, half, temp_objects)]
+                        blanked.append(layer)
+
+                    holder = _half_holder(context, f"bk64_half_{half.lower()}", halves + hidden_of[half], temp_objects)
+
+                    def stand_in_for(obj, parent):
+                        # a copy shares the mesh data, so parenting one under the
+                        # holder leaves the user's own objects where they were
+                        copy = obj.copy()
+                        context.scene.collection.objects.link(copy)
+                        temp_objects.append(copy)
+                        copy.parent = parent
+                        copy.matrix_world = obj.matrix_world
+                        return copy
+
+                    for obj in halves + hidden_of[half]:
+                        stand_in = stand_in_for(obj, holder)
+                        # the collision volumes and camera gates hang off the model, not the
+                        # holder the export is handed, and both readers only walk children
+                        for child in obj.children_recursive:
+                            if child.get(SHAPE_KIND) is not None or child.get(CAMERA_AREA_KIND) is not None:
+                                stand_in_for(child, stand_in)
+
+                    settings.name = paths[layer]
+                    shapes = read_collision_shapes(holder, settings.scale)
+                    collision_only = read_collision_only(context, holder, settings.scale)
+                    resources = export_bk64_model(context, holder, settings, shapes, collision_only)
+                    for res_suffix, data in resources.items():
+                        path = os.path.join(export_dir, settings.name + res_suffix + extension)
+                        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                        with open(path, "wb") as file:
+                            file.write(data)
+                    written.append(settings.name)
+
+                settings.name = base_name
+                for warning in settings.warnings:
+                    self.report({"WARNING"}, warning)
+                note = f" {' and '.join(blanked)} had no geometry and went out blank." if blanked else ""
+                self.report({"INFO"}, f"Exported {' and '.join(written)} to {export_dir}.{note}")
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+        finally:
+            for obj in temp_objects:
+                if obj.name in bpy.data.objects:
+                    bpy.data.objects.remove(obj, do_unlink=True)
 
 
 class BK64_ExportAnimation(Operator):
@@ -568,6 +687,7 @@ class BK64_ImportSkeleton(Operator):
 
 bk64_operator_classes = (
     BK64_ExportModel,
+    BK64_ExportLevelHalves,
     BK64_ExportAnimation,
     BK64_ExportAllAnimations,
     BK64_PromoteMaterials,

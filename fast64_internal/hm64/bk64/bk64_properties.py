@@ -81,6 +81,11 @@ bk64_file_format_enum = (
     ("BIN", "BK Model Binary", "One .bin in the game's own format, for the ROM hacking tools"),
 )
 
+bk64_level_half_enum = (
+    ("OPAQUE", "Opaque", "Writes depth, so it hides what is behind it"),
+    ("TRANSLUCENT", "Translucent", "Tests depth without writing it. Vanilla puts water here"),
+)
+
 bk64_draw_layer_enum = (
     ("OPAQUE", "Opaque", "Solid geometry"),
     ("OPAQUE_NO_AA", "Opaque, No AA", "Solid, without the antialiased edge"),
@@ -155,7 +160,7 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_scroll_speed",
 )
 
-_BK64_OBJECT_PROPS = ("hm64_bk64_geo_type_raw",)
+_BK64_OBJECT_PROPS = ("hm64_bk64_level_half", "hm64_bk64_geo_type_raw")
 
 _BK64_BONE_PROPS = (
     "hm64_bk64_bone_id",
@@ -265,6 +270,13 @@ def bk64_properties_register():
         min=0,
         description="The geo type word an imported model came in with, written back as it is. It sits "
         "on the object because a level's two halves differ. Set it to 0 to use Env Map and Mipmap",
+    )
+    bpy.types.Object.hm64_bk64_level_half = EnumProperty(
+        name="Level Half",
+        items=bk64_level_half_enum,
+        default="OPAQUE",
+        description="Which of a level's two models Export Level Halves writes this object into. The "
+        "level importer sets it on the halves it brings in",
     )
     bpy.types.Scene.hm64_bk64_import_path = StringProperty(
         name="Model File",

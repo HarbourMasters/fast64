@@ -1065,6 +1065,41 @@ def _gather_parts(
     return bones, meshes_by_bone, mesh_uids
 
 
+# a level's two models in draw order, the opaque one writing depth and the
+# translucent one only testing against it
+LEVEL_HALVES = (("OPAQUE", "_OPA"), ("TRANSLUCENT", "_XLU"))
+
+
+def level_half_objects(mesh_objects, half: str):
+    """The meshes marked for this half"""
+    return [obj for obj in mesh_objects if obj.hm64_bk64_level_half == half]
+
+
+def blank_half_object(context, mesh_objects, half: str, temp_objects):
+    """A model that draws nothing, for the half with no geometry of its own"""
+    material = next(
+        (slot.material for obj in mesh_objects for slot in obj.material_slots if slot.material is not None),
+        None,
+    )
+    if material is None:
+        raise PluginError("Nothing to build a blank half from. Give the level's geometry a material.")
+
+    name = f"bk64_blank_{half.lower()}"
+    mesh = bpy.data.meshes.new(name)
+    # the export refuses an empty mesh, so this is one triangle with no area
+    mesh.from_pydata([(0.0, 0.0, 0.0)] * 3, [], [(0, 1, 2)])
+    mesh.update()
+    mesh.uv_layers.new(name="UVMap")
+    mesh.materials.append(material)
+
+    blank = bpy.data.objects.new(name, mesh)
+    blank.use_f3d_culling = False
+    context.scene.collection.objects.link(blank)
+    temp_objects.append(blank)
+    mesh.calc_loop_triangles()
+    return blank
+
+
 def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=None):
     """Builds the whole resource family as {suffix: bytes}.
 
