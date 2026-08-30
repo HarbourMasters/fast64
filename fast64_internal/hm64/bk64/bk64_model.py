@@ -282,62 +282,177 @@ def promote_materials_to_2_cycle(mesh_obj):
     return changed
 
 
+def armature_of(mesh_obj):
+    """The armature a mesh exports under, or None"""
+    # an ancestor wins over a modifier: the export gathers a model from the root's
+    # children, and a static model parented to an empty carries no modifier at all
+    current = mesh_obj.parent
+    while current is not None:
+        if current.type == "ARMATURE":
+            return current
+        current = current.parent
+    return next((m.object for m in mesh_obj.modifiers if m.type == "ARMATURE" and m.object), None)
+
+
+def checked_armature_of(mesh_obj):
+    """The armature a mesh exports under, refusing one that has none"""
+    armature_obj = armature_of(mesh_obj)
+    if armature_obj is None:
+        raise PluginError(f"'{mesh_obj.name}' is not attached to an armature. Parent it to one.")
+    return armature_obj
+
+
+def bone_groups_of(mesh_obj, armature_obj):
+    """{vertex group index: bone name} for the groups named after a bone"""
+    bone_names = {bone.name for bone in armature_obj.data.bones}
+    return {group.index: group.name for group in mesh_obj.vertex_groups if group.name in bone_names}
+
+
+def checked_bone_groups(mesh_obj, armature_obj):
+    """The bone groups a mesh has, refusing one weighted to no bone"""
+    groups = bone_groups_of(mesh_obj, armature_obj)
+    if not groups:
+        raise PluginError(
+            f"'{mesh_obj.name}' has no vertex groups named after a bone in '{armature_obj.name}'. "
+            "Weight it to the bones you want it to follow."
+        )
+    return groups
+
+
 def select_loose_vertices(mesh_obj):
     """Selects the vertices no bone weights, returning how many"""
     # Select All by Trait finds only the vertices in no group at all, and a
     # weight of 0 or a group no bone is named after reads as loose here too
-    armature_obj = mesh_obj.find_armature()
-    if armature_obj is None:
-        raise PluginError(f"'{mesh_obj.name}' is not attached to an armature.")
+    groups = set(bone_groups_of(mesh_obj, checked_armature_of(mesh_obj)))
 
-    bone_names = {bone.name for bone in armature_obj.data.bones}
-    groups = {group.index for group in mesh_obj.vertex_groups if group.name in bone_names}
-    mesh = mesh_obj.data
+    # bmesh, since writing .select straight onto a from_pydata mesh crashes Blender
+    # 5.0, and every imported model is built that way
+    bm = bmesh.new()
+    bm.from_mesh(mesh_obj.data)
+    try:
+        deform = bm.verts.layers.deform.active
+        # Edit mode flushes from these, and a selected face would bring its corners with it
+        for edge in bm.edges:
+            edge.select = False
+        for face in bm.faces:
+            face.select = False
 
-    # Edit mode flushes from these, and a selected face would bring its corners with it
-    for edge in mesh.edges:
-        edge.select = False
-    for polygon in mesh.polygons:
-        polygon.select = False
-
-    found = 0
-    for vertex in mesh.vertices:
-        vertex.select = not any(entry.group in groups and entry.weight > 0.0 for entry in vertex.groups)
-        found += vertex.select
+        found = 0
+        for vertex in bm.verts:
+            weights = vertex[deform].items() if deform is not None else ()
+            vertex.select = not any(index in groups and weight > 0.0 for index, weight in weights)
+            found += vertex.select
+        bm.to_mesh(mesh_obj.data)
+    finally:
+        bm.free()
+    mesh_obj.data.update()
     return found
+
+
+def source_bones_of(mesh_obj, armature_obj):
+    """{chunk index: bone name} for a model imported with a layout, or None"""
+    stored = stored_layout(armature_obj)
+    if stored is None:
+        stored = stored_layout(mesh_obj)
+    if stored is None:
+        return None
+    # only the names and their order are read back out, so the matrix is free
+    bones = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
+    return _layout_bone_of_source(stored, bones)[0] or None
+
+
+def bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name=None, source_bones=None):
+    """({face: bone name}, how many faces had nothing to vote on)"""
+    source_of_face = _face_sources(mesh_obj.data) if source_bones else []
+    deform_layer = bm.verts.layers.deform.active
+
+    bone_of_face, unweighted = {}, 0
+    for face in bm.faces:
+        bone_name = None
+        if source_bones and face.index < len(source_of_face):
+            bone_name = source_bones.get(source_of_face[face.index])
+        if bone_name is None:
+            group_index = _face_bone_group(face, deform_layer, group_index_to_bone)
+            if group_index is None:
+                unweighted += 1
+            bone_name = group_index_to_bone[group_index] if group_index is not None else fallback_bone_name
+        bone_of_face[face] = bone_name
+    return bone_of_face, unweighted
+
+
+def bone_seam_edges(bm, bone_of_face, armature_obj, source_bones):
+    """Edges whose two faces sit on bones a single chunk cannot span"""
+    parent_of = {bone.name: bone.parent.name if bone.parent else None for bone in armature_obj.data.bones}
+
+    # a chunk carries one bone. A weld across a joint gets torn, except at
+    # a bone and its parent, the one seam skinning blends.
+    def family(name_a, name_b):
+        if name_a is None or name_b is None:
+            return False
+        return parent_of[name_a] == name_b or parent_of[name_b] == name_a
+
+    seams = []
+    for edge in bm.edges:
+        if len(edge.link_faces) != 2:
+            continue
+        name_a, name_b = (bone_of_face[face] for face in edge.link_faces)
+        if name_a != name_b and not (source_bones and family(name_a, name_b)):
+            seams.append(edge)
+    return seams
 
 
 def split_mesh_at_bones(mesh_obj):
     """Cuts a mesh so every triangle belongs to one bone, returning the cut count"""
     # the export needs the mesh this way, but cutting it there would leave the
     # viewport showing something other than what ships
-    armature_obj = next((m.object for m in mesh_obj.modifiers if m.type == "ARMATURE" and m.object), None)
-    if armature_obj is None and mesh_obj.parent is not None and mesh_obj.parent.type == "ARMATURE":
-        armature_obj = mesh_obj.parent
-    if armature_obj is None:
-        raise PluginError(f"'{mesh_obj.name}' is not attached to an armature.")
-
-    bone_names = {bone.name for bone in armature_obj.data.bones}
-    groups = {group.index: group.name for group in mesh_obj.vertex_groups if group.name in bone_names}
-    if not groups:
-        raise PluginError(f"'{mesh_obj.name}' has no vertex groups named after a bone in '{armature_obj.name}'.")
+    armature_obj = checked_armature_of(mesh_obj)
+    groups = checked_bone_groups(mesh_obj, armature_obj)
 
     bm = bmesh.new()
     bm.from_mesh(mesh_obj.data)
     deform = bm.verts.layers.deform.verify()
 
-    # the same rule the export uses, or a mesh cut here still reads as welded there
+    # every weight boundary. The export reads which bone a vertex follows off the
+    # weights, and only one bone per vertex lets it find the parent's vertices.
     owners = {face: _face_bone_group(face, deform, groups) for face in bm.faces}
-
     seams = [edge for edge in bm.edges if len({owners[f] for f in edge.link_faces}) > 1]
-    # use_verts also separates where two bones meet at a single vertex
+
+    # then the boundaries only the layout knows about. The weights alone can
+    # disagree with it, and the export counts a weld they called clean.
+    source_bones = source_bones_of(mesh_obj, armature_obj)
+    if source_bones:
+        by_layout = bone_of_faces(bm, mesh_obj, groups, None, source_bones)[0]
+        already = {edge.index for edge in seams}
+        layout_seams = bone_seam_edges(bm, by_layout, armature_obj, source_bones)
+        seams += [edge for edge in layout_seams if edge.index not in already]
+
+    # use_verts splits the vertices along these edges as well
     bmesh.ops.split_edges(bm, edges=seams, use_verts=True)
+
+    # a vertex the seams did not separate can still hold faces from two bones. The
+    # rewrite below would give it to whichever comes last, so cut those apart first.
+    conflicted = set()
+    for vert in bm.verts:
+        holding = {owners.get(face) for face in vert.link_faces}
+        if len(holding) > 1:
+            conflicted |= holding
+    # in face order: reordering these splits cost one vanilla model its skinning,
+    # so which copy of a shared vertex each chunk keeps is load bearing
+    faces_by_owner = {}
+    for face, owner in owners.items():
+        if owner in conflicted:
+            faces_by_owner.setdefault(owner, []).append(face)
+    for faces in faces_by_owner.values():
+        bmesh.ops.split(bm, geom=faces, use_only_faces=False)
+
     for face in bm.faces:
         owner = owners.get(face)
         if owner is None:
             continue
         for vert in face.verts:
-            vert[deform].clear()
+            # only the bone groups. Clearing the lot takes the mesh groups with it.
+            for index in [i for i in vert[deform].keys() if i in groups]:
+                del vert[deform][index]
             vert[deform][owner] = 1.0
 
     bm.to_mesh(mesh_obj.data)
@@ -360,28 +475,11 @@ def _face_bone_group(face, deform_layer, group_index_to_bone):
 
 
 def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name: str, source_bones=None, warnings=None):
-    bone_names = {bone.name for bone in armature_obj.data.bones}
-    group_index_to_bone = {group.index: group.name for group in mesh_obj.vertex_groups if group.name in bone_names}
-    if not group_index_to_bone:
-        raise PluginError(f"'{mesh_obj.name}' has no vertex groups matching a bone in '{armature_obj.name}'.")
+    group_index_to_bone = checked_bone_groups(mesh_obj, armature_obj)
 
-    # an imported face keeps its chunk's bone from the layout, not a weight
-    # vote that could land it across the seam
-    source_of_face = _face_sources(mesh_obj.data) if source_bones else []
-
-    deform_layer = bm.verts.layers.deform.active
-    bone_of_face, faces_by_bone = {}, {}
-    unweighted = 0
-    for face in bm.faces:
-        bone_name = None
-        if source_bones and face.index < len(source_of_face):
-            bone_name = source_bones.get(source_of_face[face.index])
-        if bone_name is None:
-            group_index = _face_bone_group(face, deform_layer, group_index_to_bone)
-            if group_index is None:
-                unweighted += 1
-            bone_name = group_index_to_bone[group_index] if group_index is not None else fallback_bone_name
-        bone_of_face[face] = bone_name
+    bone_of_face, unweighted = bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name, source_bones)
+    faces_by_bone = {}
+    for face, bone_name in bone_of_face.items():
         faces_by_bone.setdefault(bone_name, []).append(face.index)
 
     # a face with nothing to vote on lands on the root, right for scenery and wrong for a limb
@@ -391,21 +489,17 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
             f"and went onto '{fallback_bone_name}'."
         )
 
-    # a chunk carries one bone. A weld across a joint gets torn, except at
-    # a bone and its parent, the one seam skinning blends.
-    def family(name_a, name_b):
-        bone_a, bone_b = armature_obj.data.bones[name_a], armature_obj.data.bones[name_b]
-        return bone_a.parent == bone_b or bone_b.parent == bone_a
-
-    seams = sum(
-        1
-        for edge in bm.edges
-        if len(edge.link_faces) == 2
-        and bone_of_face[edge.link_faces[0]] != bone_of_face[edge.link_faces[1]]
-        and not (source_bones and family(bone_of_face[edge.link_faces[0]], bone_of_face[edge.link_faces[1]]))
-    )
+    seams = bone_seam_edges(bm, bone_of_face, armature_obj, source_bones)
     if seams:
-        raise PluginError(f"'{mesh_obj.name}' is welded across {seams} bone boundaries. Run Split Mesh At Bones.")
+        bones = sorted({bone_of_face[face] or "no bone" for edge in seams for face in edge.link_faces})
+        where = ", ".join(bones[:4]) + (f" and {len(bones) - 4} more" if len(bones) > 4 else "")
+        # Split Mesh At Bones cuts the mesh itself, and this reads it with its modifiers
+        # applied. Telling someone to run a cut they already ran helps nobody.
+        if len(bm.verts) != len(mesh_obj.data.vertices):
+            fix = "Apply its modifiers first, they make geometry Split Mesh At Bones never saw."
+        else:
+            fix = "Run Split Mesh At Bones."
+        raise PluginError(f"'{mesh_obj.name}' is welded across {len(seams)} bone boundaries, at {where}. {fix}")
 
     parts = {}
     for bone_name, face_indices in faces_by_bone.items():
