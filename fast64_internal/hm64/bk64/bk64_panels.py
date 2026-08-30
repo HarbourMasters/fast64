@@ -6,7 +6,7 @@ from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS
-from .bk64_model import level_half_of
+from .bk64_model import in_level_half, level_half_faces
 from .bk64_operators import (
     BK64_AddTextureScroll,
     BK64_ExportAllAnimations,
@@ -69,13 +69,21 @@ class BK64_ExportModelPanel(BK64_Panel):
         if obj is not None and obj.type == "MESH":
             prop_split(halves, obj, "hm64_bk64_level_half", "Level Half")
             if obj.hm64_bk64_level_half == "AUTO":
-                halves.label(text=f"Its materials read as {level_half_of(obj).lower()}.")
+                if level_half_faces(obj, "OPAQUE") and level_half_faces(obj, "TRANSLUCENT"):
+                    halves.label(text="Its materials read as both, so it goes out cut in two.")
+                else:
+                    which = "translucent" if in_level_half(obj, "TRANSLUCENT") else "opaque"
+                    halves.label(text=f"Its materials read as {which}.")
         # the root is usually not a mesh, so the row above is often missing
         meshes = [] if root is None else ([root] if root.type == "MESH" else root.children_recursive)
         drawn = [child for child in meshes if child.type == "MESH" and not child.ignore_render]
         if len(drawn) > 1:  # one mesh already says what it reads as, just above
-            opaque = sum(1 for child in drawn if level_half_of(child) == "OPAQUE")
-            halves.label(text=f"{opaque} opaque, {len(drawn) - opaque} translucent")
+            counts = {"OPAQUE": 0, "TRANSLUCENT": 0}
+            for child in drawn:
+                for half in counts:
+                    if in_level_half(child, half):
+                        counts[half] += 1
+            halves.label(text=f"{counts['OPAQUE']} opaque, {counts['TRANSLUCENT']} translucent")
         halves.operator(BK64_ExportLevelHalves.bl_idname)
 
         box = col.box().column()

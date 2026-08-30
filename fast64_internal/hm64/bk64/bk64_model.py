@@ -1060,22 +1060,79 @@ def _gather_parts(
 LEVEL_HALVES = (("OPAQUE", "_OPA"), ("TRANSLUCENT", "_XLU"))
 
 
-def level_half_of(mesh_obj):
-    """The half an object belongs to, reading its materials when it hasn't been told"""
+def _material_half(material):
+    """The half a material's draw layer puts its faces in"""
+    layer = getattr(material, "hm64_bk64_draw_layer", "SCENE") if material is not None else "SCENE"
+    return "TRANSLUCENT" if layer.startswith("TRANSLUCENT") else "OPAQUE"
+
+
+def level_half_faces(mesh_obj, half: str):
+    """The faces of an object that belong in this half, or None when they all do"""
+    halves = [_material_half(slot.material) for slot in mesh_obj.material_slots]
+    if not halves:  # nothing to read a layer off, so it draws solid
+        return None if half == "OPAQUE" else []
+    if all(each == half for each in halves):
+        return None
+    if not any(each == half for each in halves):
+        return []
+    return [face.index for face in mesh_obj.data.polygons if halves[face.material_index] == half]
+
+
+def whole_level_half(mesh_obj):
+    """Where an object goes when it can't be cut, since no draw layer places it"""
+    chosen = mesh_obj.hm64_bk64_level_half
+    return "OPAQUE" if chosen == "AUTO" else chosen
+
+
+def in_level_half(mesh_obj, half: str) -> bool:
+    """Whether an object reaches this half, off its materials rather than its faces"""
     chosen = mesh_obj.hm64_bk64_level_half
     if chosen != "AUTO":
-        return chosen
-    materials = [slot.material for slot in mesh_obj.material_slots if slot.material is not None]
-    # every one of them, since the translucent half cannot hide what is behind it
-    translucent = materials and all(
-        getattr(material, "hm64_bk64_draw_layer", "SCENE").startswith("TRANSLUCENT") for material in materials
-    )
-    return "TRANSLUCENT" if translucent else "OPAQUE"
+        return chosen == half
+    halves = [_material_half(slot.material) for slot in mesh_obj.material_slots]
+    # a slot no face uses still counts, since a panel asks this on every redraw
+    # and walking the faces there would crawl
+    return half in halves if halves else half == "OPAQUE"
 
 
-def level_half_objects(mesh_objects, half: str):
-    """The meshes that belong to this half"""
-    return [obj for obj in mesh_objects if level_half_of(obj) == half]
+def _faces_as_object(context, mesh_obj, faces, half: str, temp_objects):
+    """A copy of the object holding only these faces"""
+    # copied rather than rebuilt, so the vertex groups a mesh list rides in
+    # and everything else on the object come with it
+    copy = mesh_obj.copy()
+    copy.data = mesh_obj.data.copy()
+    copy.name = f"{mesh_obj.name}_{half.lower()}"
+    context.scene.collection.objects.link(copy)
+    temp_objects.append(copy)
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(copy.data)
+        bm.faces.ensure_lookup_table()
+        keep = set(faces)
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.index not in keep], context="FACES")
+        bm.to_mesh(copy.data)
+    finally:
+        bm.free()
+    copy.data.calc_loop_triangles()
+    return copy
+
+
+def level_half_objects(context, mesh_objects, half: str, temp_objects):
+    """The meshes to export for this half, cutting a mixed one along its materials"""
+    parts = []
+    for mesh_obj in mesh_objects:
+        chosen = mesh_obj.hm64_bk64_level_half
+        if chosen != "AUTO":
+            if chosen == half:
+                parts.append(mesh_obj)
+            continue
+        faces = level_half_faces(mesh_obj, half)
+        if faces is None:
+            parts.append(mesh_obj)
+        elif faces:
+            parts.append(_faces_as_object(context, mesh_obj, faces, half, temp_objects))
+    return parts
 
 
 def blank_half_object(context, mesh_objects, half: str, temp_objects):

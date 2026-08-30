@@ -27,7 +27,7 @@ from .bk64_model import (
     export_bk64_model,
     LEVEL_HALVES,
     level_half_objects,
-    level_half_of,
+    whole_level_half,
     promote_materials_to_2_cycle,
     read_collision_only,
     read_collision_shapes,
@@ -186,7 +186,8 @@ class BK64_ExportLevelHalves(Operator):
                     else [child for child in root_obj.children_recursive if child.type == "MESH"]
                 )
                 hidden = [obj for obj in sources if obj.get(COLLISION_ONLY_PROP)]
-                hidden_of = {half: [obj for obj in hidden if level_half_of(obj) == half] for half, _ in LEVEL_HALVES}
+                # a collision only mesh draws nothing, so no draw layer can place it
+                hidden_of = {half: [obj for obj in hidden if whole_level_half(obj) == half] for half, _ in LEVEL_HALVES}
                 sources = [obj for obj in sources if not obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)]
                 if not sources:
                     raise PluginError(f"Nothing to export, '{root_obj.name}' has no mesh geometry.")
@@ -197,7 +198,7 @@ class BK64_ExportLevelHalves(Operator):
 
                 for half, suffix in LEVEL_HALVES:
                     layer = suffix.lstrip("_")
-                    halves = level_half_objects(sources, half)
+                    halves = level_half_objects(context, sources, half, temp_objects)
                     if not halves:
                         halves = [blank_half_object(context, sources, half, temp_objects)]
                         blanked.append(layer)
