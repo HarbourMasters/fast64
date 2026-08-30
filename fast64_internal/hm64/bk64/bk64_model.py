@@ -663,14 +663,17 @@ def read_collision_only(context, root_obj, scale: float):
 
 
 def _check_cycle_type(mesh_objects):
-    """BK draws models in 2 cycle and a 1 cycle material renders black"""
+    """BK draws models in 2 cycle, and a 1 cycle material never reaches the blending"""
     offenders = []
     for material, f3d_mat in f3d_materials(mesh_objects):
         if f3d_mat.rdp_settings.g_mdsft_cycletype != CYCLE_TYPE_2CYCLE and material.name not in offenders:
             offenders.append(material.name)
     if offenders:
         listed = "\n  ".join(offenders)
-        raise PluginError(f"BK draws models in 2 cycle and these would render black. Set Cycle Type:\n  {listed}")
+        raise PluginError(
+            "BK draws models in 2 cycle, and these would lose the blending the second cycle does. "
+            f"Set Cycle Type:\n  {listed}"
+        )
 
 
 def _check_large_textures(mesh_objects):
@@ -921,7 +924,10 @@ def _checked_mesh_uid(group):
     """The mesh uid a group names, refusing one the section can't store"""
     uid = _mesh_group_uid(group.name)
     if uid is not None and not -0x8000 <= uid <= 0x7FFF:
-        raise PluginError(f"Vertex group '{group.name}' names mesh {uid}, past the s16 BKMesh.uid holds.")
+        raise PluginError(
+            f"Vertex group '{group.name}' names mesh {uid}, which is out of range. "
+            "Rename it to a number from -32768 to 32767."
+        )
     return uid
 
 
@@ -1124,10 +1130,13 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
     _check_cycle_type(mesh_objects)
     check_camera_water_reads(mesh_objects, settings.warnings)
     _check_large_textures(mesh_objects)
-    culling = [obj.name for obj in mesh_objects if obj.use_f3d_culling]
+    # nothing in BK reads a cull list, and the import and the splitter already clear it
+    culling = [obj for obj in mesh_objects if obj.use_f3d_culling]
+    for obj in culling:
+        obj.use_f3d_culling = False
     if culling:
-        listed = "\n  ".join(culling)
-        raise PluginError(f"Turn off Use F3D Culling on these, BK culls off its own center and radius:\n  {listed}")
+        counted = "1 object" if len(culling) == 1 else f"{len(culling)} objects"
+        settings.warnings.append(f"Turned Use F3D Culling off on {counted}. BK culls off its own center and radius.")
 
     # WriteAll emits a blanket othermode-H and leaks it, differing-and-revert
     # writes only what the world defaults don't cover

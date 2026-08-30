@@ -621,7 +621,10 @@ def _blob_textures(tex_infos):
     for index, info in enumerate(tex_infos):
         otex_format = BK_TEX_FORMAT.get(info["type"])
         if otex_format is None:
-            raise PluginError(f"Texture {index} is type 0x{info['type']:X}, which BK doesn't use.")
+            raise PluginError(
+                f"Texture {index} is type 0x{info['type']:X}, which is none of BK's. Tooie models land "
+                "here, since their texture entries are 8 bytes and lead with the offset, not the type."
+            )
         palette = BK_PALETTE_SIZE[otex_format] if otex_format in PALETTED_FORMATS else 0
         textures.append(
             dict(
