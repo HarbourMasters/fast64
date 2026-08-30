@@ -1241,6 +1241,7 @@ def import_bk64_model(context, path: str, settings):
     context.scene.collection.objects.link(mesh_obj)
     # on whichever object the export is handed, the armature when there's one
     (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
+    (armature_obj or mesh_obj).hm64_bk64_geo_type_raw = model["geo_type"]
     if model.get("collision_grid"):
         mesh_obj[COLLISION_GRID_PROP] = pack_collision_grid(model["collision_grid"], vertices)
 

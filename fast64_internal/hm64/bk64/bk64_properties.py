@@ -153,6 +153,8 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_anim_import_path",
 )
 
+_BK64_OBJECT_PROPS = ("hm64_bk64_geo_type_raw",)
+
 _BK64_BONE_PROPS = (
     "hm64_bk64_bone_id",
     "hm64_bk64_bone_order",
@@ -246,6 +248,13 @@ def bk64_properties_register():
         default="OPAQUE",
         description="Opaque for solid geometry, Translucent for blended. Whether the model reads "
         "or writes depth stays with the game",
+    )
+    bpy.types.Object.hm64_bk64_geo_type_raw = IntProperty(
+        name="Imported Geo Type",
+        default=0,
+        min=0,
+        description="The geo type word an imported model came in with, written back as it is. It sits "
+        "on the object because a level's two halves differ. Set it to 0 to use Env Map and Mipmap",
     )
     bpy.types.Scene.hm64_bk64_import_path = StringProperty(
         name="Model File",
@@ -441,6 +450,9 @@ def bk64_properties_unregister():
     for prop in _BK64_SCENE_PROPS:
         if hasattr(bpy.types.Scene, prop):
             delattr(bpy.types.Scene, prop)
+    for prop in _BK64_OBJECT_PROPS:
+        if hasattr(bpy.types.Object, prop):
+            delattr(bpy.types.Object, prop)
     for prop in _BK64_BONE_PROPS:
         if hasattr(bpy.types.Bone, prop):
             delattr(bpy.types.Bone, prop)

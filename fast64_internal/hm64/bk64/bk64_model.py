@@ -39,6 +39,7 @@ from .bk64_constants import (
     SOURCE_CHUNK_ATTR,
     CYCLE_TYPE_2CYCLE,
     DEFAULT_LIGHT_DIR,
+    GEO_TYPE_MIPMAP_TRILINEAR,
     MAX_DRAWABLE_BONE_INDEX,
     MAX_VERTEX_COUNT,
     MESH_GROUP_PREFIX,
@@ -1168,7 +1169,10 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     for command in gfx_list.commands:
                         if isinstance(command, SPTexture):
                             command.on = 0
-        if settings.mipmap and not rom_format:
+        # an import stores geo type on the object, since a level's halves disagree
+        geo_type = root_obj.hm64_bk64_geo_type_raw or settings.geo_type_bits()
+        # the bits shipped, not the scene setting: a level's second half clears that
+        if (geo_type & GEO_TYPE_MIPMAP_TRILINEAR) and not rom_format:
             for key, value in fModel.materials.items():
                 material = key[0]
                 f3d_mat = f3d_settings(material)
@@ -1358,7 +1362,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         if rom_format:
             return {
                 "": write_bkmodelbin(
-                    settings.geo_type_bits(),
+                    geo_type,
                     count_triangles(dl_words),
                     bounds,
                     dl_words,
@@ -1379,7 +1383,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
 
         resources = {
             "": _write_model_resource(
-                settings.geo_type_bits(),
+                geo_type,
                 count_triangles(dl_words),
                 bounds,
                 dl_words,

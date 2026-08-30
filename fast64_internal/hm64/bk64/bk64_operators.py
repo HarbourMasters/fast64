@@ -40,7 +40,7 @@ def object_mode(context):
                 bpy.ops.object.mode_set(mode=previous)
 
 
-def _resolve_root(context):
+def resolve_root(context):
     """The object to export, an armature if rigged and a mesh otherwise"""
     # walks up to the root like MK64 does, letting any part of a rig work
     selected = context.selected_objects
@@ -80,7 +80,7 @@ class BK64_ExportModel(Operator):
 
         try:
             with object_mode(context):
-                root_obj = _resolve_root(context)
+                root_obj = resolve_root(context)
                 settings = BK64_Settings(scene)
 
                 export_dir = bpy.path.abspath(scene.hm64_bk64_export_path)
@@ -128,7 +128,7 @@ class BK64_ExportAnimation(Operator):
 
         try:
             with object_mode(context):
-                root_obj = _resolve_root(context)
+                root_obj = resolve_root(context)
                 if root_obj.type != "ARMATURE":
                     raise PluginError("Select the armature the animation is on, only rigged models animate.")
                 settings = BK64_Settings(scene)
@@ -165,7 +165,7 @@ class BK64_ExportAllAnimations(Operator):
 
         try:
             with object_mode(context):
-                armature_obj = _resolve_root(context)
+                armature_obj = resolve_root(context)
                 if armature_obj.type != "ARMATURE":
                     raise PluginError("Select the armature the actions are on, only rigged models animate.")
                 settings = BK64_Settings(scene)
@@ -348,7 +348,7 @@ class BK64_ImportAnimation(Operator):
         scene = context.scene
         try:
             with object_mode(context):
-                armature_obj = _resolve_root(context)
+                armature_obj = resolve_root(context)
                 if armature_obj.type != "ARMATURE":
                     raise PluginError("Select the armature to put the animation on.")
 

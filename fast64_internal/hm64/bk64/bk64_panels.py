@@ -18,6 +18,7 @@ from .bk64_operators import (
     BK64_MarkCollisionOnly,
     BK64_SelectLooseVertices,
     BK64_SplitMeshAtBones,
+    resolve_root,
 )
 
 
@@ -39,8 +40,22 @@ class BK64_ExportModelPanel(BK64_Panel):
         prop_split(col, scene, "hm64_bk64_draw_layer", "Draw Layer")
 
         col.prop(scene, "hm64_bk64_force_unlit")
-        col.prop(scene, "hm64_bk64_env_map")
-        col.prop(scene, "hm64_bk64_mipmap")
+
+        # an imported model writes its own geo type, and these two lose to it
+        try:
+            root = resolve_root(context)
+        except Exception:  # a draw callback must never raise
+            root = None
+        stored = root.hm64_bk64_geo_type_raw if root is not None else 0
+        sub = col.column()
+        sub.enabled = not stored
+        sub.prop(scene, "hm64_bk64_env_map")
+        sub.prop(scene, "hm64_bk64_mipmap")
+        if stored:
+            prop_split(col, root, "hm64_bk64_geo_type_raw", "Imported Geo Type")
+            box = col.box().column()
+            box.label(text="This model came in with its own geo type, so the two")
+            box.label(text="boxes above do nothing. Set it to 0 to use them instead.")
 
         col.operator(BK64_PromoteMaterials.bl_idname)
         col.operator(BK64_SplitMeshAtBones.bl_idname)
