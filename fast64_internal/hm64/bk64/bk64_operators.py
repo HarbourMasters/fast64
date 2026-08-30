@@ -22,6 +22,7 @@ from .bk64_constants import (
 from .bk64_import import import_bk64_model
 from .bk64_level_models import bk64_level_half_paths, bk64_level_layers
 from .bk64_model import (
+    armature_of,
     blank_half_object,
     export_bk64_model,
     LEVEL_HALVES,
@@ -59,11 +60,19 @@ def resolve_root(context):
     if not selected:
         raise PluginError("Nothing selected. Pick the armature, or the mesh for a static model.")
 
-    for obj in selected:
+    for obj in selected:  # an explicit pick wins
         if obj.type == "ARMATURE":
             return obj
+
+    # the same rule the tools use, so what they split is what this exports
     for obj in selected:
-        current = obj
+        if obj.type == "MESH":
+            rig = armature_of(obj)
+            if rig is not None:
+                return rig
+
+    for obj in selected:
+        current = obj.parent
         while current is not None:
             if current.type == "ARMATURE":
                 return current
