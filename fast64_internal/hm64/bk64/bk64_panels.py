@@ -137,6 +137,7 @@ class BK64_ImportModelPanel(BK64_Panel):
         box.label(text="Import BK Skeleton takes only the bones, ids included, so a")
         box.label(text="replacement accepts the original's animations.")
         box.label(text="Both need the _GEO, _VTX and _tex siblings in the same folder.")
+        box.label(text="For a level use Import BK Level below, a level is two models.")
 
         col.separator()
         prop_split(col, scene, "hm64_bk64_level_folder", "Level Folder")

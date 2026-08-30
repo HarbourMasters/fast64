@@ -20,7 +20,7 @@ from .bk64_constants import (
     SHAPE_KIND,
 )
 from .bk64_import import import_bk64_model
-from .bk64_level_models import bk64_level_half_paths, bk64_level_layers
+from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
 from .bk64_model import (
     armature_of,
     blank_half_object,
@@ -636,7 +636,18 @@ class BK64_ImportModel(Operator):
                 scene.hm64_bk64_env_map = bool(model["geo_type"] & GEO_TYPE_ENV_MAP)
                 scene.hm64_bk64_mipmap = bool(model["geo_type"] & GEO_TYPE_MIPMAP_TRILINEAR)
 
+                # a level is two models and this reads one, so say which it was
+                level = bk64_level_of_asset(path)
+                if level is not None:
+                    level_name, layer = level
+                    mesh_obj.hm64_bk64_level_half = "TRANSLUCENT" if layer == "XLU" else "OPAQUE"
+
                 notes = []
+                if level is not None:
+                    notes.append(
+                        f"It is the {layer} half of {level_name}, and Level Half is set to match. "
+                        "Import BK Level brings in both at once if you want them together."
+                    )
                 kept = model.get("geo_commands", ())
                 if kept:
                     notes.append(f"Its geo layout uses {', '.join(kept)}, kept for re-export.")

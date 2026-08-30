@@ -1,3 +1,4 @@
+import os
 import re
 
 BK64_LEVEL_MODELS = {
@@ -178,6 +179,15 @@ def bk64_level_names() -> list:
     for _, (name, _layer) in sorted(BK64_LEVEL_MODELS.items()):
         seen[name] = None
     return list(seen)
+
+
+def bk64_level_of_asset(path: str):
+    """(level, half) when a file names a level model, else None"""
+    stem = os.path.basename(path).split(".")[0]
+    named = re.fullmatch(r"ASSET_([0-9A-Fa-f]{4})_.+", stem)  # an o2r resource
+    if named is None and not re.fullmatch(r"[0-9A-Fa-f]{4}", stem):  # a decomp asset
+        return None
+    return BK64_LEVEL_MODELS.get(int(named.group(1) if named else stem, 16))
 
 
 def bk64_level_half_paths(resource: str) -> dict:
