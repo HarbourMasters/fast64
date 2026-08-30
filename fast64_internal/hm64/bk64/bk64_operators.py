@@ -342,7 +342,10 @@ class BK64_ExportAllAnimations(Operator):
 class BK64_PromoteMaterials(Operator):
     bl_idname = "object.hm64_bk64_promote_materials"
     bl_label = "Promote Materials To 2 Cycle"
-    bl_description = "Give every material on the selected meshes a second cycle. BK renders a 1 cycle material black"
+    bl_description = (
+        "Give every material on the selected meshes the second cycle BK needs. Materials made in BK64 "
+        "mode already have it, so this is for a mesh brought in from elsewhere"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
