@@ -39,7 +39,7 @@ class BK64_ExportModelPanel(BK64_Panel):
         prop_split(col, scene, "hm64_bk64_scale", "Blender To BK Scale")
         prop_split(col, scene, "hm64_bk64_anim_scale", "Animation Scale")
         prop_split(col, scene, "hm64_bk64_rigging", "Rigging")
-        prop_split(col, scene, "hm64_bk64_draw_layer", "Draw Layer")
+        prop_split(col, scene, "hm64_bk64_draw_layer", "Default Draw Layer")
 
         col.prop(scene, "hm64_bk64_force_unlit")
 
@@ -76,7 +76,7 @@ class BK64_ExportModelPanel(BK64_Panel):
 
 class BK64_ExportAnimationPanel(BK64_Panel):
     bl_idname = "BK64_PT_export_animation"
-    bl_label = "Animation Exporter"
+    bl_label = "Animations"
     bl_order = 1
 
     def draw(self, context):

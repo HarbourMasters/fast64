@@ -94,7 +94,7 @@ bk64_draw_layer_enum = (
 )
 
 bk64_material_draw_layer_enum = (
-    ("SCENE", "From Scene", "Whatever the export panel's Draw Layer says"),
+    ("SCENE", "From Scene", "Whatever the export panel's Default Draw Layer says"),
     ("INHERIT", "Inherit", "Sets no render mode and draws with whatever the chunk before it left"),
 ) + bk64_draw_layer_enum
 
@@ -250,11 +250,11 @@ def bk64_properties_register():
         "Vertices keeps it whole and weights each vertex to one bone",
     )
     bpy.types.Scene.hm64_bk64_draw_layer = EnumProperty(
-        name="Draw Layer",
+        name="Default Draw Layer",
         items=bk64_draw_layer_enum,
         default="OPAQUE",
-        description="Opaque for solid geometry, Translucent for blended. Whether the model reads "
-        "or writes depth stays with the game",
+        description="The layer a material takes when its own Draw Layer is From Scene. It does not "
+        "split a level into halves--Level Half does that",
     )
     bpy.types.Scene.hm64_bk64_scroll_speed = IntProperty(
         name="Scroll Speed",
