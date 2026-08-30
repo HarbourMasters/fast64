@@ -309,6 +309,7 @@ MAX_VERTEX_COUNT = 32767  # the header count is an s16, the port drops indices p
 
 # where an imported model's geo layout rides, as JSON on the armature
 GEO_LAYOUT_PROP = "hm64_bk64_geo_layout"
+CAMERA_AREA_KIND = "hm64_bk64_camera_area"  # marks the box objects a geo CAMERA tests against
 
 # an HD image carries the N64 size its tiles address, for the slot to read back
 NATIVE_SIZE_PROP = "hm64_bk64_native_size"

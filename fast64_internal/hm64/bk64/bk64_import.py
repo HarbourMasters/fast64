@@ -36,6 +36,7 @@ from .bk64_constants import (
     GEO_CMD_SORT,
     GEO_CMD_TEXWRAP,
     GEO_CMD_UNK0,
+    CAMERA_AREA_KIND,
     GEO_LAYOUT_PROP,
     SOURCE_CHUNK_ATTR,
     MIP_BASE_PROP,
@@ -87,7 +88,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
-from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header
+from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header, read_camera_area_list
 from .bk64_skeleton import bone_space_matrix, create_armature_from_bones, read_bone_table
 
 OTEX_FORMAT = {value: key for key, value in OTEX_TYPE.items()}
@@ -154,6 +155,7 @@ def _read_model(data: bytes):
         geo_type=geo_type,
         tri_count=tri_count,
         has_mesh_list=bool(flags[4]),
+        camera_areas=extra["camera_areas"],
         mesh_list=extra["mesh_list"],
         bound_vertices=extra["bound_vertices"],
         animated_textures=extra["animated_textures"],
@@ -201,6 +203,7 @@ def _read_model_bin(data: bytes):
         geo_type=header["geo_type"],
         tri_count=header["tri_count"],
         has_mesh_list=bool(header["mesh_list"]),
+        camera_areas=read_camera_area_list(data, header["camera"], ">", True) if header["camera"] else [],
         mesh_list=_read_mesh_list(data, header["mesh_list"], ">")[0] if header["mesh_list"] else [],
         bound_vertices=(
             _read_bound_vertices(data, header["anim_vertices"], ">", True)[0] if header["anim_vertices"] else []
@@ -282,8 +285,9 @@ def _read_rest(data: bytes, offset: int, flags):
     # landing on the exact end is the only check that the earlier sections were
     # found right. Every one is stepped whether or not it's kept.
     has_camera_areas, has_mesh_list, has_bound_vertices, has_animated_textures = flags
-    extra = dict(mesh_list=[], bound_vertices=[], animated_textures=[])
+    extra = dict(mesh_list=[], bound_vertices=[], animated_textures=[], camera_areas=[])
     if has_camera_areas:
+        extra["camera_areas"] = read_camera_area_list(data, offset)
         offset += 1 + struct.unpack_from("<B", data, offset)[0] * 14
     if has_mesh_list:
         extra["mesh_list"], offset = _read_mesh_list(data, offset)
@@ -1041,6 +1045,31 @@ def _build_collision_only(context, base: str, leftover, vertices, armature_obj, 
     return obj
 
 
+def _build_camera_areas(context, base: str, areas, parent, to_blender):
+    """The boxes a geo CAMERA command gates on, as objects you can move"""
+    collection = bpy.data.collections.new(f"{base}_camera_areas")
+    context.scene.collection.children.link(collection)
+    for index, area in enumerate(areas):
+        low, high = area["min"], area["max"]
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1.0)
+        # a flat gate would be invisible and unpickable, so give it a unit of thickness
+        bmesh.ops.scale(bm, vec=[max(abs(high[axis] - low[axis]), 1) for axis in range(3)], verts=bm.verts)
+        mesh = bpy.data.meshes.new(f"{base}_camera_{index:02d}")
+        bm.to_mesh(mesh)
+        bm.free()
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        obj.ignore_render = True  # a gate isn't geometry, it must not export as any
+        obj.display_type = "WIRE"
+        obj[CAMERA_AREA_KIND] = index
+        collection.objects.link(obj)
+        obj.parent = parent
+        context.view_layer.update()
+        centre = mathutils.Vector([(high[axis] + low[axis]) / 2.0 for axis in range(3)])
+        obj.matrix_world = to_blender @ mathutils.Matrix.Translation(centre)
+    return collection
+
+
 def _build_collision_shapes(context, base: str, shapes, armature_obj, mesh_obj, bone_names, to_blender):
     # built around its own origin and placed by its transform, which the export
     # reads it straight back off that
@@ -1242,6 +1271,8 @@ def import_bk64_model(context, path: str, settings):
     # on whichever object the export is handed, the armature when there's one
     (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
     (armature_obj or mesh_obj).hm64_bk64_geo_type_raw = model["geo_type"]
+    if model.get("camera_areas"):
+        _build_camera_areas(context, base, model["camera_areas"], armature_obj or mesh_obj, to_blender)
     if model.get("collision_grid"):
         mesh_obj[COLLISION_GRID_PROP] = pack_collision_grid(model["collision_grid"], vertices)
 

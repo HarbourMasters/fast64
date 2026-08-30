@@ -36,6 +36,7 @@ from .bk64_constants import (
     COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
+    CAMERA_AREA_KIND,
     SOURCE_CHUNK_ATTR,
     CYCLE_TYPE_2CYCLE,
     DEFAULT_LIGHT_DIR,
@@ -92,6 +93,7 @@ from .bk64_rom import (
     collision_shapes,
     geo_body,
     layout_records,
+    camera_area_list,
     mesh_list,
     vertex_bone_map,
     vertex_records,
@@ -152,6 +154,7 @@ def _write_model_resource(
     tex_blob,
     collision,
     shapes,
+    camera_areas,
     bound_vertices,
     meshes,
     animated_slots,
@@ -171,7 +174,7 @@ def _write_model_resource(
             1 if has_anim else 0,
             1 if collision else 0,
             1 if shapes else 0,
-            0,  # camera areas
+            1 if camera_areas else 0,
             1 if meshes else 0,
             1 if bound_vertices else 0,
             1 if any(slot[0] for slot in animated_slots) else 0,
@@ -207,6 +210,8 @@ def _write_model_resource(
         data.extend(write_collision_list(collision, vertices, collision_grid_stored, "<"))
     if shapes:
         data.extend(collision_shapes(shapes))
+    if camera_areas:
+        data.extend(camera_area_list(camera_areas))
     if meshes:
         data.extend(mesh_list(meshes))
     if bound_vertices:
@@ -520,6 +525,22 @@ def _to_bk_space(root_obj, scale: float):
         else root_obj.matrix_world.inverted()
     )
     return BLENDER_TO_BK @ mathutils.Matrix.Diagonal(mathutils.Vector((scale, scale, scale))).to_4x4() @ origin
+
+
+def read_camera_areas(root_obj, scale: float):
+    """The camera gate boxes under the root, as the unk20 section wants them"""
+    to_bk = _to_bk_space(root_obj, scale)
+    areas = []
+    for obj in root_obj.children_recursive:
+        index = obj.get(CAMERA_AREA_KIND)
+        if index is None or obj.type != "MESH":
+            continue
+        corners = [to_bk @ obj.matrix_world @ mathutils.Vector(corner) for corner in obj.bound_box]
+        low = [s16(min(corner[axis] for corner in corners)) for axis in range(3)]
+        high = [s16(max(corner[axis] for corner in corners)) for axis in range(3)]
+        areas.append((index, dict(min=low, max=high)))
+    # the geo CAMERA commands address these by index, so the order is not cosmetic
+    return [area for _index, area in sorted(areas, key=lambda pair: pair[0])]
 
 
 def read_collision_shapes(root_obj, scale: float):
@@ -1222,6 +1243,10 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for key, value in fModel.materials.items()
             if getattr(f3d_settings(key[0]).rdp_settings, "g_tex_gen", False)
         }
+        # the geo CAMERA commands come back with the layout, and cull everything
+        # they gate when the boxes they test against are missing
+        camera_areas = read_camera_areas(root_obj, settings.scale)
+
         vertices, mesh_tags, vertex_owners, spans = _collect_vertices(
             ordered_fMeshes, shade_colors, settings.force_unlit, reflective
         )
@@ -1374,6 +1399,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     vertices,
                     collision,
                     shapes,
+                    camera_areas,
                     bound_vertices,
                     meshes,
                     slot_table,
@@ -1394,6 +1420,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 tex_blob,
                 collision,
                 shapes,
+                camera_areas,
                 bound_vertices,
                 meshes,
                 slot_table,
