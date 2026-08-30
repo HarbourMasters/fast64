@@ -2,24 +2,19 @@ from __future__ import annotations
 
 import math
 import struct
-import zlib
 
 import bmesh
 import bpy
 import mathutils
 
 from ...f3d.f3d_gbi import (
-    FImage,
     FPaletteKey,
     VTX_SIZE,
     DLFormat,
     FModel,
     GfxMatWriteMethod,
-    SPDisplayList,
-    SPEndDisplayList,
     SPTexture,
 )
-from ...f3d.f3d_material import get_output_method
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ...utility import (
     PluginError,
@@ -518,7 +513,7 @@ def _to_bk_space(root_obj, scale: float):
     return BLENDER_TO_BK @ mathutils.Matrix.Diagonal(mathutils.Vector((scale, scale, scale))).to_4x4() @ origin
 
 
-def read_camera_areas(root_obj, scale: float):
+def read_camera_areas(root_obj, scale: float, warnings=None):
     """The camera gate boxes under the root, as the unk20 section wants them"""
     to_bk = _to_bk_space(root_obj, scale)
     areas = []
@@ -531,7 +526,14 @@ def read_camera_areas(root_obj, scale: float):
         high = [s16(max(corner[axis] for corner in corners)) for axis in range(3)]
         areas.append((index, dict(min=low, max=high)))
     # the geo CAMERA commands address these by index, so the order is not cosmetic
-    return [area for _index, area in sorted(areas, key=lambda pair: pair[0])]
+    areas.sort(key=lambda pair: pair[0])
+    numbered = [index for index, _area in areas]
+    if warnings is not None and numbered != list(range(len(numbered))):
+        warnings.append(
+            f"The camera gate boxes are numbered {numbered}, and the layout addresses them as "
+            f"0 to {len(numbered) - 1}. Renumber them, or the wrong geometry is gated."
+        )
+    return [area for _index, area in areas]
 
 
 def read_collision_shapes(root_obj, scale: float):
@@ -1284,7 +1286,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         }
         # the geo CAMERA commands come back with the layout, and cull everything
         # they gate when the boxes they test against are missing
-        camera_areas = read_camera_areas(root_obj, settings.scale)
+        camera_areas = read_camera_areas(root_obj, settings.scale, settings.warnings)
 
         vertices, mesh_tags, vertex_owners, spans = _collect_vertices(
             ordered_fMeshes, shade_colors, settings.force_unlit, reflective
@@ -1384,6 +1386,12 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 )
             vertices += [(position, 0, uv, color) for position, uv, color in hidden_vertices]
             collision += [((base + a, base + b, base + c), flags, unk6) for a, b, c, flags, unk6 in hidden_surfaces]
+
+        if len(vertices) > MAX_VERTEX_COUNT:
+            raise PluginError(
+                f"{len(vertices)} vertices is past the {MAX_VERTEX_COUNT} the game can index. "
+                "Simplify the mesh, or split it across more than one model."
+            )
 
         # after the append, the way vanilla does it. global_norm is the radius
         # collision gets tested against at all

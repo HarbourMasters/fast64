@@ -234,7 +234,8 @@ class BK64_ExportLevelHalves(Operator):
                     written.append(settings.name)
 
                 settings.name = base_name
-                for warning in settings.warnings:
+                # both halves raise the same ones, and one settings collects them all
+                for warning in dict.fromkeys(settings.warnings):
                     self.report({"WARNING"}, warning)
                 for layer in blanked:
                     self.report(
