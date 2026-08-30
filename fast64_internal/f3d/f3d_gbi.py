@@ -2089,11 +2089,12 @@ class GfxFormatter:
 
 
 class Vtx:
-    def __init__(self, position, uv, colorOrNormal, packedNormal=0):
+    def __init__(self, position, uv, colorOrNormal, packedNormal=0, meshTag=None):
         self.position = position
         self.uv = uv
         self.colorOrNormal = colorOrNormal
         self.packedNormal = packedNormal
+        self.meshTag = meshTag  # which BK meshes claim it, never written to the binary
 
     def to_binary(self):
         signX = 1 if self.uv[0] >= 0 else -1

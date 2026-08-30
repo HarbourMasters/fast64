@@ -800,21 +800,23 @@ class F3DVert:
 
         return colorOrNormal, packedNormal
 
-    def toVtx(self, mesh, texDimensions, transformMatrix, isPointSampled: bool, tex_scale=(1, 1)) -> Vtx:
+    def toVtx(self, mesh, texDimensions, transformMatrix, isPointSampled: bool, tex_scale=(1, 1), meshTag=None) -> Vtx:
         # Position (8 bytes)
         position = self.convertPosition(transformMatrix)
         uv = self.convertUV(texDimensions, isPointSampled, tex_scale)
         colorOrNormal, packedNormal = self.convertNormalRGB(transformMatrix)
 
-        return Vtx(position, uv, colorOrNormal, packedNormal)
+        return Vtx(position, uv, colorOrNormal, packedNormal, meshTag)
 
 
 # groupIndex is either a vertex group (writing), or name of c variable identifying a transform group, like a limb (parsing)
 class BufferVertex:
-    def __init__(self, f3dVert: F3DVert, groupIndex: int | str, materialIndex: int):
+    def __init__(self, f3dVert: F3DVert, groupIndex: int | str, materialIndex: int, meshTag=None):
         self.f3dVert: F3DVert = f3dVert
         self.groupIndex: int | str = groupIndex
         self.materialIndex: int = materialIndex
+        # two BK meshes can hold the same point, and each needs its own Vtx to move
+        self.meshTag = meshTag
 
     def __eq__(self, other):
         if not isinstance(other, BufferVertex):
@@ -823,11 +825,12 @@ class BufferVertex:
             self.f3dVert == other.f3dVert
             and self.groupIndex == other.groupIndex
             and self.materialIndex == other.materialIndex
+            and self.meshTag == other.meshTag
         )
 
 
 class TriangleConverterInfo:
-    def __init__(self, obj, armature, f3d, transformMatrix, infoDict):
+    def __init__(self, obj, armature, f3d, transformMatrix, infoDict, meshTags=None):
         self.infoDict = infoDict
         self.vertexGroupInfo = self.infoDict.vertexGroupInfo
         self.armature = armature
@@ -835,6 +838,7 @@ class TriangleConverterInfo:
         self.mesh = obj.data
         self.f3d = f3d
         self.transformMatrix = transformMatrix
+        self.meshTags = meshTags  # one per source vertex, BK only
 
         # Caching names
         self.groupNames = {}
@@ -924,6 +928,7 @@ class TriangleConverter:
         self.texDimensions = texDimensions
         self.isPointSampled = isTexturePointSampled(material)
         self.tex_scale = material.f3d_mat.tex_scale
+        self.meshTags = triConverterInfo.meshTags
 
     def vertInBuffer(self, bufferVert, material_index):
         if self.existingVertexMaterialRegions is None:
@@ -949,7 +954,10 @@ class TriangleConverter:
         self, loop: bpy.types.MeshLoop, face: bpy.types.MeshLoopTriangle, groupIndex: int | None
     ) -> BufferVertex:
         bufferVert = BufferVertex(
-            getF3DVert(loop, face, self.convertInfo, self.triConverterInfo.mesh), groupIndex, face.material_index
+            getF3DVert(loop, face, self.convertInfo, self.triConverterInfo.mesh),
+            groupIndex,
+            face.material_index,
+            self.meshTags[loop.vertex_index] if self.meshTags else None,
         )
         return bufferVert
 
@@ -977,6 +985,7 @@ class TriangleConverter:
                         self.triConverterInfo.getTransformMatrix(bufferVert.groupIndex),
                         self.isPointSampled,
                         tex_scale=self.tex_scale,
+                        meshTag=bufferVert.meshTag,
                     )
                 )
 
@@ -1007,6 +1016,7 @@ class TriangleConverter:
                         self.triConverterInfo.getTransformMatrix(bufferVert.groupIndex),
                         self.isPointSampled,
                         tex_scale=self.tex_scale,
+                        meshTag=bufferVert.meshTag,
                     )
                 )
 

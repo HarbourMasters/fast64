@@ -42,6 +42,7 @@ from .bk64_constants import (
     MAX_DRAWABLE_BONE_INDEX,
     MAX_VERTEX_COUNT,
     MESH_GROUP_PREFIX,
+    MESH_TAG_ATTRIBUTE,
     MIP_SPTEXTURE_LEVEL,
     MIP_SPTEXTURE_TILE,
     MIP_TEXTURE_DIM,
@@ -902,31 +903,48 @@ def _checked_mesh_uid(group):
     return uid
 
 
-def _mesh_list_positions(context, mesh_objects, space_matrix, scale_matrix):
-    """{written position: {mesh uid}} from the meshes' own mesh list groups"""
-    at_position = {}
-    for key, held in _grouped_vertices(context, mesh_objects, space_matrix, scale_matrix, _checked_mesh_uid):
-        at_position.setdefault(key, set()).update(uid for uid, _weight in held)
-    return at_position
+def _tag_mesh_groups(bm, mesh_obj, index_of):
+    """Write each vertex's mesh membership into the bmesh, as an index into index_of"""
+    uid_of_group = {}
+    for group in mesh_obj.vertex_groups:
+        uid = _checked_mesh_uid(group)
+        if uid is not None:
+            uid_of_group[group.index] = uid
+    if not uid_of_group:
+        return
+
+    deform = bm.verts.layers.deform.active
+    if deform is None:
+        return
+    layer = bm.verts.layers.int.get(MESH_TAG_ATTRIBUTE) or bm.verts.layers.int.new(MESH_TAG_ATTRIBUTE)
+    for vertex in bm.verts:
+        held = frozenset(
+            uid_of_group[index] for index, weight in vertex[deform].items() if index in uid_of_group and weight > 0.0
+        )
+        # every vertex, since index 0 is the empty set and a stale layer would show through
+        vertex[layer] = index_of.setdefault(held, len(index_of))
 
 
-def _mesh_list_entries(vertices, uids_at_position):
-    """One mesh per uid, listing every vertex written at its coordinates"""
-    order, holding = [], {}
-    for index, vertex in enumerate(vertices):
-        key = _written_key(vertex[0])
-        for uid in sorted(uids_at_position.get(key, ())):
-            if uid not in holding:
-                order.append(uid)
-                holding[uid] = []
-            holding[uid].append(index)
-    return [dict(uid=uid, vertices=holding[uid]) for uid in order]
+def _piece_mesh_tags(piece):
+    """One tag per source vertex, or None when the piece has none"""
+    attribute = piece.data.attributes.get(MESH_TAG_ATTRIBUTE)
+    return [item.value for item in attribute.data] if attribute else None
+
+
+def _mesh_list_entries(tags, uid_sets):
+    """One mesh per uid, listing every vertex the export wrote for it"""
+    holding = {}
+    for index, tag in enumerate(tags):
+        for uid in uid_sets[tag]:
+            holding.setdefault(uid, []).append(index)
+    # every vanilla mesh list runs in ascending uid
+    return [dict(uid=uid, vertices=holding[uid]) for uid in sorted(holding)]
 
 
 def _collect_vertices(fMeshes, shade_colors, force_unlit: bool, reflective=frozenset()):
     # startAddress is a byte offset, so SPVertex.to_binary emits the segment 1
     # address directly and nothing needs patching after
-    vertices, owners, spans = [], [], {}
+    vertices, tags, owners, spans = [], [], [], {}
     for fMesh in fMeshes:
         spans[id(fMesh)] = len(vertices)
         for triGroup in fMesh.triangleGroups:
@@ -944,9 +962,10 @@ def _collect_vertices(fMeshes, shade_colors, force_unlit: bool, reflective=froze
                     else tuple(vtx.colorOrNormal)
                 )
                 vertices.append((tuple(vtx.position), vtx.packedNormal, tuple(vtx.uv), color))
+                tags.append(vtx.meshTag or 0)  # 0 is the empty set, which a model with no meshes writes
             owners.append((first, len(vertices), id(triGroup.fMaterial)))
         spans[id(fMesh)] = (spans[id(fMesh)], len(vertices))
-    return vertices, owners, spans
+    return vertices, tags, owners, spans
 
 
 def _layout_bone_of_source(records, bones):
@@ -979,7 +998,8 @@ def _gather_parts(
     source_bones=None,
     warnings=None,
 ):
-    """Groups the geometry by bone name, building the temporary meshes"""
+    """(bone table, parts by bone name, the uid sets the vertex tags index into)"""
+    mesh_uids = {frozenset(): 0}
     # bind rigging skips the grouping, its vertices carry the rig instead
     if armature_obj is None or bind:
         # one implicit bone, same code path builds the chunks
@@ -992,13 +1012,14 @@ def _gather_parts(
         for mesh_obj in mesh_objects:
             bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, bind)
             try:
+                _tag_mesh_groups(bm, mesh_obj, mesh_uids)
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
             finally:
                 bm.free()
             if part is not None:
                 temp_objects.append(part)
                 meshes_by_bone[holder].append(part)
-        return bones, meshes_by_bone
+        return bones, meshes_by_bone, mesh_uids
 
     bones, _index_of_name = build_bone_table(armature_obj, bone_matrix)
     root_bone_name = bones[0].name
@@ -1006,6 +1027,7 @@ def _gather_parts(
     for mesh_obj in mesh_objects:
         bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, True)
         try:
+            _tag_mesh_groups(bm, mesh_obj, mesh_uids)
             if mesh_obj.parent_type == "BONE" and mesh_obj.parent_bone:
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
                 if part is not None:
@@ -1018,7 +1040,7 @@ def _gather_parts(
                 meshes_by_bone.setdefault(bone_name, []).extend(parts)
         finally:
             bm.free()
-    return bones, meshes_by_bone
+    return bones, meshes_by_bone, mesh_uids
 
 
 def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=None):
@@ -1069,7 +1091,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         if stored is not None and rigged:  # only a split mesh gets cut along these
             table = build_bone_table(armature_obj, bone_matrix)[0]
             source_bones, source_parents = _layout_bone_of_source(stored, table)
-        bones, meshes_by_bone = _gather_parts(
+        bones, meshes_by_bone, mesh_uids = _gather_parts(
             context,
             root_obj,
             mesh_objects,
@@ -1098,7 +1120,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for part in parts:
                 for layer, piece in _split_by_draw_key(context, part, settings.draw_layer, temp_objects):
                     infoDict = getInfoDict(piece)
-                    triConverterInfo = TriangleConverterInfo(piece, None, fModel.f3d, transform_matrix, infoDict)
+                    triConverterInfo = TriangleConverterInfo(
+                        piece, None, fModel.f3d, transform_matrix, infoDict, _piece_mesh_tags(piece)
+                    )
                     fMeshes = saveStaticModel(
                         triConverterInfo,
                         fModel,
@@ -1194,7 +1218,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for key, value in fModel.materials.items()
             if getattr(f3d_settings(key[0]).rdp_settings, "g_tex_gen", False)
         }
-        vertices, vertex_owners, spans = _collect_vertices(
+        vertices, mesh_tags, vertex_owners, spans = _collect_vertices(
             ordered_fMeshes, shade_colors, settings.force_unlit, reflective
         )
         if not vertices:
@@ -1264,9 +1288,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 for shape in shapes[group]:
                     shape["bone"] = index_of_bone.get(shape.pop("bone_name"), -1)
 
-        # both of these match on position. Take them before the collision only
-        # vertices land, or one sitting on a drawn vertex joins its binding
-        # entry and its mesh.
+        # binding matches on position. Take it before the collision only vertices
+        # land, or one sitting on a drawn vertex joins its entry.
         bound_vertices = (
             _vertex_bone_entries(vertices, owner_of_pos, settings.warnings, transform_matrix @ to_bk_space)
             if bind
@@ -1275,9 +1298,13 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         if bind and not bound_vertices:
             raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
 
-        meshes = _mesh_list_entries(
-            vertices, _mesh_list_positions(context, mesh_objects, to_bk_space, transform_matrix)
-        )
+        meshes = _mesh_list_entries(mesh_tags, sorted(mesh_uids, key=mesh_uids.get))
+        lost = sorted({uid for held in mesh_uids for uid in held} - {entry["uid"] for entry in meshes})
+        if lost:
+            settings.warnings.append(
+                f"Mesh {', '.join(str(uid) for uid in lost)} has no drawn faces and was left out of the "
+                "mesh list. Give the group faces, or delete it."
+            )
 
         if collision_only is not None:
             hidden_vertices, hidden_surfaces = collision_only
