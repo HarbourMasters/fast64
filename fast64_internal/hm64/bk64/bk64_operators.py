@@ -555,9 +555,9 @@ class BK64_ImportLevel(Operator):
                 if choice != "BOTH":
                     wanted = [half for half in wanted if half == choice]
                 if not wanted:
-                    raise PluginError(f"{level} has no {choice} half. It is opaque only.")
+                    raise PluginError(f"{level} is opaque only. Set Halves to Opaque or Both.")
 
-                triangles, brought = 0, []
+                triangles, brought, caveats = 0, [], []
                 for half in wanted:
                     path = _level_resource(folder, layers[half], level, half)
                     if path is None:
@@ -565,11 +565,28 @@ class BK64_ImportLevel(Operator):
                             f"{level} {half} isn't in that folder. It should hold "
                             f"ASSET_{layers[half]:04X}_{level}_{half} and its _GEO, _VTX and _tex siblings."
                         )
-                    _armature_obj, mesh_obj, _model = import_bk64_model(context, path, BK64_Settings(scene))
+                    _armature_obj, mesh_obj, model = import_bk64_model(context, path, BK64_Settings(scene))
+                    # so Export Level Halves puts it back where it came from
+                    mesh_obj.hm64_bk64_level_half = "TRANSLUCENT" if half == "XLU" else "OPAQUE"
                     triangles += len(mesh_obj.data.polygons)
                     brought.append(half)
+                    # the same things the model importer says, or a level round trips quietly wrong
+                    if model["dropped"]:
+                        caveats.append(f"{half}: {model['dropped']} triangles came in without their vertices.")
+                    if model["unbound_textures"]:
+                        caveats.append(
+                            f"{half}: {model['unbound_textures']} textures aren't bound by the display "
+                            "list and won't be there on the way out."
+                        )
+                    if model["mesh_list_dropped"]:
+                        caveats.append(
+                            f"{half}: {model['mesh_list_dropped']} mesh list vertices aren't drawn by the "
+                            "display list and won't be there on the way out."
+                        )
 
                 note = " Each half is its own object." if len(brought) > 1 else ""
+                for caveat in caveats:
+                    self.report({"WARNING"}, caveat)
                 self.report({"INFO"}, f"Imported {level} {' and '.join(brought)}, {triangles} triangles.{note}")
             return {"FINISHED"}
 
@@ -595,6 +612,8 @@ class BK64_ImportModel(Operator):
                 _armature_obj, mesh_obj, model = import_bk64_model(context, path, BK64_Settings(scene))
                 if model["bones"]:
                     scene.hm64_bk64_anim_scale = model["anim_scale"]
+                    # no bound model draws under a BONE command, so the table decides it
+                    scene.hm64_bk64_rigging = "BIND" if model["bound_vertices"] else "SPLIT"
                 scene.hm64_bk64_env_map = bool(model["geo_type"] & GEO_TYPE_ENV_MAP)
                 scene.hm64_bk64_mipmap = bool(model["geo_type"] & GEO_TYPE_MIPMAP_TRILINEAR)
 
@@ -604,10 +623,10 @@ class BK64_ImportModel(Operator):
                     notes.append(f"Its geo layout uses {', '.join(kept)}, kept for re-export.")
                 if model["mesh_list"]:
                     notes.append(f"Its mesh list came in as {len(model['mesh_list'])} vertex groups.")
-                    if not model["mesh_list_exact"]:
+                    if model["mesh_list_dropped"]:
                         notes.append(
-                            "Some of its meshes share a coordinate with geometry outside them, so a "
-                            "re-export puts more vertices in a mesh than vanilla did."
+                            f"{model['mesh_list_dropped']} of those vertices aren't drawn by the display "
+                            "list, so they won't come back on a re-export."
                         )
                 if model["shapes"]:
                     notes.append(f"{len(model['shape_objects'])} collision shapes are in their own collection.")
@@ -625,10 +644,10 @@ class BK64_ImportModel(Operator):
                     faces = len(model["collision_only_object"].data.polygons)
                     notes.append(f"{faces} collision triangles sit on geometry nothing draws, in their own mesh.")
                 if model["bones"]:
-                    notes.append("Animation Scale came in with it.")
-                    if model["bound_vertices"]:
-                        notes.append("Its rigging is bound vertices, weighted from the binding table.")
-                    elif not mesh_obj.vertex_groups:
+                    bound = bool(model["bound_vertices"])
+                    scheme = "Bind Vertices" if bound else "Split At Bones"
+                    notes.append(f"Animation Scale came in with it, and Rigging is set to {scheme}.")
+                    if not bound and not mesh_obj.vertex_groups:
                         notes.append("Nothing was weighted, the layout draws under no bone. Weight the mesh yourself.")
                 else:
                     notes.append("Static model, no bone table.")

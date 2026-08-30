@@ -263,18 +263,6 @@ def _read_bound_vertices(data: bytes, offset: int, endian: str = "<", pad_header
     return entries, offset
 
 
-def _mesh_list_is_exact(meshes, vertices):
-    """Whether a mesh list can be rebuilt from vertex positions alone, as the export does"""
-    owner = {}
-    for entry in meshes:
-        for index in entry["vertices"]:
-            owner[index] = entry["uid"]
-    holders = {}
-    for index, vertex in enumerate(vertices):
-        holders.setdefault(vertex[0], set()).add(owner.get(index))
-    return all(len(held) == 1 for held in holders.values())
-
-
 def _read_animated_textures(data: bytes, offset: int, endian: str):
     """One (frame_size, frame_count, rate) per slot, s16 s16 f32 each"""
     return [struct.unpack_from(endian + "hhf", data, offset + slot * 8) for slot in range(ANIM_TEX_SLOT_COUNT)]
@@ -1316,13 +1304,16 @@ def import_bk64_model(context, path: str, settings):
         else None
     )
 
-    model["mesh_list_exact"] = _mesh_list_is_exact(model["mesh_list"], vertices)
     # the export reads these back by name. A renamed group stops being a mesh.
+    dropped = 0
     for entry in model["mesh_list"]:
-        indices = sorted({remap[orig] for orig in entry["vertices"] if orig in remap})
-        if indices:
+        # vanilla lists vertices no triangle draws, and there is no geometry to put those on
+        drawn = [remap[orig] for orig in entry["vertices"] if orig in remap]
+        dropped += len(entry["vertices"]) - len(drawn)
+        if drawn:
             group = mesh_obj.vertex_groups.new(name=f"{MESH_GROUP_PREFIX}{entry['uid']}")
-            group.add(indices, 1.0, "REPLACE")
+            group.add(sorted(set(drawn)), 1.0, "REPLACE")
+    model["mesh_list_dropped"] = dropped
 
     if armature_obj is not None:
         # a bound model draws under no bone of its own. Its binding table names
