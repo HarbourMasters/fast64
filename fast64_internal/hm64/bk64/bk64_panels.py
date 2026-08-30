@@ -7,6 +7,7 @@ from ...panels import BK64_Panel
 from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS
 from .bk64_operators import (
+    BK64_AddTextureScroll,
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
     BK64_ExportAnimation,
@@ -57,16 +58,11 @@ class BK64_ExportModelPanel(BK64_Panel):
             box.label(text="This model came in with its own geo type, so the two")
             box.label(text="boxes above do nothing. Set it to 0 to use them instead.")
 
-        col.operator(BK64_PromoteMaterials.bl_idname)
-        col.operator(BK64_SplitMeshAtBones.bl_idname)
-        col.operator(BK64_SelectLooseVertices.bl_idname)
-        col.operator(BK64_MarkCollisionOnly.bl_idname)
         col.operator(BK64_ExportModel.bl_idname)
 
         box = col.box().column()
         box.label(text="Select the armature, or the mesh for a static model.")
         box.label(text="Split At Bones needs the mesh cut first, Bind Vertices doesn't.")
-        box.label(text="Collision Only makes a mesh an invisible floor or wall.")
         box.label(text="Pack the folder with: torch pack <folder> <name>.o2r o2r")
 
 
@@ -126,6 +122,31 @@ class BK64_ImportModelPanel(BK64_Panel):
         box.label(text="hunt for its ASSET_ file. Unpack bk.o2r and point at the")
         box.label(text="assets/level folder inside. Each half comes in as its own")
         box.label(text="object, so the translucent one can be hidden while you work.")
+
+
+class BK64_MeshToolsPanel(BK64_Panel):
+    bl_idname = "BK64_PT_mesh_tools"
+    bl_label = "Mesh Tools"
+    bl_order = 3
+
+    def draw(self, context):
+        col = self.layout.column()
+        scene = context.scene
+
+        col.operator(BK64_PromoteMaterials.bl_idname)
+        col.operator(BK64_SplitMeshAtBones.bl_idname)
+        col.operator(BK64_SelectLooseVertices.bl_idname)
+        col.operator(BK64_MarkCollisionOnly.bl_idname)
+
+        col.separator()
+        prop_split(col, scene, "hm64_bk64_scroll_speed", "Scroll Speed")
+        col.operator(BK64_AddTextureScroll.bl_idname)
+
+        box = col.box().column()
+        box.label(text="These change the mesh you have selected, not the export.")
+        box.label(text="Collision Only makes a mesh an invisible floor or wall.")
+        box.label(text="Pick the faces in edit mode before Add Texture Scroll.")
+        box.label(text="Only the vertical direction moves, and only on a level.")
 
 
 class BK64_BonePanel(BK64_Panel):
@@ -204,6 +225,7 @@ bk64_panel_classes = (
     BK64_ExportModelPanel,
     BK64_ExportAnimationPanel,
     BK64_ImportModelPanel,
+    BK64_MeshToolsPanel,
     BK64_BonePanel,
     BK64_MaterialPanel,
 )

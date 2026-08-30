@@ -102,6 +102,11 @@ MAX_LAYOUT_BONE = 127  # the geo layout's BONE command holds its bone index in a
 MESH_GROUP_PREFIX = "bk64_mesh_"  # the uid rides in the name, it's what the game looks a mesh up by
 MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part and piece splits
 
+# A mesh's effect comes from which hundred its uid falls in, and uid minus that base
+# is the effect's parameter (core2 func_8034C6DC). For a scroll it is the speed.
+SCROLL_UID_BASE = 100
+MAX_SCROLL_SPEED = 99
+
 GEO_TYPE_MIPMAP_TRILINEAR = 0x02
 
 # A mipmapped chunk renders from the game's own tile pyramid, texture level 2

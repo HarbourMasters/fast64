@@ -9,7 +9,13 @@ from bpy.utils import register_class, unregister_class
 
 from ...utility import PluginError, raisePluginError
 from .bk64_anim import actions_for, export_bk64_animation, import_bk64_animation
-from .bk64_constants import COLLISION_ONLY_PROP, GEO_TYPE_ENV_MAP, GEO_TYPE_MIPMAP_TRILINEAR
+from .bk64_constants import (
+    COLLISION_ONLY_PROP,
+    GEO_TYPE_ENV_MAP,
+    GEO_TYPE_MIPMAP_TRILINEAR,
+    MESH_GROUP_PREFIX,
+    SCROLL_UID_BASE,
+)
 from .bk64_import import import_bk64_model
 from .bk64_level_models import bk64_level_layers
 from .bk64_model import (
@@ -254,6 +260,42 @@ class BK64_SplitMeshAtBones(Operator):
                         else "Nothing to cut, every triangle already belongs to one bone."
                     ),
                 )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_AddTextureScroll(Operator):
+    bl_idname = "object.hm64_bk64_add_texture_scroll"
+    bl_label = "Add Texture Scroll"
+    bl_description = (
+        "Make the selected faces scroll their texture. Select them in edit mode first, and set the " "speed above"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            mesh_obj = context.object
+            if mesh_obj is None or mesh_obj.type != "MESH":
+                raise PluginError("Select the mesh holding the faces to scroll.")
+
+            speed = context.scene.hm64_bk64_scroll_speed
+            # edit mode keeps the selection in a bmesh of its own, object mode is where it lands
+            with object_mode(context):
+                chosen = [vertex.index for vertex in mesh_obj.data.vertices if vertex.select]
+                if not chosen:
+                    raise PluginError("No vertices selected. Pick the faces to scroll in edit mode.")
+
+                name = f"{MESH_GROUP_PREFIX}{SCROLL_UID_BASE + speed}"
+                group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
+                group.add(chosen, 1.0, "REPLACE")
+
+            self.report(
+                {"INFO"},
+                f"{len(chosen)} vertices scroll at {speed}, as '{name}'. The number in the name is the speed.",
+            )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -530,6 +572,7 @@ bk64_operator_classes = (
     BK64_ExportAllAnimations,
     BK64_PromoteMaterials,
     BK64_SplitMeshAtBones,
+    BK64_AddTextureScroll,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
     BK64_ImportSkeleton,

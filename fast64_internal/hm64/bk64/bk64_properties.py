@@ -10,6 +10,7 @@ from .bk64_constants import (
     GEO_TYPE_ENV_MAP,
     GEO_TYPE_MIPMAP_TRILINEAR,
     MAX_BONE_ID,
+    MAX_SCROLL_SPEED,
     RENDERMODE_AA_OPAQUE,
 )
 from .bk64_level_models import bk64_level_layers, bk64_level_names
@@ -151,6 +152,7 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_anim_path",
     "hm64_bk64_anim_include_rest",
     "hm64_bk64_anim_import_path",
+    "hm64_bk64_scroll_speed",
 )
 
 _BK64_OBJECT_PROPS = ("hm64_bk64_geo_type_raw",)
@@ -248,6 +250,14 @@ def bk64_properties_register():
         default="OPAQUE",
         description="Opaque for solid geometry, Translucent for blended. Whether the model reads "
         "or writes depth stays with the game",
+    )
+    bpy.types.Scene.hm64_bk64_scroll_speed = IntProperty(
+        name="Scroll Speed",
+        min=1,
+        max=MAX_SCROLL_SPEED,
+        default=20,
+        description="How fast Add Texture Scroll slides the selected faces. In Banjo's Backpack, "
+        "Slow, Normal and Fast are 6, 20 and 60",
     )
     bpy.types.Object.hm64_bk64_geo_type_raw = IntProperty(
         name="Imported Geo Type",
