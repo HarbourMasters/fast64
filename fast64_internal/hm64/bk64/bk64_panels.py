@@ -62,13 +62,21 @@ class BK64_ExportModelPanel(BK64_Panel):
 
         col.operator(BK64_ExportModel.bl_idname)
 
+        # its own box, or the settings above it read as its settings
         col.separator()
+        halves = col.box().column()
         obj = context.object
         if obj is not None and obj.type == "MESH":
-            prop_split(col, obj, "hm64_bk64_level_half", "Level Half")
+            prop_split(halves, obj, "hm64_bk64_level_half", "Level Half")
             if obj.hm64_bk64_level_half == "AUTO":
-                col.label(text=f"Its materials read as {level_half_of(obj).lower()}.")
-        col.operator(BK64_ExportLevelHalves.bl_idname)
+                halves.label(text=f"Its materials read as {level_half_of(obj).lower()}.")
+        # the root is usually not a mesh, so the row above is often missing
+        meshes = [] if root is None else ([root] if root.type == "MESH" else root.children_recursive)
+        drawn = [child for child in meshes if child.type == "MESH" and not child.ignore_render]
+        if len(drawn) > 1:  # one mesh already says what it reads as, just above
+            opaque = sum(1 for child in drawn if level_half_of(child) == "OPAQUE")
+            halves.label(text=f"{opaque} opaque, {len(drawn) - opaque} translucent")
+        halves.operator(BK64_ExportLevelHalves.bl_idname)
 
         box = col.box().column()
         box.label(text="Select the armature, or the mesh for a static model.")
