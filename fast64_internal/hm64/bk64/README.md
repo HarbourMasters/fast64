@@ -230,9 +230,11 @@ The halves are not opaque and translucent geometry sorted by material. What the 
 
 A level's camera gates come in with it, as wire objects in a `<name>_camera_areas` collection. A CAMERA command in the geo layout names one by index and draws what hangs off it only while the camera is inside that box, or outside it. Move a box to move the gate. Delete one and everything it gated stops drawing.
 
-Level Half on the export panel is that tag, and it reads From Materials until you say otherwise: an object whose materials are all Translucent goes in the translucent half, anything else in the opaque one. Set it outright when you want a piece somewhere its materials don't imply, and the panel says what From Materials worked out for the object you have selected. Then "Export Level Halves" writes both models in one go.
+Level Half on the export panel is that tag, and it reads From Materials until you say otherwise. An object whose materials are all one layer goes to that half whole. One holding both is cut along them, its translucent faces to the translucent half and the rest to the opaque one, so a level that came in as a single mesh doesn't have to be separated by hand. The panel says what it worked out for whichever object you have selected. Then "Export Level Halves" writes both models in one go.
 
-An object with one translucent material among opaque ones stays in the opaque half, since the translucent half writes no depth and could not hide what is behind it. Split it if the two halves need different pieces of it. A level brought in with Halves set to Both is tagged outright and reads nothing off its materials.
+A cut duplicates the vertices along the seam, because the two halves are separate models with their own vertex lists and nothing can be shared between them. Vertex groups come through it, so a mesh list spanning the boundary keeps its vertices on both sides.
+
+Set Level Half outright to override the reading, and expect to for a vanilla level. Most of them keep translucent materials in their opaque half, where a face blends and still writes depth, so rebuilding one to its original layout means placing the halves yourself. From Materials sends those faces to the translucent half instead, which is the usual choice for glass and water in a level of your own. A level brought in with Halves set to Both is tagged outright and reads nothing off its materials.
 
 The naming is handled for you. A level of your own gets `_OPA` and `_XLU` on the end of its Resource Path. A vanilla level gets the two names the port loads it by, and those differ by more than the suffix: Gobi's Valley is `ASSET_1474_GV_GOBIS_VALLEY_OPA` and `ASSET_1475_GV_GOBIS_VALLEY_XLU`. Point Resource Path at either one and both come out right.
 
