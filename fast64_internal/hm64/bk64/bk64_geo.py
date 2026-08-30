@@ -97,6 +97,8 @@ def relink_layout(records, from_source):
                 out.append(("lod", record[1], record[2], tuple(record[3]), relink(record[4])))
             elif kind == "drawdist":
                 out.append(("drawdist", tuple(record[1]), tuple(record[2]), relink(record[3])))
+            elif kind == "camera":
+                out.append(("camera", list(record[1]), record[2], relink(record[3])))
             elif kind == "refpoint":
                 out.append(("refpoint", record[1], record[2], tuple(record[3])))
             else:
