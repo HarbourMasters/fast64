@@ -147,14 +147,15 @@ def collect_textures(
         otex_format = F3D_FMT_TO_OTEX.get((fImage.fmt, fImage.bitSize))
         if otex_format is None:
             raise PluginError(
-                f"Texture '{fImage.name}' uses {fImage.fmt}/{fImage.bitSize}, which has no BK equivalent."
+                f"Texture '{fImage.name}' uses {fImage.fmt}/{fImage.bitSize}, which has no BK "
+                "equivalent. Use RGBA16, RGBA32, CI4, CI8, I4, I8, IA4, IA8 or IA16."
             )
         if isinstance(key, FPaletteKey):
             continue
         if embed_images and otex_format not in BIN_TEX_FORMATS:
             raise PluginError(
-                f"Texture '{fImage.name}' is {otex_format}, which BKTextureInfo has no type bit "
-                "for. Use RGBA16, RGBA32, IA8, CI4 or CI8."
+                f"Texture '{fImage.name}' is {otex_format}, which a .bin has no room to describe. "
+                "Use RGBA16, RGBA32, IA8, CI4 or CI8, or export o2r."
             )
         if embed_images and _hd_scale_of(fImage) is not None:
             raise PluginError(
@@ -396,6 +397,15 @@ def _flatten_shade(data: bytes, otex_format: str, fold, opaque: bool):
     return bytes(out)
 
 
+def _check_frame_size(frame, encoded, first):
+    """Refuses a frame that didn't encode to frame 0's size"""
+    if len(encoded) != len(first):
+        raise PluginError(
+            f"Frame '{frame.name}' encodes to {len(encoded)} bytes and frame 0 to {len(first)}. "
+            "Every frame has to be the same size and format."
+        )
+
+
 def _strip_pixels(fImage, frames, otex_format: str):
     """Every frame's N64 bytes end to end, frame 0 first"""
     from ...f3d.f3d_texture_writer import writeNonCITextureData
@@ -405,11 +415,7 @@ def _strip_pixels(fImage, frames, otex_format: str):
     for frame in frames[1:]:
         spare = FImage(frame.name, fImage.fmt, fImage.bitSize, frame.size[0], frame.size[1], None)
         writeNonCITextureData(frame, spare, otex_format)
-        if len(spare.data) != len(first):
-            raise PluginError(
-                f"Frame '{frame.name}' encodes to {len(spare.data)} bytes and frame 0 to {len(first)}. "
-                "Every frame has to be the same size and format."
-            )
+        _check_frame_size(frame, spare.data, first)
         encoded += spare.data
     return bytes(encoded)
 
@@ -430,11 +436,7 @@ def _strip_ci_pixels(fImage, frames, otex_format: str, palette0: bytes):
             )
         spare = FImage(frame.name, fImage.fmt, fImage.bitSize, frame.size[0], frame.size[1], None)
         writeCITextureData(frame, spare, colors, "RGBA16", otex_format)
-        if len(spare.data) != len(first):
-            raise PluginError(
-                f"Frame '{frame.name}' encodes to {len(spare.data)} bytes and frame 0 to {len(first)}. "
-                "Every frame has to be the same size and format."
-            )
+        _check_frame_size(frame, spare.data, first)
         palette = bytearray(pal_size)
         for index, color in enumerate(colors):
             palette[index * 2] = color >> 8

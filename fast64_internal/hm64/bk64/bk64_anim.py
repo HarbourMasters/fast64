@@ -161,7 +161,10 @@ def _elements(bones, samples, frames, fine, include_rest: bool):
 
     elements.sort(key=lambda element: (element[0], element[1]))
     if len(elements) > ANIM_MAX_ELEMENTS:
-        raise PluginError(f"This animation needs {len(elements)} elements, past the {ANIM_MAX_ELEMENTS} an s16 counts.")
+        raise PluginError(
+            f"This animation fills {len(elements)} bone channels, past the {ANIM_MAX_ELEMENTS} the game "
+            "stores. Animate fewer bones, or fewer channels on each."
+        )
     return elements
 
 

@@ -128,8 +128,8 @@ def collision_grid(triangles, vertices):
                 break
         if scale >= BK_COLLISION_SCALE_MAX:
             raise PluginError(
-                f"{len(points)} collision triangles need a finer grid than a BKCollisionList can "
-                "index. Split the mesh, or take collision off the parts that don't need it."
+                f"{len(points)} collision triangles are more than the game can index. Split the mesh, "
+                "or take collision off the parts that don't need it."
             )
         scale = min(BK_COLLISION_SCALE_MAX, scale + BK_COLLISION_SCALE_STEP)
 

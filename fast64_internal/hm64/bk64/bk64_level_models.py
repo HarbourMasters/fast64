@@ -1,3 +1,6 @@
+import os
+import re
+
 BK64_LEVEL_MODELS = {
     0x146B: ("TTC_TREASURE_TROVE_COVE", "OPA"),
     0x146C: ("TTC_TREASURE_TROVE_COVE", "XLU"),
@@ -176,3 +179,29 @@ def bk64_level_names() -> list:
     for _, (name, _layer) in sorted(BK64_LEVEL_MODELS.items()):
         seen[name] = None
     return list(seen)
+
+
+def bk64_level_of_asset(path: str):
+    """(level, half) when a file names a level model, else None"""
+    stem = os.path.basename(path).split(".")[0]
+    named = re.fullmatch(r"ASSET_([0-9A-Fa-f]{4})_.+", stem)  # an o2r resource
+    if named is None and not re.fullmatch(r"[0-9A-Fa-f]{4}", stem):  # a decomp asset
+        return None
+    return BK64_LEVEL_MODELS.get(int(named.group(1) if named else stem, 16))
+
+
+def bk64_level_half_paths(resource: str) -> dict:
+    """{layer: resource path} for both halves, under vanilla's own names where it has them"""
+    head, _, stem = resource.rpartition("/")
+    stem = re.sub(r"_(OPA|XLU)$", "", stem)
+    prefix = f"{head}/" if head else ""
+    # a vanilla level's halves are separate assets, so the ids differ between them
+    named = re.fullmatch(r"ASSET_[0-9A-Fa-f]{4}_(.+)", stem)
+    vanilla = bk64_level_layers(named.group(1)) if named else {}
+    paths = {}
+    for layer in ("OPA", "XLU"):
+        if layer in vanilla:
+            paths[layer] = f"{prefix}ASSET_{vanilla[layer]:04X}_{named.group(1)}_{layer}"
+        else:
+            paths[layer] = f"{prefix}{stem}_{layer}"
+    return paths

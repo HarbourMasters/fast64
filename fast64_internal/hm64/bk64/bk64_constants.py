@@ -61,6 +61,8 @@ BK_PALETTE_SIZE = {"CI4": 0x20, "CI8": 0x200}
 # for stepping over an image in the model's own texture blob
 BK_TEX_BITS = {"CI4": 4, "CI8": 8, "RGBA16": 16, "RGBA32": 32, "IA8": 8}
 
+TILE_BITS = {0: 4, 1: 8, 2: 16, 3: 32}  # G_SETTILE's siz, the depth the RDP draws at
+
 # slot i of the animated texture list drives this segment, counting down. Each
 # frame the game slides that segment's base on by frame_size bytes.
 SEG_ANIM_BASE = 15
@@ -100,6 +102,12 @@ MAX_BONE_ID = 0x6C  # the bone transform table is 0x6D entries, indexed by id un
 MAX_LAYOUT_BONE = 127  # the geo layout's BONE command holds its bone index in an s8
 
 MESH_GROUP_PREFIX = "bk64_mesh_"  # the uid rides in the name, it's what the game looks a mesh up by
+MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part and piece splits
+
+# A mesh's effect comes from which hundred its uid falls in, and uid minus that base
+# is the effect's parameter (core2 func_8034C6DC). For a scroll it is the speed.
+SCROLL_UID_BASE = 100
+MAX_SCROLL_SPEED = 99
 
 GEO_TYPE_MIPMAP_TRILINEAR = 0x02
 
@@ -291,6 +299,15 @@ def s16(value):
     return max(-32768, min(32767, int(round(value))))
 
 
+def written_key(position, scale_matrix=None):
+    """The Vtx coordinate a point is written at, which binding and mesh lists key by"""
+    # scale then round, the order F3DVert.convertPosition uses. Rounding first
+    # keys a point on a half unit to a coordinate no vertex was written at.
+    if scale_matrix is not None:
+        position = scale_matrix @ position
+    return tuple(s16(value) for value in position)
+
+
 def tri_indices(word, cache):
     """The three vertices a G_TRI word names, or None when a slot holds nothing yet"""
     try:
@@ -303,6 +320,7 @@ MAX_VERTEX_COUNT = 32767  # the header count is an s16, the port drops indices p
 
 # where an imported model's geo layout rides, as JSON on the armature
 GEO_LAYOUT_PROP = "hm64_bk64_geo_layout"
+CAMERA_AREA_KIND = "hm64_bk64_camera_area"  # marks the box objects a geo CAMERA tests against
 
 # an HD image carries the N64 size its tiles address, for the slot to read back
 NATIVE_SIZE_PROP = "hm64_bk64_native_size"
@@ -324,6 +342,9 @@ COLLISION_GRID_PROP = "hm64_bk64_collision_grid"
 SHAPE_KIND = "hm64_bk64_shape"
 SHAPE_PIVOT = "hm64_bk64_shape_pivot"  # the point a box turns about, kept to export it back in place
 COLLISION_ONLY_PROP = "hm64_bk64_collision_only"
+
+# a stand-in root has to carry these, or the section each feeds ships empty
+MODEL_STASH_PROPS = (GEO_LAYOUT_PROP, COLLISION_GRID_PROP)
 
 # what an undrawn collision vertex carried. Nothing reads them, a round trip does.
 COLLISION_COLOR_ATTR = "hm64_bk64_vtx_color"

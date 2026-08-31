@@ -97,6 +97,8 @@ def relink_layout(records, from_source):
                 out.append(("lod", record[1], record[2], tuple(record[3]), relink(record[4])))
             elif kind == "drawdist":
                 out.append(("drawdist", tuple(record[1]), tuple(record[2]), relink(record[3])))
+            elif kind == "camera":
+                out.append(("camera", list(record[1]), record[2], relink(record[3])))
             elif kind == "refpoint":
                 out.append(("refpoint", record[1], record[2], tuple(record[3])))
             else:
@@ -164,14 +166,16 @@ def geo_records(bones, chunks, armature_obj, rigged: bool, chunk_bounds=None):
             far = getattr(bone, "hm64_bk64_lod_far", 0.0)
             if far <= 0.0:
                 raise PluginError(
-                    f"Bone '{bones[index].name}' is a Level Of Detail with no Far Distance, and would never draw."
+                    f"Bone '{bones[index].name}' is a Level Of Detail with no Far Distance, and would "
+                    "never draw. Set one."
                 )
             return [("lod", far, getattr(bone, "hm64_bk64_lod_near", 0.0), tuple(bones[index].position), records)]
 
         if geo_type == "DRAWDIST":
             if not points:
                 raise PluginError(
-                    f"Bone '{bones[index].name}' is a Draw Distance with no geometry under it to " "make a box from."
+                    f"Bone '{bones[index].name}' is a Draw Distance with no geometry under it to make "
+                    "a box from. Parent geometry to it, or to a bone beneath it."
                 )
             low = tuple(min(point[axis] for point in points) for axis in range(3))
             high = tuple(max(point[axis] for point in points) for axis in range(3))
@@ -187,8 +191,8 @@ def geo_records(bones, chunks, armature_obj, rigged: bool, chunk_bounds=None):
             branches = [subtree(child) for child in children.get(index, [])]
             if len(branches) != 2:
                 raise PluginError(
-                    f"Bone '{bones[index].name}' is a Sort with {len(branches)} child bones, and it "
-                    "orders exactly two."
+                    f"Bone '{bones[index].name}' is a Sort with {len(branches)} child bones. Parent "
+                    "two to it, one per half."
                 )
             middles = []
             for child in children[index]:

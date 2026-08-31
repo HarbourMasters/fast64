@@ -9,11 +9,25 @@ from bpy.utils import register_class, unregister_class
 
 from ...utility import PluginError, raisePluginError
 from .bk64_anim import actions_for, export_bk64_animation, import_bk64_animation
-from .bk64_constants import COLLISION_ONLY_PROP, GEO_TYPE_ENV_MAP, GEO_TYPE_MIPMAP_TRILINEAR
+from .bk64_constants import (
+    CAMERA_AREA_KIND,
+    COLLISION_ONLY_PROP,
+    GEO_TYPE_ENV_MAP,
+    GEO_TYPE_MIPMAP_TRILINEAR,
+    MESH_GROUP_PREFIX,
+    MODEL_STASH_PROPS,
+    SCROLL_UID_BASE,
+    SHAPE_KIND,
+)
 from .bk64_import import import_bk64_model
-from .bk64_level_models import bk64_level_layers
+from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
 from .bk64_model import (
+    armature_of,
+    blank_half_object,
     export_bk64_model,
+    LEVEL_HALVES,
+    level_half_objects,
+    whole_level_half,
     promote_materials_to_2_cycle,
     read_collision_only,
     read_collision_shapes,
@@ -40,18 +54,26 @@ def object_mode(context):
                 bpy.ops.object.mode_set(mode=previous)
 
 
-def _resolve_root(context):
+def resolve_root(context):
     """The object to export, an armature if rigged and a mesh otherwise"""
     # walks up to the root like MK64 does, letting any part of a rig work
     selected = context.selected_objects
     if not selected:
         raise PluginError("Nothing selected. Pick the armature, or the mesh for a static model.")
 
-    for obj in selected:
+    for obj in selected:  # an explicit pick wins
         if obj.type == "ARMATURE":
             return obj
+
+    # the same rule the tools use, so what they split is what this exports
     for obj in selected:
-        current = obj
+        if obj.type == "MESH":
+            rig = armature_of(obj)
+            if rig is not None:
+                return rig
+
+    for obj in selected:
+        current = obj.parent
         while current is not None:
             if current.type == "ARMATURE":
                 return current
@@ -80,7 +102,7 @@ class BK64_ExportModel(Operator):
 
         try:
             with object_mode(context):
-                root_obj = _resolve_root(context)
+                root_obj = resolve_root(context)
                 settings = BK64_Settings(scene)
 
                 export_dir = bpy.path.abspath(scene.hm64_bk64_export_path)
@@ -117,6 +139,125 @@ class BK64_ExportModel(Operator):
             return {"CANCELLED"}
 
 
+def _half_holder(context, name, objects, temp_objects):
+    """An empty standing in for one half's model, holding what the export reads off a root"""
+    holder = bpy.data.objects.new(name, None)
+    context.scene.collection.objects.link(holder)
+    temp_objects.append(holder)
+    for prop in MODEL_STASH_PROPS:
+        stashed = next((obj[prop] for obj in objects if prop in obj), None)
+        if stashed is not None:
+            holder[prop] = stashed
+    # a real property rather than a custom one, so MODEL_STASH_PROPS can't carry it
+    holder.hm64_bk64_geo_type_raw = next(
+        (obj.hm64_bk64_geo_type_raw for obj in objects if obj.hm64_bk64_geo_type_raw), 0
+    )
+    return holder
+
+
+class BK64_ExportLevelHalves(Operator):
+    bl_idname = "scene.hm64_bk64_export_level_halves"
+    bl_label = "Export Level Halves"
+    bl_description = (
+        "Write the selected level as its opaque and translucent models. A vanilla level's halves go "
+        "out under their own asset names, which differ from each other"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        scene = context.scene
+        temp_objects = []
+        try:
+            with object_mode(context):
+                root_obj = resolve_root(context)
+                if root_obj.type == "ARMATURE":
+                    raise PluginError("A level is a static model. Select the level geometry, not an armature.")
+
+                settings = BK64_Settings(scene)
+                export_dir = bpy.path.abspath(scene.hm64_bk64_export_path)
+                if not export_dir:
+                    raise PluginError("Set an export folder first.")
+                if not settings.name:
+                    raise PluginError("Set a resource path first, e.g. levels/mylevel.")
+
+                sources = (
+                    [root_obj]
+                    if root_obj.type == "MESH"
+                    else [child for child in root_obj.children_recursive if child.type == "MESH"]
+                )
+                hidden = [obj for obj in sources if obj.get(COLLISION_ONLY_PROP)]
+                # a collision only mesh draws nothing, so no draw layer can place it
+                hidden_of = {half: [obj for obj in hidden if whole_level_half(obj) == half] for half, _ in LEVEL_HALVES}
+                sources = [obj for obj in sources if not obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)]
+                if not sources:
+                    raise PluginError(f"Nothing to export, '{root_obj.name}' has no mesh geometry.")
+
+                base_name, written, blanked = settings.name, [], []
+                extension = ".bin" if settings.file_format == "BIN" else ""
+                paths = bk64_level_half_paths(base_name)
+
+                for half, suffix in LEVEL_HALVES:
+                    layer = suffix.lstrip("_")
+                    halves = level_half_objects(context, sources, half, temp_objects)
+                    if not halves:
+                        halves = [blank_half_object(context, sources, half, temp_objects)]
+                        blanked.append(layer)
+
+                    holder = _half_holder(context, f"bk64_half_{half.lower()}", halves + hidden_of[half], temp_objects)
+
+                    def stand_in_for(obj, parent):
+                        # a copy shares the mesh data, so parenting one under the
+                        # holder leaves the user's own objects where they were
+                        copy = obj.copy()
+                        context.scene.collection.objects.link(copy)
+                        temp_objects.append(copy)
+                        copy.parent = parent
+                        copy.matrix_world = obj.matrix_world
+                        return copy
+
+                    for obj in halves + hidden_of[half]:
+                        stand_in = stand_in_for(obj, holder)
+                        # the collision volumes and camera gates hang off the model, not the
+                        # holder the export is handed, and both readers only walk children
+                        for child in obj.children_recursive:
+                            if child.get(SHAPE_KIND) is not None or child.get(CAMERA_AREA_KIND) is not None:
+                                stand_in_for(child, stand_in)
+
+                    settings.name = paths[layer]
+                    shapes = read_collision_shapes(holder, settings.scale)
+                    collision_only = read_collision_only(context, holder, settings.scale)
+                    resources = export_bk64_model(context, holder, settings, shapes, collision_only)
+                    for res_suffix, data in resources.items():
+                        path = os.path.join(export_dir, settings.name + res_suffix + extension)
+                        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                        with open(path, "wb") as file:
+                            file.write(data)
+                    written.append(settings.name)
+
+                settings.name = base_name
+                # both halves raise the same ones, and one settings collects them all
+                for warning in dict.fromkeys(settings.warnings):
+                    self.report({"WARNING"}, warning)
+                for layer in blanked:
+                    self.report(
+                        {"WARNING"},
+                        f"Give a material Translucent, or set Level Half on the objects that belong in "
+                        f"the {layer} half.",
+                    )
+                note = f" {' and '.join(blanked)} had no geometry and went out blank." if blanked else ""
+                self.report({"INFO"}, f"Exported {' and '.join(written)} to {export_dir}.{note}")
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+        finally:
+            for obj in temp_objects:
+                if obj.name in bpy.data.objects:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+
+
 class BK64_ExportAnimation(Operator):
     bl_idname = "scene.hm64_bk64_export_animation"
     bl_label = "Export BK Animation"
@@ -128,7 +269,7 @@ class BK64_ExportAnimation(Operator):
 
         try:
             with object_mode(context):
-                root_obj = _resolve_root(context)
+                root_obj = resolve_root(context)
                 if root_obj.type != "ARMATURE":
                     raise PluginError("Select the armature the animation is on, only rigged models animate.")
                 settings = BK64_Settings(scene)
@@ -165,7 +306,7 @@ class BK64_ExportAllAnimations(Operator):
 
         try:
             with object_mode(context):
-                armature_obj = _resolve_root(context)
+                armature_obj = resolve_root(context)
                 if armature_obj.type != "ARMATURE":
                     raise PluginError("Select the armature the actions are on, only rigged models animate.")
                 settings = BK64_Settings(scene)
@@ -208,7 +349,10 @@ class BK64_ExportAllAnimations(Operator):
 class BK64_PromoteMaterials(Operator):
     bl_idname = "object.hm64_bk64_promote_materials"
     bl_label = "Promote Materials To 2 Cycle"
-    bl_description = "Give every material on the selected meshes a second cycle. BK renders a 1 cycle material black"
+    bl_description = (
+        "Give every material on the selected meshes the second cycle BK needs. Materials made in BK64 "
+        "mode already have it, so this is for a mesh brought in from elsewhere"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -254,6 +398,42 @@ class BK64_SplitMeshAtBones(Operator):
                         else "Nothing to cut, every triangle already belongs to one bone."
                     ),
                 )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_AddTextureScroll(Operator):
+    bl_idname = "object.hm64_bk64_add_texture_scroll"
+    bl_label = "Add Texture Scroll"
+    bl_description = (
+        "Make the selected faces scroll their texture. Select them in edit mode first, and set the " "speed above"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            mesh_obj = context.object
+            if mesh_obj is None or mesh_obj.type != "MESH":
+                raise PluginError("Select the mesh holding the faces to scroll.")
+
+            speed = context.scene.hm64_bk64_scroll_speed
+            # edit mode keeps the selection in a bmesh of its own, object mode is where it lands
+            with object_mode(context):
+                chosen = [vertex.index for vertex in mesh_obj.data.vertices if vertex.select]
+                if not chosen:
+                    raise PluginError("No vertices selected. Pick the faces to scroll in edit mode.")
+
+                name = f"{MESH_GROUP_PREFIX}{SCROLL_UID_BASE + speed}"
+                group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
+                group.add(chosen, 1.0, "REPLACE")
+
+            self.report(
+                {"INFO"},
+                f"{len(chosen)} vertices scroll at {speed}, as '{name}'. The number in the name is the speed.",
+            )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -348,7 +528,7 @@ class BK64_ImportAnimation(Operator):
         scene = context.scene
         try:
             with object_mode(context):
-                armature_obj = _resolve_root(context)
+                armature_obj = resolve_root(context)
                 if armature_obj.type != "ARMATURE":
                     raise PluginError("Select the armature to put the animation on.")
 
@@ -394,9 +574,9 @@ class BK64_ImportLevel(Operator):
                 if choice != "BOTH":
                     wanted = [half for half in wanted if half == choice]
                 if not wanted:
-                    raise PluginError(f"{level} has no {choice} half. It is opaque only.")
+                    raise PluginError(f"{level} is opaque only. Set Halves to Opaque or Both.")
 
-                triangles, brought = 0, []
+                triangles, brought, caveats = 0, [], []
                 for half in wanted:
                     path = _level_resource(folder, layers[half], level, half)
                     if path is None:
@@ -404,11 +584,28 @@ class BK64_ImportLevel(Operator):
                             f"{level} {half} isn't in that folder. It should hold "
                             f"ASSET_{layers[half]:04X}_{level}_{half} and its _GEO, _VTX and _tex siblings."
                         )
-                    _armature_obj, mesh_obj, _model = import_bk64_model(context, path, BK64_Settings(scene))
+                    _armature_obj, mesh_obj, model = import_bk64_model(context, path, BK64_Settings(scene))
+                    # so Export Level Halves puts it back where it came from
+                    mesh_obj.hm64_bk64_level_half = "TRANSLUCENT" if half == "XLU" else "OPAQUE"
                     triangles += len(mesh_obj.data.polygons)
                     brought.append(half)
+                    # the same things the model importer says, or a level round trips quietly wrong
+                    if model["dropped"]:
+                        caveats.append(f"{half}: {model['dropped']} triangles came in without their vertices.")
+                    if model["unbound_textures"]:
+                        caveats.append(
+                            f"{half}: {model['unbound_textures']} textures aren't bound by the display "
+                            "list and won't be there on the way out."
+                        )
+                    if model["mesh_list_dropped"]:
+                        caveats.append(
+                            f"{half}: {model['mesh_list_dropped']} mesh list vertices aren't drawn by the "
+                            "display list and won't be there on the way out."
+                        )
 
                 note = " Each half is its own object." if len(brought) > 1 else ""
+                for caveat in caveats:
+                    self.report({"WARNING"}, caveat)
                 self.report({"INFO"}, f"Imported {level} {' and '.join(brought)}, {triangles} triangles.{note}")
             return {"FINISHED"}
 
@@ -434,19 +631,32 @@ class BK64_ImportModel(Operator):
                 _armature_obj, mesh_obj, model = import_bk64_model(context, path, BK64_Settings(scene))
                 if model["bones"]:
                     scene.hm64_bk64_anim_scale = model["anim_scale"]
+                    # no bound model draws under a BONE command, so the table decides it
+                    scene.hm64_bk64_rigging = "BIND" if model["bound_vertices"] else "SPLIT"
                 scene.hm64_bk64_env_map = bool(model["geo_type"] & GEO_TYPE_ENV_MAP)
                 scene.hm64_bk64_mipmap = bool(model["geo_type"] & GEO_TYPE_MIPMAP_TRILINEAR)
 
+                # a level is two models and this reads one, so say which it was
+                level = bk64_level_of_asset(path)
+                if level is not None:
+                    level_name, layer = level
+                    mesh_obj.hm64_bk64_level_half = "TRANSLUCENT" if layer == "XLU" else "OPAQUE"
+
                 notes = []
+                if level is not None:
+                    notes.append(
+                        f"It is the {layer} half of {level_name}, and Level Half is set to match. "
+                        "Import BK Level brings in both at once if you want them together."
+                    )
                 kept = model.get("geo_commands", ())
                 if kept:
                     notes.append(f"Its geo layout uses {', '.join(kept)}, kept for re-export.")
                 if model["mesh_list"]:
                     notes.append(f"Its mesh list came in as {len(model['mesh_list'])} vertex groups.")
-                    if not model["mesh_list_exact"]:
+                    if model["mesh_list_dropped"]:
                         notes.append(
-                            "Some of its meshes share a coordinate with geometry outside them, so a "
-                            "re-export puts more vertices in a mesh than vanilla did."
+                            f"{model['mesh_list_dropped']} of those vertices aren't drawn by the display "
+                            "list, so they won't come back on a re-export."
                         )
                 if model["shapes"]:
                     notes.append(f"{len(model['shape_objects'])} collision shapes are in their own collection.")
@@ -464,10 +674,10 @@ class BK64_ImportModel(Operator):
                     faces = len(model["collision_only_object"].data.polygons)
                     notes.append(f"{faces} collision triangles sit on geometry nothing draws, in their own mesh.")
                 if model["bones"]:
-                    notes.append("Animation Scale came in with it.")
-                    if model["bound_vertices"]:
-                        notes.append("Its rigging is bound vertices, weighted from the binding table.")
-                    elif not mesh_obj.vertex_groups:
+                    bound = bool(model["bound_vertices"])
+                    scheme = "Bind Vertices" if bound else "Split At Bones"
+                    notes.append(f"Animation Scale came in with it, and Rigging is set to {scheme}.")
+                    if not bound and not mesh_obj.vertex_groups:
                         notes.append("Nothing was weighted, the layout draws under no bone. Weight the mesh yourself.")
                 else:
                     notes.append("Static model, no bone table.")
@@ -526,10 +736,12 @@ class BK64_ImportSkeleton(Operator):
 
 bk64_operator_classes = (
     BK64_ExportModel,
+    BK64_ExportLevelHalves,
     BK64_ExportAnimation,
     BK64_ExportAllAnimations,
     BK64_PromoteMaterials,
     BK64_SplitMeshAtBones,
+    BK64_AddTextureScroll,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
     BK64_ImportSkeleton,

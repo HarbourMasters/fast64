@@ -36,6 +36,7 @@ from .bk64_constants import (
     GEO_CMD_SORT,
     GEO_CMD_TEXWRAP,
     GEO_CMD_UNK0,
+    CAMERA_AREA_KIND,
     GEO_LAYOUT_PROP,
     SOURCE_CHUNK_ATTR,
     MIP_BASE_PROP,
@@ -78,6 +79,7 @@ from .bk64_constants import (
     SEG_TEX_BLOB,
     SHAPE_KIND,
     SHAPE_PIVOT,
+    TILE_BITS,
     tri_indices,
 )
 from .bk64_collision import (
@@ -87,7 +89,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
-from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header
+from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header, read_camera_area_list
 from .bk64_skeleton import bone_space_matrix, create_armature_from_bones, read_bone_table
 
 OTEX_FORMAT = {value: key for key, value in OTEX_TYPE.items()}
@@ -154,6 +156,7 @@ def _read_model(data: bytes):
         geo_type=geo_type,
         tri_count=tri_count,
         has_mesh_list=bool(flags[4]),
+        camera_areas=extra["camera_areas"],
         mesh_list=extra["mesh_list"],
         bound_vertices=extra["bound_vertices"],
         animated_textures=extra["animated_textures"],
@@ -201,6 +204,7 @@ def _read_model_bin(data: bytes):
         geo_type=header["geo_type"],
         tri_count=header["tri_count"],
         has_mesh_list=bool(header["mesh_list"]),
+        camera_areas=read_camera_area_list(data, header["camera"], ">", True) if header["camera"] else [],
         mesh_list=_read_mesh_list(data, header["mesh_list"], ">")[0] if header["mesh_list"] else [],
         bound_vertices=(
             _read_bound_vertices(data, header["anim_vertices"], ">", True)[0] if header["anim_vertices"] else []
@@ -218,7 +222,12 @@ def _read_model_bin(data: bytes):
         shapes=read_collision_shapes_data(data, header["unk14"], ">")[0] if header["unk14"] else None,
     )
     # the layout is written last and runs to the end of the file
-    return model, vertices, read_geo_body(data[header["geo"] :], ">"), _blob_textures(tex_infos)
+    return (
+        model,
+        vertices,
+        read_geo_body(data[header["geo"] :], ">"),
+        _blob_textures(_retype_ci_from_tiles(words, tex_infos)),
+    )
 
 
 def _read_mesh_list(data: bytes, offset: int, endian: str = "<"):
@@ -260,18 +269,6 @@ def _read_bound_vertices(data: bytes, offset: int, endian: str = "<", pad_header
     return entries, offset
 
 
-def _mesh_list_is_exact(meshes, vertices):
-    """Whether a mesh list can be rebuilt from vertex positions alone, as the export does"""
-    owner = {}
-    for entry in meshes:
-        for index in entry["vertices"]:
-            owner[index] = entry["uid"]
-    holders = {}
-    for index, vertex in enumerate(vertices):
-        holders.setdefault(vertex[0], set()).add(owner.get(index))
-    return all(len(held) == 1 for held in holders.values())
-
-
 def _read_animated_textures(data: bytes, offset: int, endian: str):
     """One (frame_size, frame_count, rate) per slot, s16 s16 f32 each"""
     return [struct.unpack_from(endian + "hhf", data, offset + slot * 8) for slot in range(ANIM_TEX_SLOT_COUNT)]
@@ -282,8 +279,9 @@ def _read_rest(data: bytes, offset: int, flags):
     # landing on the exact end is the only check that the earlier sections were
     # found right. Every one is stepped whether or not it's kept.
     has_camera_areas, has_mesh_list, has_bound_vertices, has_animated_textures = flags
-    extra = dict(mesh_list=[], bound_vertices=[], animated_textures=[])
+    extra = dict(mesh_list=[], bound_vertices=[], animated_textures=[], camera_areas=[])
     if has_camera_areas:
+        extra["camera_areas"] = read_camera_area_list(data, offset)
         offset += 1 + struct.unpack_from("<B", data, offset)[0] * 14
     if has_mesh_list:
         extra["mesh_list"], offset = _read_mesh_list(data, offset)
@@ -607,6 +605,28 @@ def _load_textures(folder: str, base: str, blob: bytes, palettes, used, mip_used
     return images
 
 
+def _retype_ci_from_tiles(words, tex_infos):
+    """tex_infos, with each CI entry's type taken from the tile its image draws from"""
+    drawn_bits, bound = {}, None
+    for w0, w1 in words:
+        if (w0 >> 24) == OP_SETTIMG and (w1 >> 24) == SEG_TEX_BLOB:
+            bound = w1 & 0xFFFFFF
+        elif (w0 >> 24) == OP_SETTILE and (w1 >> 24) == 0 and bound is not None:
+            drawn_bits[bound] = TILE_BITS[(w0 >> 19) & 3]
+            bound = None
+
+    for info in tex_infos:
+        if BK_TEX_FORMAT.get(info["type"]) not in PALETTED_FORMATS:
+            continue
+        for otex_format in ("CI4", "CI8"):
+            # the offset and the depth both have to land, so one alone can't retype
+            image = info["offset"] + BK_PALETTE_SIZE[otex_format]
+            if drawn_bits.get(image) == BK_TEX_BITS[otex_format]:
+                info["type"] = BK_TEX_TYPE[otex_format]
+                break
+    return tex_infos
+
+
 def _blob_textures(tex_infos):
     """Each texture's format, size, and where its palette and image start.
 
@@ -617,7 +637,10 @@ def _blob_textures(tex_infos):
     for index, info in enumerate(tex_infos):
         otex_format = BK_TEX_FORMAT.get(info["type"])
         if otex_format is None:
-            raise PluginError(f"Texture {index} is type 0x{info['type']:X}, which BK doesn't use.")
+            raise PluginError(
+                f"Texture {index} is type 0x{info['type']:X}, which is none of BK's. Tooie models land "
+                "here, since their texture entries are 8 bytes and lead with the offset, not the type."
+            )
         palette = BK_PALETTE_SIZE[otex_format] if otex_format in PALETTED_FORMATS else 0
         textures.append(
             dict(
@@ -1041,6 +1064,31 @@ def _build_collision_only(context, base: str, leftover, vertices, armature_obj, 
     return obj
 
 
+def _build_camera_areas(context, base: str, areas, parent, to_blender):
+    """The boxes a geo CAMERA command gates on, as objects you can move"""
+    collection = bpy.data.collections.new(f"{base}_camera_areas")
+    context.scene.collection.children.link(collection)
+    for index, area in enumerate(areas):
+        low, high = area["min"], area["max"]
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1.0)
+        # a flat gate would be invisible and unpickable, so give it a unit of thickness
+        bmesh.ops.scale(bm, vec=[max(abs(high[axis] - low[axis]), 1) for axis in range(3)], verts=bm.verts)
+        mesh = bpy.data.meshes.new(f"{base}_camera_{index:02d}")
+        bm.to_mesh(mesh)
+        bm.free()
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        obj.ignore_render = True  # a gate isn't geometry, it must not export as any
+        obj.display_type = "WIRE"
+        obj[CAMERA_AREA_KIND] = index
+        collection.objects.link(obj)
+        obj.parent = parent
+        context.view_layer.update()
+        centre = mathutils.Vector([(high[axis] + low[axis]) / 2.0 for axis in range(3)])
+        obj.matrix_world = to_blender @ mathutils.Matrix.Translation(centre)
+    return collection
+
+
 def _build_collision_shapes(context, base: str, shapes, armature_obj, mesh_obj, bone_names, to_blender):
     # built around its own origin and placed by its transform, which the export
     # reads it straight back off that
@@ -1241,6 +1289,9 @@ def import_bk64_model(context, path: str, settings):
     context.scene.collection.objects.link(mesh_obj)
     # on whichever object the export is handed, the armature when there's one
     (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
+    (armature_obj or mesh_obj).hm64_bk64_geo_type_raw = model["geo_type"]
+    if model.get("camera_areas"):
+        _build_camera_areas(context, base, model["camera_areas"], armature_obj or mesh_obj, to_blender)
     if model.get("collision_grid"):
         mesh_obj[COLLISION_GRID_PROP] = pack_collision_grid(model["collision_grid"], vertices)
 
@@ -1281,13 +1332,16 @@ def import_bk64_model(context, path: str, settings):
         else None
     )
 
-    model["mesh_list_exact"] = _mesh_list_is_exact(model["mesh_list"], vertices)
     # the export reads these back by name. A renamed group stops being a mesh.
+    dropped = 0
     for entry in model["mesh_list"]:
-        indices = sorted({remap[orig] for orig in entry["vertices"] if orig in remap})
-        if indices:
+        # vanilla lists vertices no triangle draws, and there is no geometry to put those on
+        drawn = [remap[orig] for orig in entry["vertices"] if orig in remap]
+        dropped += len(entry["vertices"]) - len(drawn)
+        if drawn:
             group = mesh_obj.vertex_groups.new(name=f"{MESH_GROUP_PREFIX}{entry['uid']}")
-            group.add(indices, 1.0, "REPLACE")
+            group.add(sorted(set(drawn)), 1.0, "REPLACE")
+    model["mesh_list_dropped"] = dropped
 
     if armature_obj is not None:
         # a bound model draws under no bone of its own. Its binding table names

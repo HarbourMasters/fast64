@@ -6,11 +6,14 @@ from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS
+from .bk64_model import in_level_half, level_half_faces
 from .bk64_operators import (
+    BK64_AddTextureScroll,
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
     BK64_ExportAnimation,
     BK64_ExportModel,
+    BK64_ExportLevelHalves,
     BK64_ImportLevel,
     BK64_ImportModel,
     BK64_ImportSkeleton,
@@ -18,6 +21,7 @@ from .bk64_operators import (
     BK64_MarkCollisionOnly,
     BK64_SelectLooseVertices,
     BK64_SplitMeshAtBones,
+    resolve_root,
 )
 
 
@@ -36,28 +40,62 @@ class BK64_ExportModelPanel(BK64_Panel):
         prop_split(col, scene, "hm64_bk64_scale", "Blender To BK Scale")
         prop_split(col, scene, "hm64_bk64_anim_scale", "Animation Scale")
         prop_split(col, scene, "hm64_bk64_rigging", "Rigging")
-        prop_split(col, scene, "hm64_bk64_draw_layer", "Draw Layer")
+        prop_split(col, scene, "hm64_bk64_draw_layer", "Default Draw Layer")
 
         col.prop(scene, "hm64_bk64_force_unlit")
-        col.prop(scene, "hm64_bk64_env_map")
-        col.prop(scene, "hm64_bk64_mipmap")
 
-        col.operator(BK64_PromoteMaterials.bl_idname)
-        col.operator(BK64_SplitMeshAtBones.bl_idname)
-        col.operator(BK64_SelectLooseVertices.bl_idname)
-        col.operator(BK64_MarkCollisionOnly.bl_idname)
+        # an imported model writes its own geo type, and these two lose to it
+        try:
+            root = resolve_root(context)
+        except Exception:  # a draw callback must never raise
+            root = None
+        stored = root.hm64_bk64_geo_type_raw if root is not None else 0
+        sub = col.column()
+        sub.enabled = not stored
+        sub.prop(scene, "hm64_bk64_env_map")
+        sub.prop(scene, "hm64_bk64_mipmap")
+        if stored:
+            prop_split(col, root, "hm64_bk64_geo_type_raw", "Imported Geo Type")
+            box = col.box().column()
+            box.label(text="This model came in with its own geo type, so the two")
+            box.label(text="boxes above do nothing. Set it to 0 to use them instead.")
+
         col.operator(BK64_ExportModel.bl_idname)
+
+        # its own box, or the settings above it read as its settings
+        col.separator()
+        halves = col.box().column()
+        obj = context.object
+        if obj is not None and obj.type == "MESH":
+            prop_split(halves, obj, "hm64_bk64_level_half", "Level Half")
+            if obj.hm64_bk64_level_half == "AUTO":
+                if level_half_faces(obj, "OPAQUE") and level_half_faces(obj, "TRANSLUCENT"):
+                    halves.label(text="Its materials read as both, so it goes out cut in two.")
+                else:
+                    which = "translucent" if in_level_half(obj, "TRANSLUCENT") else "opaque"
+                    halves.label(text=f"Its materials read as {which}.")
+        # the root is usually not a mesh, so the row above is often missing
+        meshes = [] if root is None else ([root] if root.type == "MESH" else root.children_recursive)
+        drawn = [child for child in meshes if child.type == "MESH" and not child.ignore_render]
+        if len(drawn) > 1:  # one mesh already says what it reads as, just above
+            counts = {"OPAQUE": 0, "TRANSLUCENT": 0}
+            for child in drawn:
+                for half in counts:
+                    if in_level_half(child, half):
+                        counts[half] += 1
+            halves.label(text=f"{counts['OPAQUE']} opaque, {counts['TRANSLUCENT']} translucent")
+        halves.operator(BK64_ExportLevelHalves.bl_idname)
 
         box = col.box().column()
         box.label(text="Select the armature, or the mesh for a static model.")
         box.label(text="Split At Bones needs the mesh cut first, Bind Vertices doesn't.")
-        box.label(text="Collision Only makes a mesh an invisible floor or wall.")
+        box.label(text="Level Half picks which model, Export Level Halves writes both.")
         box.label(text="Pack the folder with: torch pack <folder> <name>.o2r o2r")
 
 
 class BK64_ExportAnimationPanel(BK64_Panel):
     bl_idname = "BK64_PT_export_animation"
-    bl_label = "Animation Exporter"
+    bl_label = "Animations"
     bl_order = 1
 
     def draw(self, context):
@@ -99,6 +137,7 @@ class BK64_ImportModelPanel(BK64_Panel):
         box.label(text="Import BK Skeleton takes only the bones, ids included, so a")
         box.label(text="replacement accepts the original's animations.")
         box.label(text="Both need the _GEO, _VTX and _tex siblings in the same folder.")
+        box.label(text="For a level use Import BK Level below, a level is two models.")
 
         col.separator()
         prop_split(col, scene, "hm64_bk64_level_folder", "Level Folder")
@@ -111,6 +150,31 @@ class BK64_ImportModelPanel(BK64_Panel):
         box.label(text="hunt for its ASSET_ file. Unpack bk.o2r and point at the")
         box.label(text="assets/level folder inside. Each half comes in as its own")
         box.label(text="object, so the translucent one can be hidden while you work.")
+
+
+class BK64_MeshToolsPanel(BK64_Panel):
+    bl_idname = "BK64_PT_mesh_tools"
+    bl_label = "Mesh Tools"
+    bl_order = 3
+
+    def draw(self, context):
+        col = self.layout.column()
+        scene = context.scene
+
+        col.operator(BK64_PromoteMaterials.bl_idname)
+        col.operator(BK64_SplitMeshAtBones.bl_idname)
+        col.operator(BK64_SelectLooseVertices.bl_idname)
+        col.operator(BK64_MarkCollisionOnly.bl_idname)
+
+        col.separator()
+        prop_split(col, scene, "hm64_bk64_scroll_speed", "Scroll Speed")
+        col.operator(BK64_AddTextureScroll.bl_idname)
+
+        box = col.box().column()
+        box.label(text="These change the mesh you have selected, not the export.")
+        box.label(text="Collision Only makes a mesh an invisible floor or wall.")
+        box.label(text="Pick the faces in edit mode before Add Texture Scroll.")
+        box.label(text="Only the vertical direction moves, and only on a level.")
 
 
 class BK64_BonePanel(BK64_Panel):
@@ -189,6 +253,7 @@ bk64_panel_classes = (
     BK64_ExportModelPanel,
     BK64_ExportAnimationPanel,
     BK64_ImportModelPanel,
+    BK64_MeshToolsPanel,
     BK64_BonePanel,
     BK64_MaterialPanel,
 )

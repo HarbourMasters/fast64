@@ -30,6 +30,19 @@ from .bk64_constants import (
 )
 
 
+def vertex_bounds(bounds, endian: str = "<"):
+    """The BKVertexList header, the same twelve fields in a resource and in a .bin"""
+    return struct.pack(
+        endian + "hhhhhhhhhhHh",
+        *(s16(value) for value in bounds["min"]),
+        *(s16(value) for value in bounds["max"]),
+        *(s16(value) for value in bounds["center"]),
+        s16(bounds["local_norm"]),
+        bounds["count"],
+        s16(bounds["global_norm"]),
+    )
+
+
 def vertex_records(vertices, endian: str = "<"):
     """N64 Vtx records, 16 bytes each. Little endian for a resource, big endian for a ROM"""
     data = bytearray()
@@ -263,6 +276,29 @@ def collision_shapes(shapes, endian: str = "<"):
     return bytes(data)
 
 
+def read_camera_area_list(data, offset: int, endian: str = "<", pad_header: bool = False):
+    """The boxes a geo CAMERA command tests the camera against"""
+    count = data[offset]
+    offset += 2 if pad_header else 1  # BKCameraAreaList pads after the count, the resource stream doesn't
+    areas = []
+    for _ in range(count):
+        box = struct.unpack_from(endian + "6h", data, offset)
+        areas.append(dict(min=list(box[:3]), max=list(box[3:])))
+        offset += 14  # 3+3 coordinates, then in_bounds and its pad
+    return areas
+
+
+def camera_area_list(areas, endian: str = "<", pad_header: bool = False):
+    """A count, then each box. in_bounds is run time state and ships as 0"""
+    data = bytearray(struct.pack(endian + "B", len(areas)))
+    if pad_header:
+        data.extend(bytes(1))
+    for area in areas:
+        data.extend(struct.pack(endian + "6h", *(s16(v) for v in area["min"]), *(s16(v) for v in area["max"])))
+        data.extend(bytes(2))
+    return bytes(data)
+
+
 def mesh_list(meshes, endian: str = "<"):
     """A count, then each mesh's uid and the vertices it holds"""
     data = bytearray(struct.pack(endian + "h", len(meshes)))
@@ -383,6 +419,7 @@ def write_bkmodelbin(
     vertices,
     collision,
     shapes,
+    camera_areas,
     bound_vertices,
     meshes,
     animated_slots,
@@ -413,17 +450,7 @@ def write_bkmodelbin(
 
     _pad8(out)
     offsets["vtx"] = len(out)
-    out.extend(
-        struct.pack(
-            ">hhhhhhhhhhHh",
-            *(s16(value) for value in bounds["min"]),
-            *(s16(value) for value in bounds["max"]),
-            *(s16(value) for value in bounds["center"]),
-            s16(bounds["local_norm"]),
-            bounds["count"],
-            s16(bounds["global_norm"]),
-        )
-    )
+    out.extend(vertex_bounds(bounds, ">"))
     out.extend(vertex_records(vertices, ">"))
 
     if shapes:
@@ -450,6 +477,11 @@ def write_bkmodelbin(
         _pad8(out)
         offsets["anim_vertices"] = len(out)
         out.extend(vertex_bone_map(bound_vertices, ">", pad_header=True))
+
+    if camera_areas:
+        _pad8(out)
+        offsets["camera"] = len(out)
+        out.extend(camera_area_list(camera_areas, ">", pad_header=True))
 
     if meshes:
         _pad8(out)
@@ -482,7 +514,7 @@ def write_bkmodelbin(
         offsets.get("unk14", 0),
         offsets.get("anim", 0),
         offsets.get("collision", 0),
-        0,  # camera areas
+        offsets.get("camera", 0),
         offsets.get("mesh_list", 0),
         offsets.get("anim_vertices", 0),
         offsets.get("animated_texture", 0),

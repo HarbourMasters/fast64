@@ -10,6 +10,7 @@ from .bk64_constants import (
     GEO_TYPE_ENV_MAP,
     GEO_TYPE_MIPMAP_TRILINEAR,
     MAX_BONE_ID,
+    MAX_SCROLL_SPEED,
     RENDERMODE_AA_OPAQUE,
 )
 from .bk64_level_models import bk64_level_layers, bk64_level_names
@@ -80,6 +81,12 @@ bk64_file_format_enum = (
     ("BIN", "BK Model Binary", "One .bin in the game's own format, for the ROM hacking tools"),
 )
 
+bk64_level_half_enum = (
+    ("AUTO", "From Materials", "Translucent when every material on it is, opaque otherwise"),
+    ("OPAQUE", "Opaque", "Writes depth, so it hides what is behind it"),
+    ("TRANSLUCENT", "Translucent", "Tests depth without writing it. Vanilla puts water here"),
+)
+
 bk64_draw_layer_enum = (
     ("OPAQUE", "Opaque", "Solid geometry"),
     ("OPAQUE_NO_AA", "Opaque, No AA", "Solid, without the antialiased edge"),
@@ -88,7 +95,7 @@ bk64_draw_layer_enum = (
 )
 
 bk64_material_draw_layer_enum = (
-    ("SCENE", "From Scene", "Whatever the export panel's Draw Layer says"),
+    ("SCENE", "From Scene", "Whatever the export panel's Default Draw Layer says"),
     ("INHERIT", "Inherit", "Sets no render mode and draws with whatever the chunk before it left"),
 ) + bk64_draw_layer_enum
 
@@ -151,7 +158,10 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_anim_path",
     "hm64_bk64_anim_include_rest",
     "hm64_bk64_anim_import_path",
+    "hm64_bk64_scroll_speed",
 )
+
+_BK64_OBJECT_PROPS = ("hm64_bk64_level_half", "hm64_bk64_geo_type_raw")
 
 _BK64_BONE_PROPS = (
     "hm64_bk64_bone_id",
@@ -241,11 +251,34 @@ def bk64_properties_register():
         "Vertices keeps it whole and weights each vertex to one bone",
     )
     bpy.types.Scene.hm64_bk64_draw_layer = EnumProperty(
-        name="Draw Layer",
+        name="Default Draw Layer",
         items=bk64_draw_layer_enum,
         default="OPAQUE",
-        description="Opaque for solid geometry, Translucent for blended. Whether the model reads "
-        "or writes depth stays with the game",
+        description="The layer a material takes when its own Draw Layer is From Scene. It does not "
+        "split a level into halves--Level Half does that",
+    )
+    bpy.types.Scene.hm64_bk64_scroll_speed = IntProperty(
+        name="Scroll Speed",
+        min=1,
+        max=MAX_SCROLL_SPEED,
+        default=20,
+        description="How fast Add Texture Scroll slides the selected faces. In Banjo's Backpack, "
+        "Slow, Normal and Fast are 6, 20 and 60",
+    )
+    bpy.types.Object.hm64_bk64_geo_type_raw = IntProperty(
+        name="Imported Geo Type",
+        default=0,
+        min=0,
+        description="The geo type word an imported model came in with, written back as it is. It sits "
+        "on the object because a level's two halves differ. Set it to 0 to use Env Map and Mipmap",
+    )
+    bpy.types.Object.hm64_bk64_level_half = EnumProperty(
+        name="Level Half",
+        items=bk64_level_half_enum,
+        default="AUTO",
+        description="Which of a level's two models Export Level Halves writes this object into. From "
+        "Materials reads it off the materials. The level importer sets it on the halves it brings in. "
+        "It has nothing to do with Default Draw Layer",
     )
     bpy.types.Scene.hm64_bk64_import_path = StringProperty(
         name="Model File",
@@ -441,6 +474,9 @@ def bk64_properties_unregister():
     for prop in _BK64_SCENE_PROPS:
         if hasattr(bpy.types.Scene, prop):
             delattr(bpy.types.Scene, prop)
+    for prop in _BK64_OBJECT_PROPS:
+        if hasattr(bpy.types.Object, prop):
+            delattr(bpy.types.Object, prop)
     for prop in _BK64_BONE_PROPS:
         if hasattr(bpy.types.Bone, prop):
             delattr(bpy.types.Bone, prop)
