@@ -61,6 +61,8 @@ BK_PALETTE_SIZE = {"CI4": 0x20, "CI8": 0x200}
 # for stepping over an image in the model's own texture blob
 BK_TEX_BITS = {"CI4": 4, "CI8": 8, "RGBA16": 16, "RGBA32": 32, "IA8": 8}
 
+TILE_BITS = {0: 4, 1: 8, 2: 16, 3: 32}  # G_SETTILE's siz, the depth the RDP draws at
+
 # slot i of the animated texture list drives this segment, counting down. Each
 # frame the game slides that segment's base on by frame_size bytes.
 SEG_ANIM_BASE = 15

@@ -79,6 +79,7 @@ from .bk64_constants import (
     SEG_TEX_BLOB,
     SHAPE_KIND,
     SHAPE_PIVOT,
+    TILE_BITS,
     tri_indices,
 )
 from .bk64_collision import (
@@ -221,7 +222,12 @@ def _read_model_bin(data: bytes):
         shapes=read_collision_shapes_data(data, header["unk14"], ">")[0] if header["unk14"] else None,
     )
     # the layout is written last and runs to the end of the file
-    return model, vertices, read_geo_body(data[header["geo"] :], ">"), _blob_textures(tex_infos)
+    return (
+        model,
+        vertices,
+        read_geo_body(data[header["geo"] :], ">"),
+        _blob_textures(_retype_ci_from_tiles(words, tex_infos)),
+    )
 
 
 def _read_mesh_list(data: bytes, offset: int, endian: str = "<"):
@@ -597,6 +603,28 @@ def _load_textures(folder: str, base: str, blob: bytes, palettes, used, mip_used
         images[index] = (image, otex_format)
         index += 1
     return images
+
+
+def _retype_ci_from_tiles(words, tex_infos):
+    """tex_infos, with each CI entry's type taken from the tile its image draws from"""
+    drawn_bits, bound = {}, None
+    for w0, w1 in words:
+        if (w0 >> 24) == OP_SETTIMG and (w1 >> 24) == SEG_TEX_BLOB:
+            bound = w1 & 0xFFFFFF
+        elif (w0 >> 24) == OP_SETTILE and (w1 >> 24) == 0 and bound is not None:
+            drawn_bits[bound] = TILE_BITS[(w0 >> 19) & 3]
+            bound = None
+
+    for info in tex_infos:
+        if BK_TEX_FORMAT.get(info["type"]) not in PALETTED_FORMATS:
+            continue
+        for otex_format in ("CI4", "CI8"):
+            # the offset and the depth both have to land, so one alone can't retype
+            image = info["offset"] + BK_PALETTE_SIZE[otex_format]
+            if drawn_bits.get(image) == BK_TEX_BITS[otex_format]:
+                info["type"] = BK_TEX_TYPE[otex_format]
+                break
+    return tex_infos
 
 
 def _blob_textures(tex_infos):
