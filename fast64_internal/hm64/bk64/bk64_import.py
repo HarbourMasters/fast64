@@ -1275,7 +1275,8 @@ def import_bk64_model(context, path: str, settings):
         armature_obj = create_armature_from_bones(
             base + "_skel", model["bones"], bone_space_matrix(settings.scale), settings.bone_length
         )
-        bone_names = {index: bone.name for index, bone in enumerate(armature_obj.data.bones)}
+        # Blender lists bones by tree, and two Kazooie tables aren't in tree order
+        bone_names = {bone.hm64_bk64_bone_order: bone.name for bone in armature_obj.data.bones}
 
     # BK is Y up and in its own units
     to_blender = (
