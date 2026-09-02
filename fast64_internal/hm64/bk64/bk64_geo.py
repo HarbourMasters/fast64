@@ -8,8 +8,11 @@ from ...utility import PluginError
 from .bk64_constants import (
     ANIM_TEX_SLOT_COUNT,
     G_LIGHTING,
+    G_SHADE,
+    G_SHADING_SMOOTH,
     G_TEXTURE_GEN,
     GEO_LAYOUT_PROP,
+    GEO_MODE_CHUNK_CLEAR,
     MAX_APPENDAGE_ID,
     MIP_LOAD_BLOCK,
     MIP_LOAD_TILE,
@@ -358,7 +361,10 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
     # texture gen reads, and modelRender hands it a LookAt and no lights, the
     # same as vanilla.
     reflective = any(((w0 >> 24) & 0xFF) == OP_SETGEOMETRYMODE and (w1 & G_TEXTURE_GEN) for w0, w1 in words)
-    out = [] if reflective else [(OP_CLEARGEOMETRYMODE << 24, G_LIGHTING)]  # the model path loads no lights
+    out = [
+        (OP_CLEARGEOMETRYMODE << 24, GEO_MODE_CHUNK_CLEAR),
+        (OP_SETGEOMETRYMODE << 24, G_SHADE | G_SHADING_SMOOTH),  # the clear takes shade and no material puts it back
+    ]
     if rendermode_entry is not None:
         # jump into the table instead of setting a mode, leaving the actor's depth mode to hold
         out.append((OP_DL << 24, (SEG_RENDERMODE << 24) | (rendermode_entry * RENDERMODE_ENTRY_STRIDE)))

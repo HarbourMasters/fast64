@@ -149,6 +149,18 @@ OP_POPMTX = 0xBD
 G_LIGHTING = 0x00020000
 G_TEXTURE_GEN = 0x00040000
 
+G_SHADE = 0x00000004
+G_SHADING_SMOOTH = 0x00000200
+G_CULL_BOTH = 0x00003000
+G_FOG = 0x00010000
+G_TEXTURE_GEN_LINEAR = 0x00080000
+G_LOD = 0x00100000
+
+# every vanilla sublist opens with this clear.
+GEO_MODE_CHUNK_CLEAR = (
+    G_SHADE | G_SHADING_SMOOTH | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD
+)
+
 # geometry mode bit -> the rdp_settings flag that writes it again
 GEO_MODE_FLAGS = {
     0x00000001: "g_zbuffer",
@@ -369,7 +381,7 @@ bk64_world_defaults = {
     "geometryMode": {
         "zBuffer": True,
         "shade": True,
-        "cullBack": False,  # the per frame clear drops it and nothing puts it back
+        "cullBack": False,  # cleared per frame and again at every chunk head
         "lighting": False,  # the model path loads no lights
         "shadeSmooth": True,
         "clipping": False,  # nothing in the game ever sets it
