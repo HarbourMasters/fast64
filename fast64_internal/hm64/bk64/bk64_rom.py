@@ -356,6 +356,32 @@ BKMODEL_BIN_FIELDS = (
 BKMODEL_BIN_VALUES = frozenset(("magic", "geo_type", "tri_count", "vertex_count", "unk34"))
 BKMODEL_SECTIONS = tuple(name for name in BKMODEL_BIN_FIELDS if name not in BKMODEL_BIN_VALUES)
 
+# a BTModel resource opens with the same header, every field widened to a u32 and the
+# magic gone
+BTMODEL_RESOURCE_FIELDS = (
+    "geo",
+    "texture",
+    "geo_type",
+    "gfx",
+    "vtx",
+    "unk14",
+    "anim",
+    "collision",
+    "unk20",
+    "effects",
+    "unk28",
+    "animated_texture",
+    "section30",
+    "unk34",
+    "vtx_records_end",
+    "section3c",
+    "section40",
+    "tri_count",
+    "vertex_count",
+    "unk48",
+    "unk4c",
+)
+
 
 def is_bkmodelbin(data: bytes) -> bool:
     return len(data) >= BKMODEL_HEADER_SIZE and struct.unpack_from(">I", data, 0)[0] == BKMODEL_MAGIC

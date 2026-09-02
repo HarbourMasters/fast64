@@ -2,6 +2,7 @@ import struct
 
 # Torch ResourceType fourccs, little endian
 RT_BK_MODEL = 0x424B4D4F
+RT_BT_MODEL = 0x42544D4F
 RT_BK_ANIM = 0x424B414E
 RT_VERTEX = 0x4F565458
 RT_BLOB = 0x4F424C42
@@ -91,6 +92,9 @@ GEO_CMD_TEXWRAP = 0x10  # 1 clamps the mipmap tiles that follow, 2 wraps them
 # Tooie's drawing commands and the sub-lists each one names, keyed by opcode
 # since nothing decoded tells the three apart
 GEO_CMD_BT_DRAW_SLOTS = {0x11: 1, 0x16: 8, 0x18: 6}
+BT_DRAW_COMMAND_WORDS = {0x11: 4, 0x16: 8, 0x18: 20}  # every u16 each one carries, not just the offsets
+BT_HITBOX_SIZES = (23, 15, 10)  # a resource's three hitbox lists, none of which BK draws
+BT_UNK20_SIZE = 13  # three coordinates, three more and a byte
 
 GEO_CMD_SIZE = 12  # every geo command is padded to 12 bytes
 GEO_BONE_BRANCH_OFFSET = 12  # BONE to its own LOADDL

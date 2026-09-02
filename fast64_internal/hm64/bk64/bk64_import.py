@@ -36,6 +36,9 @@ from .bk64_constants import (
     GEO_CMD_SORT,
     GEO_CMD_TEXWRAP,
     GEO_CMD_BT_DRAW_SLOTS,
+    BT_DRAW_COMMAND_WORDS,
+    BT_HITBOX_SIZES,
+    BT_UNK20_SIZE,
     GEO_CMD_UNK0,
     CAMERA_AREA_KIND,
     GEO_LAYOUT_PROP,
@@ -77,6 +80,7 @@ from .bk64_constants import (
     TEX_FLAG_LOAD_AS_RAW,
     RENDERMODE_ENTRY_STRIDE,
     RT_BK_MODEL,
+    RT_BT_MODEL,
     SEG_BT_BONE_MTX,
     SEG_RENDERMODE,
     SEG_TEX,
@@ -94,8 +98,15 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
-from .bk64_rom import BKMODEL_SECTIONS, is_bkmodelbin, layout_records, read_bkmodelbin_header, read_camera_area_list
-from .bk64_skeleton import bone_space_matrix, create_armature_from_bones, read_bone_table
+from .bk64_rom import (
+    BKMODEL_SECTIONS,
+    BTMODEL_RESOURCE_FIELDS,
+    is_bkmodelbin,
+    layout_records,
+    read_bkmodelbin_header,
+    read_camera_area_list,
+)
+from .bk64_skeleton import BK64Bone, bone_space_matrix, create_armature_from_bones, read_bone_table
 
 OTEX_FORMAT = {value: key for key, value in OTEX_TYPE.items()}
 BK_TEX_FORMAT = {value: key for key, value in BK_TEX_TYPE.items()}
@@ -104,6 +115,22 @@ BK_TEX_FORMAT = {value: key for key, value in BK_TEX_TYPE.items()}
 DRAW_LAYER_OF_ENTRY = {entry: layer for layer, entry in BK64_DRAW_LAYER_ENTRY.items() if entry is not None}
 
 SHAPE_CODE = "hm64_bk64_hit_code"  # the hit code the export reads back off a volume
+
+
+def _sibling(folder: str, base: str, suffix: str) -> bytes:
+    """One of the files a model resource is stored beside"""
+    path = os.path.join(folder, base + suffix)
+    if not os.path.exists(path):
+        raise PluginError(
+            f"'{base}{suffix}' isn't next to the model. A model is a family of files. "
+            "Extract the whole set, not just the one."
+        )
+    with open(path, "rb") as file:
+        return file.read()
+
+
+def is_btmodel(data: bytes) -> bool:
+    return len(data) >= 0x40 and struct.unpack_from("<I", data, 4)[0] == RT_BT_MODEL
 
 
 def _read_model(data: bytes):
@@ -174,6 +201,238 @@ def _read_model(data: bytes):
         collision=collision,
         collision_grid=collision_grid,
         shapes=shapes,
+    )
+
+
+def _bt_geo_body(opcode: int, take):
+    """One geo command's fields, at the widths Torch wrote them"""
+    if opcode == GEO_CMD_UNK0:
+        child = take("2H")[0]
+        take("3f")
+        return dict(child=child)
+    if opcode == GEO_CMD_SORT:
+        point = take("6f")
+        _unk18, _order, child, child2 = take("2B2H")
+        return dict(point=point, child=child, child2=child2)
+    if opcode == GEO_CMD_BONE:
+        child, bone, _unk = take("2BH")
+        return dict(child=child, bone=bone - 0x100 if bone > 0x7F else bone)
+    if opcode == GEO_CMD_LOADDL:
+        return dict(index=take("2H")[0])
+    if opcode == GEO_CMD_LOD:
+        far, near = take("2f")
+        return dict(far=far, near=near, point=take("3f"), child=take("I")[0])
+    if opcode == GEO_CMD_REFPOINT:
+        index, bone = take("2H")
+        # the bone reads back signed, and a refpoint on no bone carries -1
+        return dict(index=index, bone=bone - 0x10000 if bone > 0x7FFF else bone, point=take("3f"))
+    if opcode == GEO_CMD_SELECTOR:
+        index = take("H")[0]
+        return dict(index=index, children=list(take(f"{take('I')[0]}I")))
+    if opcode == GEO_CMD_DRAWDIST:
+        box = take("6h")
+        return dict(low=box[:3], high=box[3:], child=take("2h")[0])
+    if opcode == GEO_CMD_CAMERA:
+        child, count, flags = take("H2B")
+        return dict(child=child, flags=flags, ids=list(take(f"{count}B")))
+    if opcode == GEO_CMD_TEXWRAP:
+        return dict(mode=take("i")[0])
+    if opcode in GEO_CMD_BT_DRAW_SLOTS:
+        return dict(slots=take(f"{BT_DRAW_COMMAND_WORDS[opcode]}H"))
+    take(f"{take('I')[0]}s")  # an opcode Tooie never writes, carried as its own bytes
+    return {}
+
+
+def _bt_layout(commands):
+    """The command tree as records, walked the way the game walks the section"""
+    visited = set()
+
+    def walk(start):
+        records, pos = [], start
+        while pos in commands and pos not in visited:
+            visited.add(pos)
+            opcode, length, body = commands[pos]
+            branch = walk(pos + body["child"]) if body.get("child") else []
+            if opcode == GEO_CMD_BONE:
+                records.append(("bonebranch", body["bone"], branch))
+            elif opcode == GEO_CMD_LOADDL:
+                records.append(("loaddl", body["index"]))
+            elif opcode == GEO_CMD_SELECTOR:
+                records.append(("selector", body["index"], [walk(pos + child) for child in body["children"]]))
+            elif opcode == GEO_CMD_SORT:
+                second = walk(pos + body["child2"]) if body["child2"] else []
+                records.append(("sort", body["point"][:3], body["point"][3:], branch, second, 0))
+            elif opcode == GEO_CMD_LOD:
+                records.append(("lod", body["far"], body["near"], body["point"], branch))
+            elif opcode == GEO_CMD_DRAWDIST:
+                records.append(("drawdist", body["low"], body["high"], branch))
+            elif opcode == GEO_CMD_REFPOINT:
+                records.append(("refpoint", body["index"], body["bone"], body["point"]))
+            elif opcode == GEO_CMD_CAMERA:
+                records.append(("camera", body["ids"], body["flags"], branch))
+            elif opcode == GEO_CMD_TEXWRAP:
+                records.append(("texwrap", body["mode"]))
+            elif opcode in GEO_CMD_BT_DRAW_SLOTS:
+                # only the leading words are sub-list offsets, the rest count vertices
+                slots = body["slots"][: GEO_CMD_BT_DRAW_SLOTS[opcode]]
+                records += [("loaddl", at) for slot, at in enumerate(slots) if slot == 0 or at]
+            else:
+                records += branch
+            if not length:
+                break
+            pos += length
+        return records
+
+    return walk(0)
+
+
+def _skip_bt_tail(take, skip):
+    """Step over the sections past the animated textures, which nothing here reads"""
+    take("2I")  # 0x40, its flag and where it sat, neither of which matters here
+    if take("I")[0]:  # Torch read it, so it ships as sets of records
+        _unk0, _unk4, set_count, _unk8, _unka, _size = take("6I")
+        for _set in range(set_count):
+            record_count = take("I")[0]
+            skip(record_count * 16)  # three coords, flags, a zero word and a color
+            for _group in range(record_count):  # one group per record, so neither is counted
+                skip(take("I")[0] * 2)
+            take("I")  # what closed the set
+    else:
+        take("4I")
+        skip(take("I")[0])
+
+    take("2I")  # 0x3C, entries of six floats over a range of vertices
+    for _entry in range(take("I")[0]):
+        take("6f")
+        _first, count = take("2H")
+        skip(count * 8)
+
+    take("2I")  # 0x30, a grid whose cells own runs of vertex indices
+    take("6h3H")
+    skip(take("I")[0] * 4)
+    skip(take("I")[0] * 2)
+
+    for _block in range(take("I")[0]):  # blocks no section offset points at
+        take("I6h4HfI4I")  # where it sat, its grid, and the counts of what follows
+        lists = take("I")[0]
+        skip(lists * 4)
+        for _list in range(lists):
+            take("5I6h")  # the list header and the box it covers
+            skip(take("I")[0] * 4)
+            skip(take("I")[0])
+            skip(take("I")[0])
+        skip(take("I")[0] * 20)
+    for _run in range(take("I")[0]):  # bytes no section claimed, kept as they were
+        take("I")
+        skip(take("I")[0])
+
+
+def _read_bt_model(data: bytes):
+    """(model, layout, textures) from a BTModel resource, which Torch ships decoded"""
+    if len(data) < 0x40 or struct.unpack_from("<I", data, 4)[0] != RT_BT_MODEL:
+        raise PluginError("Not a Tooie model resource. Point this at the model, not a _VTX or _tex sibling.")
+    at = 0x40
+
+    def take(fmt: str):
+        nonlocal at
+        values = struct.unpack_from("<" + fmt, data, at)
+        at += struct.calcsize("<" + fmt)
+        return values
+
+    def skip(count: int):
+        # not `at += take(...)`, which reads at before take advances it and drops the advance
+        nonlocal at
+        at += count
+
+    sections = dict(zip(BTMODEL_RESOURCE_FIELDS, take(f"{len(BTMODEL_RESOURCE_FIELDS)}I")))
+    take("I")  # a vertex header follows even when the flag says there is none
+    take("12h")
+
+    _dl_count, _unk, _sublists, word_count = take("4I")
+    raw = take(f"{word_count}I")  # counted in words, where a Gfx is two of them
+    words = _as_f3dex(list(zip(raw[0::2], raw[1::2])))
+
+    _blob_size, external, tex_count = take("3I")
+    tex_infos = []
+    for _texture in range(tex_count):
+        locator, kind, _extra, width, height, _colors, _offset, _size = take("8I")
+        tex_infos.append(dict(offset=locator, type=kind & 0x7FFF, width=width, height=height))
+    blob = take(f"{take('I')[0]}s")[0]
+
+    _geo_at, geo_count = take("2I")
+    commands = {}
+    for _command in range(geo_count):
+        offset, opcode, length = take("3I")
+        commands[offset] = (opcode, length, _bt_geo_body(opcode, take))
+
+    _has_anim, anim_scale, bone_count = take("IfI")
+    bones = []
+    for _bone in range(bone_count):
+        x, y, z, bone_id, parent = take("3f2H")
+        bones.append(BK64Bone(f"bone_{bone_id}", (x, y, z), bone_id, parent))
+
+    _has_collision, grid_count = take("2I")
+    surfaces, grid = {}, None
+    for number in range(grid_count):
+        low, high = take("3h"), take("3h")
+        _y_stride, _z_stride, scale = take("3H")
+        # a cube gives where its run starts and how long it is, and the grid wants the length
+        counts = [take("2H")[1] for _cube in range(take("I")[0])]
+        records = [take("4HI") for _triangle in range(take("I")[0])]
+        if number == 0:  # a second grid covers the same triangles, and nothing reads it
+            grid = dict(low=low, high=high, scale=scale, counts=counts, records=records)
+            # unk6 counts triangles here as well, so it stays out of the material key
+            surfaces = {tuple(sorted(record[:3])): (record[4], 0) for record in records}
+
+    take("Ih")  # the hitbox flag and the word beside it
+    for size in BT_HITBOX_SIZES:
+        skip(take("I")[0] * size)
+    take("I")  # unk20's flag
+    skip(take("I")[0] * BT_UNK20_SIZE)
+    for _effect in range(take("I")[0]):
+        take("H")  # a vertex animation group, which nothing here plays
+        skip(take("I")[0] * 2)
+    take("IH")  # unk28's flag and the word it opens with
+    bound = []
+    for _entry in range(take("I")[0]):
+        bone, _trailing = take("Hh")
+        coords = take(f"{take('I')[0]}h")
+        groups = [take(f"{take('I')[0]}h") for _group in range(take("I")[0])]
+        for slot, indices in enumerate(groups):
+            bound.append(dict(coord=coords[slot * 3 : slot * 3 + 3], bone=bone, vertices=list(indices)))
+
+    animated = [take("2Hf") for _slot in range(take("I")[0])]
+    # nothing left is imported, and walking it is what makes the check below mean something
+    _skip_bt_tail(take, skip)
+    if at != len(data):
+        raise PluginError(
+            f"Read {at} bytes of a {len(data)} byte model. Each section is found by stepping over the "
+            "one before, so not landing on the end means something was misread."
+        )
+
+    # the display list addresses the model's own texture block, the way a .bin does
+    textures = [] if external else _blob_textures(_retype_ci_from_tiles(words, tex_infos))
+    return (
+        dict(
+            geo_type=sections["geo_type"],
+            tri_count=sections["tri_count"],
+            has_mesh_list=False,
+            camera_areas=[],  # the slots these two sit in hold Tooie's own sections
+            mesh_list=[],
+            bound_vertices=bound,
+            animated_textures=animated,
+            words=words,
+            blob=b"" if external else blob,
+            tex_infos=[] if external else tex_infos,
+            external_textures=tex_count if external else 0,
+            anim_scale=anim_scale,
+            bones=bones,
+            collision=surfaces,
+            collision_grid=grid,
+            shapes=None,
+        ),
+        _bt_layout(commands),
+        textures,
     )
 
 
@@ -1386,20 +1645,13 @@ def import_bk64_model(context, path: str, settings):
     textures = None
     if is_bkmodelbin(data):
         model, vertices, layout, textures = _read_model_bin(data)
+    elif is_btmodel(data):
+        model, layout, textures = _read_bt_model(data)
+        vertices = _read_vertices(_sibling(folder, base, "_VTX"))
     else:
         model = _read_model(data)
-        siblings = {}
-        for suffix in ("_VTX", "_GEO"):
-            sibling = os.path.join(folder, base + suffix)
-            if not os.path.exists(sibling):
-                raise PluginError(
-                    f"'{base}{suffix}' isn't next to the model. A BK model is a family of files. "
-                    "Extract the whole set, not just the one."
-                )
-            with open(sibling, "rb") as file:
-                siblings[suffix] = file.read()
-        vertices = _read_vertices(siblings["_VTX"])
-        layout = read_geo_tree(siblings["_GEO"])
+        vertices = _read_vertices(_sibling(folder, base, "_VTX"))
+        layout = read_geo_tree(_sibling(folder, base, "_GEO"))
     model["geo_layout"] = layout
     geo_used = set()
     chunks = layout_chunks(layout, geo_used)
