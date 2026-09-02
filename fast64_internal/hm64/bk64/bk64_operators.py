@@ -670,6 +670,11 @@ class BK64_ImportModel(Operator):
                         f"{model['unbound_textures']} of its textures aren't bound by the display list, "
                         "so they won't be there on the way out."
                     )
+                if model["external_textures"]:
+                    notes.append(
+                        f"Its {model['external_textures']} textures are in Tooie's shared texture bank, "
+                        "not the model, so it came in untextured."
+                    )
                 if model["collision_only_object"] is not None:
                     faces = len(model["collision_only_object"].data.polygons)
                     notes.append(f"{faces} collision triangles sit on geometry nothing draws, in their own mesh.")

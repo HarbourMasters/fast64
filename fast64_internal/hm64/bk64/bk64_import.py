@@ -11,7 +11,7 @@ import bpy
 import mathutils
 
 from ...f3d.f3d_enums import combiner_enums
-from ...f3d.f3d_gbi import VTX_SIZE
+from ...f3d.f3d_gbi import MTX_SIZE, VTX_SIZE
 from ...f3d.f3d_material import (
     createF3DMat,
     update_node_values_of_material,
@@ -35,6 +35,7 @@ from .bk64_constants import (
     GEO_CMD_SKINNING,
     GEO_CMD_SORT,
     GEO_CMD_TEXWRAP,
+    GEO_CMD_BT_DRAW_SLOTS,
     GEO_CMD_UNK0,
     CAMERA_AREA_KIND,
     GEO_LAYOUT_PROP,
@@ -45,21 +46,24 @@ from .bk64_constants import (
     MIP_PYRAMID_SIZE,
     BK64_DRAW_LAYER_ENTRY,
     COLLISION_GRID_PROP,
+    G_MTX_PUSH,
     OP_DL,
     OP_CLEARGEOMETRYMODE,
     OP_ENDDL,
+    OP_MTX,
     OP_SETCOMBINE,
     OP_SETENVCOLOR,
     OP_SETGEOMETRYMODE,
     OP_SETPRIMCOLOR,
     OP_SETTILE,
+    OP_TEXTURE,
     OP_POPMTX,
     OP_SETTIMG,
-    OP_TEXTURE,
     OP_TRI1,
     OP_TRI2,
     OP_VTX,
     ANIM_TEX_SLOT_COUNT,
+    BT_ANIM_TEX_SLOT_COUNT,
     COLLISION_COLOR_ATTR,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
@@ -73,6 +77,7 @@ from .bk64_constants import (
     TEX_FLAG_LOAD_AS_RAW,
     RENDERMODE_ENTRY_STRIDE,
     RT_BK_MODEL,
+    SEG_BT_BONE_MTX,
     SEG_RENDERMODE,
     SEG_TEX,
     SEG_ANIM_BASE,
@@ -89,7 +94,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
-from .bk64_rom import is_bkmodelbin, layout_records, read_bkmodelbin_header, read_camera_area_list
+from .bk64_rom import BKMODEL_SECTIONS, is_bkmodelbin, layout_records, read_bkmodelbin_header, read_camera_area_list
 from .bk64_skeleton import bone_space_matrix, create_armature_from_bones, read_bone_table
 
 OTEX_FORMAT = {value: key for key, value in OTEX_TYPE.items()}
@@ -163,6 +168,7 @@ def _read_model(data: bytes):
         words=words,
         blob=blob,
         tex_infos=tex_infos,
+        external_textures=0,
         anim_scale=anim_scale,
         bones=bones,
         collision=collision,
@@ -178,47 +184,81 @@ def _read_model_bin(data: bytes):
     rather than by stepping over the one before it.
     """
     header = read_bkmodelbin_header(data)
+    # Tooie's header holds the same fields but pads to 0x50, and Kazooie's
+    # first section always starts at 0x38
+    tooie = min((header[name] for name in BKMODEL_SECTIONS if header[name]), default=0x38) >= 0x50
 
     words = []
     if header["gfx"]:
         count = struct.unpack_from(">I", data, header["gfx"])[0]
         words = [struct.unpack_from(">II", data, header["gfx"] + 8 + index * 8) for index in range(count)]
+        if tooie:
+            words = _as_f3dex(words)
 
+    # Tooie puts a section where Kazooie keeps its counts, and counts at 0x44
+    tri_count, vertex_count = (
+        struct.unpack_from(">HH", data, 0x44) if tooie else (header["tri_count"], header["vertex_count"])
+    )
     vertices = []
     if header["vtx"]:
         # a BKVertexList opens with the model's bounds, then the records
-        vertices = _vertex_records(data, header["vtx"] + 24, header["vertex_count"], ">")
+        vertices = _vertex_records(data, header["vtx"] + 24, vertex_count, ">")
 
-    tex_infos, blob = [], b""
+    tex_infos, blob, external = [], b"", 0
     if header["texture"]:
-        blob_size, count = struct.unpack_from(">iH", data, header["texture"])
-        for index in range(count):
-            offset, kind, width, height = struct.unpack_from(">ihxxBB", data, header["texture"] + 8 + index * 16)
-            tex_infos.append(dict(offset=offset, type=kind, width=width, height=height))
-        blob_at = header["texture"] + 8 + count * 16
-        blob = data[blob_at : blob_at + blob_size]
+        blob_size, count, tex_flags = struct.unpack_from(">iHH", data, header["texture"])
+        # Tooie drops the padding words: 8 bytes, and the locator comes first
+        stride, fields = (8, ">IhBB") if tooie else (16, ">ihxxBB")
+        if tooie and tex_flags & 0x100:
+            external = count  # the pixels are in a bank the whole game shares, and the locator indexes it
+        else:
+            for index in range(count):
+                offset, kind, width, height = struct.unpack_from(fields, data, header["texture"] + 8 + index * stride)
+                tex_infos.append(dict(offset=offset, type=kind & 0x7FFF, width=width, height=height))
+            blob_at = header["texture"] + 8 + count * stride
+            blob = data[blob_at : blob_at + blob_size]
+
+    bound = []
+    if header["anim_vertices"]:
+        at = header["anim_vertices"]
+        if tooie:
+            # Tooie's table has no count to step by, so it runs to whatever section starts next
+            after = [header[name] for name in BKMODEL_SECTIONS if header[name] > at]
+            bound = _read_tooie_bound_vertices(data, at, min(after, default=len(data)), len(vertices))[0]
+        else:
+            bound = _read_bound_vertices(data, at, ">", True)[0]
 
     anim_scale, bones = read_bone_table(data)
-    bin_collision = read_bin_collision(data, header["collision"]) if header["collision"] else ({}, None)
+    surfaces, grid = read_bin_collision(data, header["collision"]) if header["collision"] else ({}, None)
+    if tooie:
+        # Tooie's unk6 counts triangles, not surfaces, so keeping it would split a material per face
+        surfaces = {triple: (flags, 0) for triple, (flags, _unk6) in surfaces.items()}
     model = dict(
         geo_type=header["geo_type"],
-        tri_count=header["tri_count"],
+        tri_count=tri_count,
         has_mesh_list=bool(header["mesh_list"]),
-        camera_areas=read_camera_area_list(data, header["camera"], ">", True) if header["camera"] else [],
-        mesh_list=_read_mesh_list(data, header["mesh_list"], ">")[0] if header["mesh_list"] else [],
-        bound_vertices=(
-            _read_bound_vertices(data, header["anim_vertices"], ">", True)[0] if header["anim_vertices"] else []
+        # Tooie fills these two slots with sections of its own, boxes where Kazooie
+        # keeps camera areas and vertex effects where it keeps the mesh list
+        camera_areas=(
+            read_camera_area_list(data, header["camera"], ">", True) if header["camera"] and not tooie else []
         ),
+        mesh_list=_read_mesh_list(data, header["mesh_list"], ">")[0] if header["mesh_list"] and not tooie else [],
+        bound_vertices=bound,
         animated_textures=(
-            _read_animated_textures(data, header["animated_texture"], ">") if header["animated_texture"] else []
+            _read_animated_textures(
+                data, header["animated_texture"], ">", BT_ANIM_TEX_SLOT_COUNT if tooie else ANIM_TEX_SLOT_COUNT
+            )
+            if header["animated_texture"]
+            else []
         ),
         words=words,
         blob=blob,
         tex_infos=tex_infos,
+        external_textures=external,
         anim_scale=anim_scale,
         bones=bones,
-        collision=bin_collision[0],
-        collision_grid=bin_collision[1],
+        collision=surfaces,
+        collision_grid=grid,
         shapes=read_collision_shapes_data(data, header["unk14"], ">")[0] if header["unk14"] else None,
     )
     # the layout is written last and runs to the end of the file
@@ -269,9 +309,62 @@ def _read_bound_vertices(data: bytes, offset: int, endian: str = "<", pad_header
     return entries, offset
 
 
-def _read_animated_textures(data: bytes, offset: int, endian: str):
+def _read_tooie_bound_vertices(data: bytes, offset: int, end: int, vertex_count: int):
+    """([{coord, bone, vertices}], where the section ends), from Tooie's table"""
+    flag, entries = struct.unpack_from(">HH", data, offset)
+    at = offset + 4
+    out = []
+    for _entry in range(entries):
+        entry_at = at
+        bone, points = struct.unpack_from(">HH", data, at)
+        at += 4
+        coords = [struct.unpack_from(">3h", data, at + step * 6) for step in range(points)]
+        at += points * 6 + 2  # the trailing word belongs to neither side
+
+        # flag 1 puts one normal per index here, ahead of the groups that say how many
+        groups, held = None, None
+        for skip in range(0, end - at, 4) if flag else (0,):
+            found = _read_index_groups(data, at + skip, end, points, vertex_count)
+            if found is None:
+                continue
+            reached, total, _held = found
+            if not flag or reached - entry_at == 6 + 8 * points + 6 * total:
+                groups, held = reached, _held
+                break
+        if groups is None:
+            raise PluginError(
+                f"The vertex binding table at 0x{offset:X} stops making sense at entry {_entry}. "
+                "This isn't a table the importer knows how to read."
+            )
+        at = groups
+        for coord, indices in zip(coords, held):
+            out.append(dict(coord=coord, bone=bone, vertices=indices))
+    return out, at
+
+
+def _read_index_groups(data: bytes, at: int, end: int, count: int, vertex_count: int):
+    """(where they end, how many indices, the groups), or None if the bytes aren't groups"""
+    groups, total = [], 0
+    for _group in range(count):
+        held = []
+        while True:
+            if at + 2 > end:
+                return None
+            value = struct.unpack_from(">h", data, at)[0]
+            at += 2
+            if value in (-1, -2):
+                break
+            if not 0 <= value < vertex_count:
+                return None
+            held.append(value)
+            total += 1
+        groups.append(held)
+    return at, total, groups
+
+
+def _read_animated_textures(data: bytes, offset: int, endian: str, slots: int = ANIM_TEX_SLOT_COUNT):
     """One (frame_size, frame_count, rate) per slot, s16 s16 f32 each"""
-    return [struct.unpack_from(endian + "hhf", data, offset + slot * 8) for slot in range(ANIM_TEX_SLOT_COUNT)]
+    return [struct.unpack_from(endian + "hhf", data, offset + slot * 8) for slot in range(slots)]
 
 
 def _read_rest(data: bytes, offset: int, flags):
@@ -441,6 +534,15 @@ def read_geo_body(body: bytes, endian: str = "<"):
                 offset, count, flags = struct.unpack_from(endian + "hBB", body, pos + 8)
                 ids = list(struct.unpack_from(endian + f"{count}B", body, pos + 12)) if count else []
                 records.append(("camera", ids, flags, branch(pos, offset)))
+            elif cmd in GEO_CMD_BT_DRAW_SLOTS:
+                # Tooie draws through these instead of LOADDL, and each slot holds
+                # a sub-list's offset in commands where LOADDL holds an index
+                for slot in range(GEO_CMD_BT_DRAW_SLOTS[cmd]):
+                    if pos + 10 + slot * 2 > len(body):
+                        break  # one model's last command runs four bytes past the file
+                    at = struct.unpack_from(endian + "H", body, pos + 8 + slot * 2)[0]
+                    if slot == 0 or at:
+                        records.append(("loaddl", at))
             elif cmd == GEO_CMD_TEXWRAP:
                 records.append(("texwrap", struct.unpack_from(endian + "i", body, pos + 8)[0]))
             elif cmd in (GEO_CMD_UNK0, GEO_CMD_CALL):
@@ -637,10 +739,7 @@ def _blob_textures(tex_infos):
     for index, info in enumerate(tex_infos):
         otex_format = BK_TEX_FORMAT.get(info["type"])
         if otex_format is None:
-            raise PluginError(
-                f"Texture {index} is type 0x{info['type']:X}, which is none of BK's. Tooie models land "
-                "here, since their texture entries are 8 bytes and lead with the offset, not the type."
-            )
+            raise PluginError(f"Texture {index} is type 0x{info['type']:X}, which is none of BK's.")
         palette = BK_PALETTE_SIZE[otex_format] if otex_format in PALETTED_FORMATS else 0
         textures.append(
             dict(
@@ -743,9 +842,60 @@ def new_walk_state():
         "vertex_owner": {},
         "chunk_owner": None,
         "chunk_parent": None,
+        "mtx_owner": None,
+        "mtx_stack": [],
+        "anim_slots": ANIM_TEX_SLOT_COUNT,
         "texscale": None,
         "dropped": 0,
     }
+
+
+def _f3dex_geomode(bits: int):
+    """F3DEX2's geometry mode bits, moved to where F3DEX keeps them"""
+    moved = ((bits & 0x600) << 3) | ((bits & 0x200000) >> 12)  # the two cull bits, then smooth shading
+    return (bits & ~0x200600 & 0xFFFFFF) | moved
+
+
+def _as_f3dex(words):
+    """Tooie's F3DEX2 commands as the F3DEX ones they correspond to, one for one"""
+    out = []
+    for w0, w1 in words:
+        op = w0 >> 24
+        if op == 0x01:  # G_VTX. F3DEX2 counts up to the last slot, F3DEX from the first
+            count = (w0 >> 12) & 0xFF
+            first = ((w0 & 0xFF) >> 1) - count
+            out.append(((OP_VTX << 24) | ((first * 2) << 16) | (count << 10), w1))
+        elif op == 0x05:  # G_TRI1, its indices move from w0 to w1
+            out.append((OP_TRI1 << 24, w0 & 0xFFFFFF))
+        elif op == 0x06:  # G_TRI2
+            out.append(((OP_TRI2 << 24) | (w0 & 0xFFFFFF), w1 & 0xFFFFFF))
+        elif op == 0xD9:
+            # G_GEOMETRYMODE clears and sets in one command. No model in the game
+            # does both at once, so it becomes whichever half it uses.
+            clear = ~w0 & 0xFFFFFF
+            if clear:
+                out.append((OP_CLEARGEOMETRYMODE << 24, _f3dex_geomode(clear)))
+            else:
+                out.append((OP_SETGEOMETRYMODE << 24, _f3dex_geomode(w1)))
+        elif op == 0xD7:  # G_TEXTURE, the level and tile move down a byte
+            out.append(((OP_TEXTURE << 24) | (((w0 >> 8) & 0xFF) << 8) | (w0 & 0xFF), w1))
+        elif op == 0xDA:
+            # G_MTX, F3DEX2 stores the flags xor push and numbers them differently
+            flags = (w0 & 0xFF) ^ 0x01
+            flags = (flags & 0x02) | ((flags & 0x01) << 2) | ((flags & 0x04) >> 2)
+            out.append(((OP_MTX << 24) | (flags << 16) | MTX_SIZE, w1))
+        elif op == 0xD8:
+            # G_POPMTX. F3DEX pops one at a time, so w1 keeps the count times MTX_SIZE
+            out.append((OP_POPMTX << 24, w1))
+        elif op == 0xDE:
+            out.append(((OP_DL << 24) | (w0 & 0xFFFFFF), w1))
+        elif op == 0xDF:
+            out.append((OP_ENDDL << 24, w1))
+        elif op in (0x02, 0x03, 0x04, 0x07, 0xDB, 0xDC, 0xDD):
+            out.append((0, 0))  # the rest, kept as nothing so a layout's command offsets still land
+        else:
+            out.append((w0, w1))  # the RDP half is shared
+    return out
 
 
 def _walk_display_list(words, start: int, state):
@@ -793,9 +943,10 @@ def _walk_display_list(words, start: int, state):
             first = ((w0 >> 16) & 0xFF) // 2
             count = (w0 & 0xFFFF) >> 10
             base = (w1 & 0xFFFFFF) // VTX_SIZE
+            owner = current_owner if state["mtx_owner"] is None else state["mtx_owner"]
             for step in range(count):
                 cache[first + step] = base + step
-                state["vertex_owner"][base + step] = current_owner
+                state["vertex_owner"][base + step] = owner
         elif opcode == OP_SETTIMG:
             segment, value = w1 >> 24, w1 & 0x00FFFFFF
             state["mip_tile"] = None
@@ -803,7 +954,7 @@ def _walk_display_list(words, start: int, state):
                 state["texture"] = value
                 if state["palette"] is not None:
                     palettes.setdefault(value, state["palette"])
-            elif SEG_ANIM_BASE - ANIM_TEX_SLOT_COUNT < segment <= SEG_ANIM_BASE:
+            elif SEG_ANIM_BASE - state["anim_slots"] < segment <= SEG_ANIM_BASE:
                 # an animated texture is bound by segment, and the game slides
                 # that segment along the blob a frame at a time
                 slot = SEG_ANIM_BASE - segment
@@ -847,7 +998,15 @@ def _walk_display_list(words, start: int, state):
             # a chunk picks its render mode by jumping into the game's table, and
             # one that never jumps keeps whatever the chunk before it left
             state["rendermode"] = (w1 & 0xFFFFFF) // RENDERMODE_ENTRY_STRIDE
+        elif opcode == OP_MTX and (w1 >> 24) == SEG_BT_BONE_MTX:
+            # a Tooie draw loads its bone's matrix inline. 85 of the game's pops
+            # land in a later chunk than their push, so the stack has to carry
+            if (w0 >> 16) & G_MTX_PUSH:
+                state["mtx_stack"].append(state["mtx_owner"])
+            state["mtx_owner"] = (w1 & 0xFFFFFF) // MTX_SIZE
         elif opcode == OP_POPMTX:
+            for _pop in range(w1 // MTX_SIZE):
+                state["mtx_owner"] = state["mtx_stack"].pop() if state["mtx_stack"] else None
             current_owner = state["chunk_parent"]
         elif opcode == OP_TRI1:
             emit(w1)
@@ -1250,6 +1409,7 @@ def import_bk64_model(context, path: str, settings):
     state = new_walk_state()
     if textures is not None:
         state["blob_images"] = {texture["image"]: index for index, texture in enumerate(textures)}
+    state["anim_slots"] = len(model["animated_textures"]) or ANIM_TEX_SLOT_COUNT
     geometry = []
     for matrix_id, parent_id, gfx_index in chunks:
         state["chunk_owner"], state["chunk_parent"] = matrix_id, parent_id
@@ -1261,7 +1421,9 @@ def import_bk64_model(context, path: str, settings):
     else:
         images = _load_blob_textures(base, model["blob"], textures, state["mip_textures"])
 
-    model["animated_frames"] = _load_animated_frames(base, model, state["anim_binds"], images)
+    model["animated_frames"] = (
+        {} if model["external_textures"] else _load_animated_frames(base, model, state["anim_binds"], images)
+    )
 
     # six models list textures their display list never binds, up to 81 of them.
     # Nothing here samples one, and nothing writes one back.

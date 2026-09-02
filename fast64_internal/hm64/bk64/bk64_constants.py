@@ -67,6 +67,7 @@ TILE_BITS = {0: 4, 1: 8, 2: 16, 3: 32}  # G_SETTILE's siz, the depth the RDP dra
 # frame the game slides that segment's base on by frame_size bytes.
 SEG_ANIM_BASE = 15
 ANIM_TEX_SLOT_COUNT = 4
+BT_ANIM_TEX_SLOT_COUNT = 7  # Tooie's list is 56 bytes, segments 15 down to 9
 ANIM_FRAME_FORMATS = frozenset(("RGBA16", "RGBA32", "IA8", "CI4", "CI8"))  # a CI frame carries its palette with it
 
 MAX_TEXTURE_DIM = 255  # BKTextureInfo stores width/height as u8
@@ -86,6 +87,10 @@ GEO_CMD_DRAWDIST = 0x0D
 GEO_CMD_CULL = 0x0E  # a sphere the game tests before drawing what hangs off it
 GEO_CMD_CAMERA = 0x0F  # the areas what hangs off it draws inside, or outside with flag 2
 GEO_CMD_TEXWRAP = 0x10  # 1 clamps the mipmap tiles that follow, 2 wraps them
+
+# Tooie's drawing commands and the sub-lists each one names, keyed by opcode
+# since nothing decoded tells the three apart
+GEO_CMD_BT_DRAW_SLOTS = {0x11: 1, 0x16: 8, 0x18: 6}
 
 GEO_CMD_SIZE = 12  # every geo command is padded to 12 bytes
 GEO_BONE_BRANCH_OFFSET = 12  # BONE to its own LOADDL
@@ -124,6 +129,8 @@ MIP_PYRAMID_SIZE = (0x600 - MIP_TEXTURE_DIM * MIP_TEXTURE_DIM) * 2
 GEO_TYPE_ENV_MAP = 0x04
 
 # BK is F3DEX 1
+OP_MTX = 0x01
+G_MTX_PUSH = 0x04  # in OP_MTX's flags byte, where F3DEX2 puts it at 0x01
 OP_MOVEMEM = 0x03
 OP_MOVEWORD = 0xBC
 OP_DL = 0x06
@@ -181,6 +188,7 @@ GEO_MODE_START = 0x00000001 | 0x00000004 | 0x00000200  # zbuffer, shade, shade s
 # getLightDefinitions' default direction, as the signed bytes the RSP would get
 DEFAULT_LIGHT_DIR = (0x49, 0x49, 0x49)
 
+SEG_BT_BONE_MTX = 5  # Tooie's bone matrices, at the bone's table index times MTX_SIZE
 SEG_RENDERMODE = 3
 RENDERMODE_ENTRY_STRIDE = 16  # 2 Gfx, as a byte offset into the table
 RENDERMODE_OPAQUE = 0  # G_RM_OPA_SURF2

@@ -354,6 +354,7 @@ BKMODEL_BIN_FIELDS = (
 
 # the header fields that are values rather than offsets to a section
 BKMODEL_BIN_VALUES = frozenset(("magic", "geo_type", "tri_count", "vertex_count", "unk34"))
+BKMODEL_SECTIONS = tuple(name for name in BKMODEL_BIN_FIELDS if name not in BKMODEL_BIN_VALUES)
 
 
 def is_bkmodelbin(data: bytes) -> bool:
