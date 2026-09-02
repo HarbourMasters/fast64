@@ -228,6 +228,8 @@ A rigged Tooie model imports welded at its joints, which the export refuses. Run
 
 Some models come in untextured, mostly levels. Their textures sit in a bank the whole game shares rather than in the model itself, and the import says which ones did that when it finishes. The materials still import, so the geometry is usable and the images are what's missing. You also get collision, but its fields are a guess. They're read with Kazooie's bit meanings, which nothing has confirmed Tooie shares, so check the collision type and sound on an imported material before you ship it. A word the fields can't describe comes in as Raw Flags and goes back out as it arrived.
 
+Two things in a Tooie layout crash the port: it gates parts of a model with appendages Kazooie's table doesn't hold, and it nests bones deeper than the matrix stack. The export corrects both and says what it changed. Read that note, since geometry Tooie gated will now always draw.
+
 ** Tooie support is experimental at best and should be considered a bonus to fast64's Kazooie support **
 
 ### Levels

@@ -71,6 +71,7 @@ from .bk64_geo import (
     fixup_chunk,
     flatten_gfx_list,
     geo_records,
+    guard_layout,
     layout_refpoints,
     relink_layout,
     split_skinning,
@@ -1465,6 +1466,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         if stored is not None:
             records = relink_layout(stored, from_source)
             if records is not None:
+                records = guard_layout(records, settings.warnings)
                 # anything the modeller added is outside the layout, hung off its
                 # bone at the end. Anything else draws plainly, off no matrix.
                 drawn = {index for _k, indices, _m, _p, _r in layout_records(records) for index in indices}

@@ -105,6 +105,7 @@ GEO_DRAWDIST_SIZE = 24  # a s16 box and the branch, padded from 22
 GEO_SORT_SIZE = 40  # two f32 points, flags and two branches
 
 MAX_APPENDAGE_ID = 0x29  # the visibility table is 0x2A entries, and SELECTOR treats 0 as unset
+MAX_BONE_NESTING = 9  # the RSP's modelview stack holds ten, and no vanilla layout nests past this
 
 MAX_DRAWABLE_BONE_INDEX = 127  # geo_cmd_bone_s.anim_matrix_id is an s8
 MAX_BONE_ID = 0x6C  # the bone transform table is 0x6D entries, indexed by id unchecked
