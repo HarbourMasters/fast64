@@ -53,7 +53,7 @@ The vertex color's alpha channel only reaches the output if the alpha combiner t
 
 No preset sets a render mode, and none should. A chunk jumps into the render mode table the game builds instead, picked by its Draw Layer. Ticking Set Render Mode writes a mode into the display list after that jump, which overrides it and takes the actor's depth behavior away from the game.
 
-The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below. The transparent presets set that for you, so the two start out agreeing. Nothing holds them together afterwards: move a material to the opaque layer and it still previews blended while it ships solid.
+The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below. The cutout and transparent presets set that to Translucent for you, and the rest put it back to From Scene. A cutout gets no alpha on the opaque entry. Nothing holds them together afterwards: move a material to the opaque layer and it still previews blended while it ships solid.
 
 Force Unlit Shade, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal. The result goes to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
 

@@ -116,6 +116,8 @@ f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_OPA_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
 f3d_mat.draw_layer.oot = 'Opaque'
+# BK reads its own draw layer
+bpy.context.material.hm64_bk64_draw_layer = 'SCENE'
 bpy.context.material.f3d_update_flag = False
 f3d_mat.use_default_lighting = f3d_mat.use_default_lighting # Force nodes update
 f3d_mat.presetName = 'BK Shaded Solid'
@@ -229,6 +231,8 @@ f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_OPA_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
 f3d_mat.draw_layer.oot = 'Opaque'
+# BK reads its own draw layer
+bpy.context.material.hm64_bk64_draw_layer = 'SCENE'
 bpy.context.material.f3d_update_flag = False
 f3d_mat.use_default_lighting = f3d_mat.use_default_lighting # Force nodes update
 f3d_mat.presetName = 'BK Shaded Texture'
@@ -342,6 +346,11 @@ f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_TEX_EDGE2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
 f3d_mat.draw_layer.oot = 'Opaque'
+# BK reads its own draw layer, and a cutout gets no alpha on the opaque entry
+_scene_layer = bpy.context.scene.hm64_bk64_draw_layer
+bpy.context.material.hm64_bk64_draw_layer = (
+    'TRANSLUCENT_NO_AA' if _scene_layer.endswith('_NO_AA') else 'TRANSLUCENT'
+)
 bpy.context.material.f3d_update_flag = False
 f3d_mat.use_default_lighting = f3d_mat.use_default_lighting # Force nodes update
 f3d_mat.presetName = 'BK Shaded Texture Cutout'
@@ -573,6 +582,8 @@ f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_OPA_SURF2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
 f3d_mat.draw_layer.oot = 'Opaque'
+# BK reads its own draw layer
+bpy.context.material.hm64_bk64_draw_layer = 'SCENE'
 bpy.context.material.f3d_update_flag = False
 f3d_mat.use_default_lighting = f3d_mat.use_default_lighting # Force nodes update
 f3d_mat.presetName = 'BK Vertex Colored Texture'
@@ -686,6 +697,11 @@ f3d_mat.rdp_settings.rendermode_preset_cycle_2 = 'G_RM_AA_ZB_TEX_EDGE2'
 f3d_mat.draw_layer.name = ''
 f3d_mat.draw_layer.sm64 = '1'
 f3d_mat.draw_layer.oot = 'Opaque'
+# BK reads its own draw layer, and a cutout gets no alpha on the opaque entry
+_scene_layer = bpy.context.scene.hm64_bk64_draw_layer
+bpy.context.material.hm64_bk64_draw_layer = (
+    'TRANSLUCENT_NO_AA' if _scene_layer.endswith('_NO_AA') else 'TRANSLUCENT'
+)
 bpy.context.material.f3d_update_flag = False
 f3d_mat.use_default_lighting = f3d_mat.use_default_lighting # Force nodes update
 f3d_mat.presetName = 'BK Vertex Colored Texture Cutout'
