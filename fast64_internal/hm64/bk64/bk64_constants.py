@@ -2,6 +2,7 @@ import struct
 
 # Torch ResourceType fourccs, little endian
 RT_BK_MODEL = 0x424B4D4F
+RT_BT_MODEL = 0x42544D4F
 RT_BK_ANIM = 0x424B414E
 RT_VERTEX = 0x4F565458
 RT_BLOB = 0x4F424C42
@@ -67,6 +68,7 @@ TILE_BITS = {0: 4, 1: 8, 2: 16, 3: 32}  # G_SETTILE's siz, the depth the RDP dra
 # frame the game slides that segment's base on by frame_size bytes.
 SEG_ANIM_BASE = 15
 ANIM_TEX_SLOT_COUNT = 4
+BT_ANIM_TEX_SLOT_COUNT = 7  # Tooie's list is 56 bytes, segments 15 down to 9
 ANIM_FRAME_FORMATS = frozenset(("RGBA16", "RGBA32", "IA8", "CI4", "CI8"))  # a CI frame carries its palette with it
 
 MAX_TEXTURE_DIM = 255  # BKTextureInfo stores width/height as u8
@@ -87,6 +89,13 @@ GEO_CMD_CULL = 0x0E  # a sphere the game tests before drawing what hangs off it
 GEO_CMD_CAMERA = 0x0F  # the areas what hangs off it draws inside, or outside with flag 2
 GEO_CMD_TEXWRAP = 0x10  # 1 clamps the mipmap tiles that follow, 2 wraps them
 
+# Tooie's drawing commands and the sub-lists each one names, keyed by opcode
+# since nothing decoded tells the three apart
+GEO_CMD_BT_DRAW_SLOTS = {0x11: 1, 0x16: 8, 0x18: 6}
+BT_DRAW_COMMAND_WORDS = {0x11: 4, 0x16: 8, 0x18: 20}  # every u16 each one carries, not just the offsets
+BT_HITBOX_SIZES = (23, 15, 10)  # a resource's three hitbox lists, none of which BK draws
+BT_UNK20_SIZE = 13  # three coordinates, three more and a byte
+
 GEO_CMD_SIZE = 12  # every geo command is padded to 12 bytes
 GEO_BONE_BRANCH_OFFSET = 12  # BONE to its own LOADDL
 GEO_BONE_PAIR_SIZE = 24  # BONE to the next BONE
@@ -96,6 +105,7 @@ GEO_DRAWDIST_SIZE = 24  # a s16 box and the branch, padded from 22
 GEO_SORT_SIZE = 40  # two f32 points, flags and two branches
 
 MAX_APPENDAGE_ID = 0x29  # the visibility table is 0x2A entries, and SELECTOR treats 0 as unset
+MAX_BONE_NESTING = 9  # the RSP's modelview stack holds ten, and no vanilla layout nests past this
 
 MAX_DRAWABLE_BONE_INDEX = 127  # geo_cmd_bone_s.anim_matrix_id is an s8
 MAX_BONE_ID = 0x6C  # the bone transform table is 0x6D entries, indexed by id unchecked
@@ -124,6 +134,8 @@ MIP_PYRAMID_SIZE = (0x600 - MIP_TEXTURE_DIM * MIP_TEXTURE_DIM) * 2
 GEO_TYPE_ENV_MAP = 0x04
 
 # BK is F3DEX 1
+OP_MTX = 0x01
+G_MTX_PUSH = 0x04  # in OP_MTX's flags byte, where F3DEX2 puts it at 0x01
 OP_MOVEMEM = 0x03
 OP_MOVEWORD = 0xBC
 OP_DL = 0x06
@@ -149,6 +161,18 @@ OP_POPMTX = 0xBD
 G_LIGHTING = 0x00020000
 G_TEXTURE_GEN = 0x00040000
 
+G_SHADE = 0x00000004
+G_SHADING_SMOOTH = 0x00000200
+G_CULL_BOTH = 0x00003000
+G_FOG = 0x00010000
+G_TEXTURE_GEN_LINEAR = 0x00080000
+G_LOD = 0x00100000
+
+# every vanilla sublist opens with this clear.
+GEO_MODE_CHUNK_CLEAR = (
+    G_SHADE | G_SHADING_SMOOTH | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD
+)
+
 # geometry mode bit -> the rdp_settings flag that writes it again
 GEO_MODE_FLAGS = {
     0x00000001: "g_zbuffer",
@@ -169,6 +193,7 @@ GEO_MODE_START = 0x00000001 | 0x00000004 | 0x00000200  # zbuffer, shade, shade s
 # getLightDefinitions' default direction, as the signed bytes the RSP would get
 DEFAULT_LIGHT_DIR = (0x49, 0x49, 0x49)
 
+SEG_BT_BONE_MTX = 5  # Tooie's bone matrices, at the bone's table index times MTX_SIZE
 SEG_RENDERMODE = 3
 RENDERMODE_ENTRY_STRIDE = 16  # 2 Gfx, as a byte offset into the table
 RENDERMODE_OPAQUE = 0  # G_RM_OPA_SURF2
@@ -369,7 +394,7 @@ bk64_world_defaults = {
     "geometryMode": {
         "zBuffer": True,
         "shade": True,
-        "cullBack": False,  # the per frame clear drops it and nothing puts it back
+        "cullBack": False,  # cleared per frame and again at every chunk head
         "lighting": False,  # the model path loads no lights
         "shadeSmooth": True,
         "clipping": False,  # nothing in the game ever sets it

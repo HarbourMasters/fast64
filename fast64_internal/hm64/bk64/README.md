@@ -53,7 +53,7 @@ The vertex color's alpha channel only reaches the output if the alpha combiner t
 
 No preset sets a render mode, and none should. A chunk jumps into the render mode table the game builds instead, picked by its Draw Layer. Ticking Set Render Mode writes a mode into the display list after that jump, which overrides it and takes the actor's depth behavior away from the game.
 
-The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below. The transparent presets set that for you, so the two start out agreeing. Nothing holds them together afterwards: move a material to the opaque layer and it still previews blended while it ships solid.
+The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below. The cutout and transparent presets set that to Translucent for you, and the rest put it back to From Scene. A cutout gets no alpha on the opaque entry. Nothing holds them together afterwards: move a material to the opaque layer and it still previews blended while it ships solid.
 
 Force Unlit Shade, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal. The result goes to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
 
@@ -220,6 +220,17 @@ Imported materials come in unlit, apart from the reflective ones, because a BK m
 "Import BK Animation" reads an animation onto the selected armature as a new action, one keyframe per frame. Bones are matched by ID. Import the skeleton of the model the animation belongs to first. An animation naming an ID the rig doesn't have is refused rather than partly applied.
 
 An imported animation is not a byte for byte copy of the original when exported again. It is exact on every whole frame, to within the translation step above. Between two frames it can differ by a couple of BK units. A key can only sit on a whole frame, and the original's curve leaves the line through its own per frame values by up to two degrees. Use this to read an animation to see how it moves, or to adjust it.
+
+### Banjo-Tooie Models
+"Import BK Model" reads Banjo-Tooie models too, detected from the file like any other. Models and their skeletons come in, animations don't. Tooie draws with a different microcode, and the import converts its display lists on the way in, so there's no extra effort for you to do. What comes in exports again as a Banjo-Kazooie model, in either format. That makes this a way to bring Tooie geometry, rigs and collision into a Kazooie hack, and it is the only thing the export does with one. Nothing writes Tooie's own format back.
+
+A rigged Tooie model imports welded at its joints, which the export refuses. Run Split Mesh At Bones on it, or set Rigging to Bind Vertices, and it writes either format. Bone IDs come in as Tooie numbered them, and no Kazooie animation addresses those, so a Tooie model dropped in as an actor holds its rest pose. Replacing A Vanilla Model, below, covers matching a stand-in's IDs to the actor it replaces.
+
+Some models come in untextured, mostly levels. Their textures sit in a bank the whole game shares rather than in the model itself, and the import says which ones did that when it finishes. The materials still import, so the geometry is usable and the images are what's missing. You also get collision, but its fields are a guess. They're read with Kazooie's bit meanings, which nothing has confirmed Tooie shares, so check the collision type and sound on an imported material before you ship it. A word the fields can't describe comes in as Raw Flags and goes back out as it arrived.
+
+Two things in a Tooie layout crash the port: it gates parts of a model with appendages Kazooie's table doesn't hold, and it nests bones deeper than the matrix stack. The export corrects both and says what it changed. Read that note, since geometry Tooie gated will now always draw.
+
+** Tooie support is experimental at best and should be considered a bonus to fast64's Kazooie support **
 
 ### Levels
 A level's geometry is two models rather than one. The game loads an opaque half and a translucent half as separate resources, named for the level and which half they are: Treasure Trove Cove is `ASSET_146B_TTC_TREASURE_TROVE_COVE_OPA` and `ASSET_146C_TTC_TREASURE_TROVE_COVE_XLU`. Most maps have both halves, and some only the OPA.

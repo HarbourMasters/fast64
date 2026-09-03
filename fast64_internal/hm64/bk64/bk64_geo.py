@@ -8,9 +8,13 @@ from ...utility import PluginError
 from .bk64_constants import (
     ANIM_TEX_SLOT_COUNT,
     G_LIGHTING,
+    G_SHADE,
+    G_SHADING_SMOOTH,
     G_TEXTURE_GEN,
     GEO_LAYOUT_PROP,
+    GEO_MODE_CHUNK_CLEAR,
     MAX_APPENDAGE_ID,
+    MAX_BONE_NESTING,
     MIP_LOAD_BLOCK,
     MIP_LOAD_TILE,
     NO_PARENT,
@@ -107,6 +111,73 @@ def relink_layout(records, from_source):
 
     relinked = relink(records)
     return relinked if kept else None
+
+
+def _nesting_depth(records, at=0):
+    """How many bone commands deep the layout goes"""
+    worst = at
+    for record in records:
+        if record[0] == "bonebranch":
+            worst = max(worst, _nesting_depth(record[2], at + 1))
+        elif record[0] == "selector":
+            for option in record[2]:
+                worst = max(worst, _nesting_depth(option, at))
+        elif record[0] == "sort":
+            worst = max(worst, _nesting_depth(record[3], at), _nesting_depth(record[4], at))
+        elif record[0] in ("lod", "drawdist", "camera"):
+            worst = max(worst, _nesting_depth(record[-1], at))
+    return worst
+
+
+def guard_layout(records, warnings):
+    """The stored layout with out of range Selectors dropped and deep nesting flattened"""
+    past_table = []
+    hoisted = 0
+
+    def guard(nodes, depth):
+        nonlocal hoisted
+        out = []
+        for record in nodes:
+            kind = record[0]
+            if kind == "selector" and not 1 <= record[1] <= MAX_APPENDAGE_ID:
+                # modelRender_geoCmd_SELECTOR indexes its table with this unchecked
+                past_table.append(record[1])
+                out += guard(record[2][0] if record[2] else [], depth)
+            elif kind == "bonebranch":
+                under = [child for child in record[2] if child[0] == "bonebranch"]
+                # this bone sits at depth + 1, so the bones under it sit one past that
+                if depth + 2 <= MAX_BONE_NESTING or not under:
+                    out.append(("bonebranch", record[1], guard(record[2], depth + 1)))
+                else:
+                    hoisted += len(under)
+                    own = [child for child in record[2] if child[0] != "bonebranch"]
+                    out.append(("bonebranch", record[1], guard(own, depth + 1)))
+                    out += guard(under, depth)
+            elif kind == "selector":
+                out.append(("selector", record[1], [guard(option, depth) for option in record[2]]))
+            elif kind == "sort":
+                out.append((*record[:3], guard(record[3], depth), guard(record[4], depth), record[5]))
+            elif kind in ("lod", "drawdist", "camera"):
+                out.append((*record[:-1], guard(record[-1], depth)))
+            else:
+                out.append(record)
+        return out
+
+    guarded = guard(records, 0)
+    if past_table:
+        named = ", ".join(str(value) for value in sorted(set(past_table)))
+        warnings.append(
+            f"{len(past_table)} Selectors name appendages {named}. The game's table stops at "
+            f"{MAX_APPENDAGE_ID} and it doesn't check, so each went out drawing its first option. Mark a "
+            f"bone Selector with an id from 1 to {MAX_APPENDAGE_ID} to gate that geometry again."
+        )
+    if hoisted:
+        warnings.append(
+            f"The layout nests bone commands {_nesting_depth(records)} deep and the matrix stack "
+            f"holds {MAX_BONE_NESTING}. {hoisted} of them went out beside their parent instead of inside "
+            "it. Nothing moves, since a bone loads its own matrix."
+        )
+    return guarded
 
 
 def layout_refpoints(records):
@@ -358,7 +429,10 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
     # texture gen reads, and modelRender hands it a LookAt and no lights, the
     # same as vanilla.
     reflective = any(((w0 >> 24) & 0xFF) == OP_SETGEOMETRYMODE and (w1 & G_TEXTURE_GEN) for w0, w1 in words)
-    out = [] if reflective else [(OP_CLEARGEOMETRYMODE << 24, G_LIGHTING)]  # the model path loads no lights
+    out = [
+        (OP_CLEARGEOMETRYMODE << 24, GEO_MODE_CHUNK_CLEAR),
+        (OP_SETGEOMETRYMODE << 24, G_SHADE | G_SHADING_SMOOTH),  # the clear takes shade and no material puts it back
+    ]
     if rendermode_entry is not None:
         # jump into the table instead of setting a mode, leaving the actor's depth mode to hold
         out.append((OP_DL << 24, (SEG_RENDERMODE << 24) | (rendermode_entry * RENDERMODE_ENTRY_STRIDE)))
