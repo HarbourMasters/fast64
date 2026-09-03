@@ -883,6 +883,7 @@ def import_hm64_o2r_display_list(
     )
     obj.name = name
     obj.data.name = name
+    obj.ootActorScale = import_scale / scene.ootBlenderScale
     _pack_o2r_images(obj)
     return obj
 
