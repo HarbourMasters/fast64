@@ -493,7 +493,13 @@ class OOTVert(F3DVert):
         self.transforms.sort(key=lambda transform: transform.limbIndex)
 
     def toVtx(
-        self, mesh, texDimensions, transformMatrix: mathutils.Matrix, isPointSampled: bool, tex_scale=(1, 1)
+        self,
+        mesh,
+        texDimensions,
+        transformMatrix: mathutils.Matrix,
+        isPointSampled: bool,
+        tex_scale=(1, 1),
+        meshTag=None,
     ) -> OOTVtx:
         position = self.convertPosition(transformMatrix)
         uv = self.convertUV(texDimensions, isPointSampled, tex_scale)
@@ -872,7 +878,7 @@ class OOTF3DContext(F3DContext):
     def vertexFormatPatterns(self, data):
         # position, uv, color/normal
         if "VTX" in data:
-            return ["VTX\s*\(([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*)\)"]
+            return ["VTX\\s*\\(([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*)\\)"]
         else:
             return F3DContext.vertexFormatPatterns(self, data)
 
