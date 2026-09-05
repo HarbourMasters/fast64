@@ -14,6 +14,7 @@ from . import hm64_z64_f3d_writer
 from ..f3d.soh_xml_exporter import register as ensure_hm64_soh_xml
 from ..f3d.f3d_texture_writer_hm64 import register as ensure_hm64_texture_writer
 from .model_classes_hm64 import clear_hm64_material_state_cache
+from .zelda2_hair import get_zelda2_hair_matrix_bones
 
 from ...utility import PluginError, toAlnum
 from ..utility import get_internal_asset_path, sanitize_internal_asset_path, writeXMLData
@@ -92,6 +93,7 @@ def ootConvertArmatureToXML(
         ensure_hm64_texture_writer()
 
         fModel = OOTModel(skeletonName, DLFormat, drawLayer)
+        fModel.skip_skeleton_bones = get_zelda2_hair_matrix_bones(skeletonName)
         hm64_optimize = bool(getattr(settings, "hm64_optimize_skeleton_material_writes", False))
         fModel.hm64_optimize_skeleton_material_writes = hm64_optimize
         fModel.hm64_optimize_material_writes = hm64_optimize

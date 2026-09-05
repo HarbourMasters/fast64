@@ -10,6 +10,7 @@ from ...f3d.f3d_gbi import MTX_SIZE
 from ...f3d.f3d_material import createF3DMat, F3DMaterial_UpdateLock, update_preset_manual
 from ...z64.utility import replaceMatchContent, getOOTScale
 from ...z64.texture_array import TextureFlipbook
+from .zelda2_hair import ZELDA2_HAIR_MATRIX_BONES, ZELDA2_HAIR_SKELETON_NAME
 
 from ..f3d.hm64_f3d_writer import (
     checkForF3dMaterialInFaces,
@@ -48,6 +49,26 @@ _HM64_LINK_TORSO_LIMB = 20
 _HM64_LINK_TORSO_MATRIX_INDEX = 17
 
 
+def _get_zelda2_hair_matrix_groups(namePrefix: str, vertexGroup: str, meshObj, armatureObj) -> set[int]:
+    if namePrefix != ZELDA2_HAIR_SKELETON_NAME:
+        return set()
+
+    matrix_groups = set()
+    for matrix_name in ZELDA2_HAIR_MATRIX_BONES:
+        matrix_bone = armatureObj.data.bones.get(matrix_name)
+        matrix_group = meshObj.vertex_groups.get(matrix_name)
+        if matrix_bone is None or matrix_group is None:
+            return set()
+
+        parent = matrix_bone.parent
+        while parent is not None and parent.name in ZELDA2_HAIR_MATRIX_BONES:
+            parent = parent.parent
+        if parent is None or parent.name != vertexGroup:
+            return set()
+        matrix_groups.add(matrix_group.index)
+    return matrix_groups
+
+
 def _is_hm64_link_torso_exception(
     namePrefix: str, currentGroupIndex: int, vertGroupIndex: int, meshObj, armatureObj, meshInfo
 ):
@@ -79,6 +100,9 @@ class HM64OOTTriangleConverterInfo(OOTTriangleConverterInfo):
             groupIndex not in self.vertexGroupInfo.vertexGroupToMatrixIndex
             and groupIndex in self.hm64_allowed_missing_matrix_groups
         ):
+            group_name = getGroupNameFromIndex(self.obj, groupIndex)
+            if group_name in ZELDA2_HAIR_MATRIX_BONES:
+                return group_name
             return format((0x0D << 24) + MTX_SIZE * _HM64_LINK_TORSO_MATRIX_INDEX, "#010x")
         return super().getMatrixAddrFromGroup(groupIndex)
 
@@ -132,20 +156,29 @@ def ootProcessVertexGroup(
     mesh = meshObj.data
     currentGroupIndex = getGroupIndexFromname(meshObj, vertexGroup)
     nextDLIndex = len(meshInfo.vertexGroupInfo.vertexGroupToMatrixIndex)
+    bone = armatureObj.data.bones[vertexGroup]
+    zelda2_matrix_groups = _get_zelda2_hair_matrix_groups(namePrefix, vertexGroup, meshObj, armatureObj)
+    if zelda2_matrix_groups:
+        head_bone_index = armatureObj.data.bones.find(vertexGroup)
+        head_limb_index = meshInfo.vertexGroupInfo.boneIndexToLimbIndex[head_bone_index]
+        for matrix_group_index in zelda2_matrix_groups:
+            matrix_name = getGroupNameFromIndex(meshObj, matrix_group_index)
+            matrix_bone_index = armatureObj.data.bones.find(matrix_name)
+            meshInfo.vertexGroupInfo.boneIndexToLimbIndex[matrix_bone_index] = head_limb_index
+    owned_group_indices = {currentGroupIndex} | zelda2_matrix_groups
     vertIndices = [
         vert.index
         for vert in meshObj.data.vertices
-        if meshInfo.vertexGroupInfo.vertexGroups[vert.index] == currentGroupIndex
+        if meshInfo.vertexGroupInfo.vertexGroups[vert.index] in owned_group_indices
     ]
 
     if len(vertIndices) == 0:
         print("No vert indices in " + vertexGroup)
         return None, False, lastMaterialName
 
-    bone = armatureObj.data.bones[vertexGroup]
-
     # dict of material_index keys to face array values
     groupFaces = {}
+    runtimeMatrixFaces = {}
 
     hasSkinnedFaces = False
 
@@ -162,6 +195,7 @@ def ootProcessVertexGroup(
 
             connectedToUnhandledBone = False
             uses_exception_face = False
+            uses_runtime_matrix = False
 
             # A Blender loop is interpreted as face + loop index
             for i in range(3):
@@ -169,8 +203,11 @@ def ootProcessVertexGroup(
                 vertGroupIndex = meshInfo.vertexGroupInfo.vertexGroups[faceVertIndex]
                 if vertGroupIndex != currentGroupIndex:
                     hasSkinnedFaces = True
+                if vertGroupIndex in zelda2_matrix_groups:
+                    uses_runtime_matrix = True
                 if vertGroupIndex not in meshInfo.vertexGroupInfo.vertexGroupToLimb:
-                    if _is_hm64_link_torso_exception(
+                    is_zelda2_matrix = vertGroupIndex in zelda2_matrix_groups
+                    if is_zelda2_matrix or _is_hm64_link_torso_exception(
                         namePrefix,
                         currentGroupIndex,
                         vertGroupIndex,
@@ -190,15 +227,16 @@ def ootProcessVertexGroup(
             if connectedToUnhandledBone:
                 continue
 
-            if face.material_index not in groupFaces:
-                groupFaces[face.material_index] = []
-            groupFaces[face.material_index].append(face)
+            face_groups = runtimeMatrixFaces if uses_runtime_matrix else groupFaces
+            if face.material_index not in face_groups:
+                face_groups[face.material_index] = []
+            face_groups[face.material_index].append(face)
 
             handledFaces.append(face)
             if uses_exception_face:
                 claimed_exception_faces.add(face)
 
-    if len(groupFaces) == 0:
+    if len(groupFaces) == 0 and len(runtimeMatrixFaces) == 0:
         print("No faces in " + vertexGroup)
 
         # OOT will only allocate matrix if DL exists.
@@ -228,16 +266,15 @@ def ootProcessVertexGroup(
         exceptionMatrixGroups,
     )
 
+    orderedGroupFaces = list(groupFaces.items()) + list(runtimeMatrixFaces.items())
     if optimize:
         # If one of the materials we need to draw is the currently loaded material,
-        # do this one first.
-        newGroupFaces = {
-            material_index: faces
-            for material_index, faces in groupFaces.items()
-            if meshObj.material_slots[material_index].material.name == lastMaterialName
-        }
-        newGroupFaces.update(groupFaces)
-        groupFaces = newGroupFaces
+        # do this one first, without moving matrix geometry ahead of the head.
+        normal_faces = list(groupFaces.items())
+        matrix_faces = list(runtimeMatrixFaces.items())
+        normal_faces.sort(key=lambda item: meshObj.material_slots[item[0]].material.name != lastMaterialName)
+        matrix_faces.sort(key=lambda item: meshObj.material_slots[item[0]].material.name != lastMaterialName)
+        orderedGroupFaces = normal_faces + matrix_faces
 
     # Usually we would separate DLs into different draw layers.
     # however it seems like OOT skeletons don't have this ability.
@@ -258,7 +295,7 @@ def ootProcessVertexGroup(
         fModel.hm64_material_scope_key = f"{namePrefix}:{vertexGroup}"
         fModel.hm64_material_manifest_owner_name = fMesh.draw.name
     try:
-        for material_index, faces in groupFaces.items():
+        for material_index, faces in orderedGroupFaces:
             material = meshObj.material_slots[material_index].material
             checkForF3dMaterialInFaces(meshObj, material)
             fMaterial, texDimensions = saveOrGetF3DMaterial(

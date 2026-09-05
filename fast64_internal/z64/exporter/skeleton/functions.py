@@ -59,6 +59,10 @@ def ootProcessBone(
     if not isinstance(meshInfo.vertexGroupInfo, OOTVertexGroupInfo):
         raise PluginError("'meshInfo.vertexGroupInfo' must be of type 'OOTVertexGroupInfo' in function ootProcessBone.")
 
+    skipped_bones = getattr(fModel, "skip_skeleton_bones", set())
+    if boneName in skipped_bones:
+        return nextIndex, lastMaterialName
+
     bone = armatureObj.data.bones[boneName]
     if bone.parent is not None:
         transform = convertTransformMatrix @ bone.parent.matrix_local.inverted() @ bone.matrix_local
@@ -120,7 +124,7 @@ def ootProcessBone(
     # the bones are listed in the file in the same order as they are drawn. This
     # is needed to enable the programmer to get the limb indices and to enable
     # optimization between limbs.
-    childrenNames = getSortedChildren(armatureObj, bone)
+    childrenNames = [name for name in getSortedChildren(armatureObj, bone) if name not in skipped_bones]
     for childName in childrenNames:
         nextIndex, lastMaterialName = ootProcessBone(
             fModel,
@@ -175,11 +179,14 @@ def ootConvertArmatureToSkeleton(
 
         convertTransformMatrix = convertTransformMatrix @ mathutils.Matrix.Diagonal(armatureObj.scale).to_4x4()
 
+        skipped_bones = getattr(fModel, "skip_skeleton_bones", set())
         limbIndex = 0
         meshInfo.vertexGroupInfo.boneIndexToLimbIndex[armatureObj.data.bones.find(startBoneName)] = limbIndex
         startBone = armatureObj.data.bones[startBoneName]
 
         for child in getRecursiveSortedChildren(startBone):
+            if child.name in skipped_bones:
+                continue
             limbIndex += 1
             childName = child.name
             boneIndex = armatureObj.data.bones.find(childName)
