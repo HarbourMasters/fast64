@@ -1,6 +1,7 @@
 """HM64-specific z64 skeleton integration hooks."""
 
 import bpy
+import mathutils
 
 from contextlib import contextmanager
 from ..utility import hm64_mm_features_enabled, is_hm64
@@ -11,15 +12,94 @@ from ...z64.skeleton.properties import OOTSkeletonExportSettings, OOTSkeletonImp
 from ...z64.skeleton.importer import functions as shared_skeleton_importer
 from ...z64.skeleton.importer.functions import ootImportSkeletonC as shared_import_skeleton
 from ...z64.exporter.skeleton.functions import ootConvertArmatureToC as shared_export_skeleton
+from ...z64.model_classes import OOTF3DContext, OOTVert, VertexTransform
+from ...f3d.f3d_parser import F3DContext
+from ...f3d.f3d_writer import BufferVertex
 from ..mm.skeleton import mm_importer as hm64_mm_importer
 from ..mm.skeleton.mm_importer import ootImportSkeletonC as mm_import_skeleton
 from .skeleton_xml import ootConvertArmatureToXML as oot_xml_export_skeleton
+from .zelda2_hair import add_zelda2_hair_matrices
 from ..f3d.f3d_gbi_hm64 import register as ensure_hm64_f3d_gbi
 from ..f3d.f3d_texture_writer_hm64 import register as ensure_hm64_texture_writer
-from ...utility import prop_split
+from ...utility import prop_split, getRgbNormalSettings, hexOrDecInt
 
 _original_export_draw_props = OOTSkeletonExportSettings.draw_props
 _original_import_draw_props = OOTSkeletonImportSettings.draw_props
+
+
+class HM64OOTF3DContext(OOTF3DContext):
+    def initContext(self):
+        super().initContext()
+        self.runtimeMatrixGroups: dict[str, int | str] = {}
+        self.runtimeHeadVertexOffsets: dict[str, tuple[str, set[int]]] = {}
+
+    def addRuntimeMatrix(self, name: str, matrix: mathutils.Matrix, group: int | str):
+        self.matrixData[name] = matrix
+        self.runtimeMatrixGroups[name] = group
+        if isinstance(group, str):
+            self.limbToBoneName[name] = group
+
+    def addRuntimeHeadVertices(self, matrix_name: str, limb_name: str, offsets: set[int]):
+        self.runtimeHeadVertexOffsets[matrix_name] = (limb_name, offsets)
+
+    def addRuntimeSkeletonBones(self, skeleton_name, armature_obj):
+        add_zelda2_hair_matrices(skeleton_name, armature_obj, self)
+
+    def _runtime_group(self, buffer_vert):
+        return self.runtimeMatrixGroups.get(buffer_vert.groupIndex)
+
+    def setCurrentTransform(self, name, flagList="G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW"):
+        try:
+            pointer = hexOrDecInt(name)
+        except:
+            return super().setCurrentTransform(name, flagList)
+
+        matrix_names = [f"0x{pointer:08X}"]
+        if pointer & 1:
+            matrix_names.append(f"0x{pointer - 1:08X}")
+        for matrix_name in matrix_names:
+            if matrix_name in self.matrixData:
+                # O2R may mark runtime matrix paths with its low bit.
+                return F3DContext.setCurrentTransform(self, matrix_name, flagList)
+        return super().setCurrentTransform(name, flagList)
+
+    def getVertexTransforms(self, buffer_vert, has_normal, has_packed_normals):
+        vert = buffer_vert.f3dVert
+        runtime_group = self._runtime_group(buffer_vert)
+        if runtime_group is not None and isinstance(vert, OOTVert):
+            transform = self.matrixData[buffer_vert.groupIndex]
+            return transform @ vert.position, self.transformNormal(has_normal, has_packed_normals, vert, transform)
+        return super().getVertexTransforms(buffer_vert, has_normal, has_packed_normals)
+
+    def getTransformedVertex(self, index: int) -> BufferVertex:
+        buffer_vert = self.vertexBuffer[index]
+        if buffer_vert is None:
+            return super().getTransformedVertex(index)
+
+        vert = buffer_vert.f3dVert
+        runtime_group = self._runtime_group(buffer_vert)
+        if runtime_group is None or not isinstance(vert, OOTVert):
+            return super().getTransformedVertex(index)
+
+        mat = self.mat()
+        has_rgb, has_normal, has_packed_normals = getRgbNormalSettings(mat)
+        has_packed_normals = has_packed_normals and not vert.skinVert
+        position, normal = self.getVertexTransforms(buffer_vert, has_normal, has_packed_normals)
+        uv, rgb, alpha = self.convertVertexValues(mat, has_rgb, vert)
+        transformed_vert = OOTVert(
+            position, uv, rgb, normal, alpha, transforms=[VertexTransform(runtime_group, vert.position, 1.0)]
+        )
+        return BufferVertex(transformed_vert, buffer_vert.groupIndex, buffer_vert.materialIndex)
+
+    def updateBuffer(self, count, start, vertex_data, vertex_data_offset):
+        head_vertices = self.runtimeHeadVertexOffsets.get(self.currentTransformName)
+        if head_vertices is None:
+            return super().updateBuffer(count, start, vertex_data, vertex_data_offset)
+
+        head_limb_name, offsets = head_vertices
+        for index in range(count):
+            group = head_limb_name if vertex_data_offset + index in offsets else self.currentTransformName
+            self.vertexBuffer[start + index] = BufferVertex(vertex_data[vertex_data_offset + index], group, 0)
 
 
 @contextmanager
@@ -55,6 +135,16 @@ def _disable_lod_imports(importer_module):
         yield
     finally:
         importer_module.ootBuildSkeleton = original_build_skeleton
+
+
+@contextmanager
+def _use_hm64_import_context():
+    original_context = shared_skeleton_importer.OOTF3DContext
+    shared_skeleton_importer.OOTF3DContext = HM64OOTF3DContext
+    try:
+        yield
+    finally:
+        shared_skeleton_importer.OOTF3DContext = original_context
 
 
 def _hm64_export_draw_props(self, layout):
@@ -95,8 +185,9 @@ def hm64_import_skeleton(base_path: str, import_settings):
         with _using_mm_game_data():
             with _disable_lod_imports(hm64_mm_importer):
                 return mm_import_skeleton(base_path, import_settings)
-    with _disable_lod_imports(shared_skeleton_importer):
-        return shared_import_skeleton(base_path, import_settings)
+    with _use_hm64_import_context():
+        with _disable_lod_imports(shared_skeleton_importer):
+            return shared_import_skeleton(base_path, import_settings)
 
 
 def hm64_export_skeleton(armature_obj, final_transform, dl_format, save_textures, draw_layer, export_settings):

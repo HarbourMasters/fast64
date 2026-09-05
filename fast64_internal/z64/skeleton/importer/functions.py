@@ -250,6 +250,9 @@ def ootBuildSkeleton(
         enums,
         restPoseData,
     )
+    add_runtime_bones = getattr(f3dContext, "addRuntimeSkeletonBones", None)
+    if add_runtime_bones is not None:
+        add_runtime_bones(skeletonName, armatureObj)
     for dlEntry in f3dContext.dlList:
         limbName = f3dContext.getLimbName(dlEntry.limbIndex)
         boneName = f3dContext.getBoneName(dlEntry.limbIndex)

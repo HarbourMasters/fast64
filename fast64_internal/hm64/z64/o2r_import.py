@@ -14,13 +14,14 @@ from bpy.types import Scene
 from ...utility import PluginError, applyRotation, deselectAllObjects, prop_split, selectSingleObject
 from ...f3d.f3d_gbi import get_F3D_GBI
 from ...f3d.f3d_parser import importMeshC, parseF3D
-from ...z64.model_classes import OOTF3DContext
 from ...z64.skeleton.importer.functions import OOTDLEntry, ootAddBone
 from ...z64.skeleton.constants import ootSkeletonImportDict
 from ...z64.skeleton.utility import applySkeletonRestPose
 from ...z64.utility import getOOTScale
 from ...f3d.flipbook import TextureFlipbook
 from ...data.z64.data import mm_skeleton_dict
+from .skeleton import HM64OOTF3DContext
+from .zelda2_hair import add_zelda2_hair_matrices
 from ..utility import crc64, is_hm64
 from .o2r_flipbooks import O2R_MM_SKELETON_FLIPBOOKS, O2R_SKELETON_FLIPBOOKS
 
@@ -763,7 +764,7 @@ class HM64O2RDisplayListReader:
         return self._vertex_normals
 
 
-class HM64O2RF3DContext(OOTF3DContext):
+class HM64O2RF3DContext(HM64OOTF3DContext):
     def __init__(self, f3d, limb_list, base_path, texture_paths: dict[str, str]):
         self.o2r_texture_paths = texture_paths
         super().__init__(f3d, limb_list, base_path)
@@ -1083,6 +1084,7 @@ def import_hm64_o2r_skeleton(scene, settings):
             f3d_context.dlList.append(OOTDLEntry(limb_roots[index], index))
         pending.append((limb.sibling, parent_transform, parent_bone))
         pending.append((limb.child, transform, bone_name))
+    add_zelda2_hair_matrices(skeleton_name, armature_obj, f3d_context)
     for index, display_list in draw_entries:
         limb_name = f3d_context.getLimbName(index)
         parseF3D(
