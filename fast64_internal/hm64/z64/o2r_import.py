@@ -1098,6 +1098,11 @@ def import_hm64_o2r_skeleton(scene, settings):
     f3d_context.createMesh(obj, settings.removeDoubles, settings.importNormals, False)
     _pack_o2r_images(obj)
     armature_obj.location = scene.cursor.location
+    selectSingleObject(armature_obj)
+    bpy.ops.object.mode_set(mode="POSE")
+    for bone in armature_obj.pose.bones:
+        bone.rotation_mode = "XYZ"
+    bpy.ops.object.mode_set(mode="OBJECT")
     deselectAllObjects()
     obj.select_set(True)
     armature_obj.select_set(True)
