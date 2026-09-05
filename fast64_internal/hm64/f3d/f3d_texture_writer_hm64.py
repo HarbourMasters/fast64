@@ -431,6 +431,9 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
             loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d
         )
         override = getattr(self.texProp, "palette_color_count", None) if self.texProp is not None else None
+        if is_bk64() and self.texProp is not None:
+            # Banjo's Backpack sizes the palette off this count and only knows 16 or 256
+            override = 15 if self.texProp.tex_format == "CI4" else 255
         if load_tlut_cmd is not None:
             load_tlut_cmd.count = max(0, min((override if override is not None else self.palLen - 1), 255))
             if shared_tlut_state is not None and fPalette is not None:
