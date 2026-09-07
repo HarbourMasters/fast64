@@ -243,6 +243,8 @@ A level's camera gates come in with it, as wire objects in a `<name>_camera_area
 
 Level Half on the export panel is that tag, and it reads From Materials until you say otherwise. An object whose materials are all one layer goes to that half whole. One holding both is cut along them, its translucent faces to the translucent half and the rest to the opaque one, so a level that came in as a single mesh doesn't have to be separated by hand. The panel says what it worked out for whichever object you have selected. Then "Export Level Halves" writes both models in one go.
 
+A material can say otherwise. Level Half in the material tab reads From Draw Layer until you set it, and then sends that material's faces to the half you name. So a terrain material can fade at the world's edge and stay in the opaque half while the water beside it goes translucent, with no second copy of the material. It only applies while the object reads From Materials.
+
 A cut duplicates the vertices along the seam, because the two halves are separate models with their own vertex lists and nothing can be shared between them. Vertex groups come through it, so a mesh list spanning the boundary keeps its vertices on both sides.
 
 Set Level Half outright to override the reading, and expect to for a vanilla level. Most of them keep translucent materials in their opaque half, where a face blends and still writes depth, so rebuilding one to its original layout means placing the halves yourself. From Materials sends those faces to the translucent half instead, which is the usual choice for glass and water in a level of your own. A level brought in with Halves set to Both is tagged outright and reads nothing off its materials.

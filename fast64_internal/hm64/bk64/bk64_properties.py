@@ -82,9 +82,15 @@ bk64_file_format_enum = (
 )
 
 bk64_level_half_enum = (
-    ("AUTO", "From Materials", "Translucent when every material on it is, opaque otherwise"),
-    ("OPAQUE", "Opaque", "Writes depth, so it hides what is behind it"),
+    ("AUTO", "From Materials", "Each material picks its half. An object using both is cut along them"),
+    ("OPAQUE", "Opaque", "Writes depth, so it hides what is behind it. Translucent materials stay put and blend"),
     ("TRANSLUCENT", "Translucent", "Tests depth without writing it. Vanilla puts water here"),
+)
+
+bk64_material_level_half_enum = (
+    ("LAYER", "From Draw Layer", "A translucent layer goes to the translucent model, the rest to the opaque one"),
+    ("OPAQUE", "Opaque", "Stays in the opaque model whatever its Draw Layer, blending in place"),
+    ("TRANSLUCENT", "Translucent", "Goes to the translucent model whatever its Draw Layer"),
 )
 
 bk64_draw_layer_enum = (
@@ -185,6 +191,7 @@ _BK64_MATERIAL_PROPS = (
     "hm64_bk64_script_target",
     "hm64_bk64_collision_extra",
     "hm64_bk64_draw_layer",
+    "hm64_bk64_level_half",
     "hm64_bk64_collision_raw",
     "hm64_bk64_collision_unk6",
     "hm64_bk64_source_chunk",
@@ -283,8 +290,8 @@ def bk64_properties_register():
     bpy.types.Scene.hm64_bk64_import_path = StringProperty(
         name="Model File",
         subtype="FILE_PATH",
-        description="A BK model resource extracted from bk.o2r. Pick the model itself, not a "
-        "_GEO, _VTX or _tex sibling",
+        description="A BK model, either a resource extracted from bk.o2r or a .bin. For a resource "
+        "pick the model itself, not a _GEO, _VTX or _tex sibling",
     )
     bpy.types.Scene.hm64_bk64_level_folder = StringProperty(
         name="Level Folder",
@@ -335,6 +342,13 @@ def bk64_properties_register():
         default="SCENE",
         description="Draws faces using this material on their own render mode, so one model can mix "
         "solid and translucent geometry",
+    )
+    bpy.types.Material.hm64_bk64_level_half = EnumProperty(
+        name="Level Half",
+        items=bk64_material_level_half_enum,
+        default="LAYER",
+        description="Which of a level's two models faces using this material go into, while the object "
+        "reads From Materials. An object set outright takes every material with it",
     )
     bpy.types.Material.hm64_bk64_collision_type = EnumProperty(
         name="Collision",

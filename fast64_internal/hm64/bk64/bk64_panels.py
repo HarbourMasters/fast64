@@ -136,7 +136,7 @@ class BK64_ImportModelPanel(BK64_Panel):
         box.label(text="Import BK Model brings in the mesh, textures and armature.")
         box.label(text="Import BK Skeleton takes only the bones, ids included, so a")
         box.label(text="replacement accepts the original's animations.")
-        box.label(text="Both need the _GEO, _VTX and _tex siblings in the same folder.")
+        box.label(text="An o2r model needs its _GEO, _VTX and _tex siblings beside it.")
         box.label(text="For a level use Import BK Level below, a level is two models.")
 
         col.separator()
@@ -222,6 +222,7 @@ class BK64_MaterialPanel(BK64_Panel):
         col = self.layout.column()
         material = context.material
         prop_split(col, material, "hm64_bk64_draw_layer", "Draw Layer")
+        prop_split(col, material, "hm64_bk64_level_half", "Level Half")
 
         prop_split(col, material, "hm64_bk64_anim_tex", "Animated Texture")
         if material.hm64_bk64_anim_tex != "NONE":

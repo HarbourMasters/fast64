@@ -1062,7 +1062,10 @@ LEVEL_HALVES = (("OPAQUE", "_OPA"), ("TRANSLUCENT", "_XLU"))
 
 
 def _material_half(material):
-    """The half a material's draw layer puts its faces in"""
+    """The half a material's faces go in, its own Level Half or else off its draw layer"""
+    chosen = getattr(material, "hm64_bk64_level_half", "LAYER") if material is not None else "LAYER"
+    if chosen != "LAYER":
+        return chosen
     layer = getattr(material, "hm64_bk64_draw_layer", "SCENE") if material is not None else "SCENE"
     return "TRANSLUCENT" if layer.startswith("TRANSLUCENT") else "OPAQUE"
 
