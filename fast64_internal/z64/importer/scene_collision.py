@@ -184,14 +184,12 @@ def parseSurfaceParams(
     col_props.isWallDamage = surface_type.isWallDamage
 
     col_props.conveyorRotation = (surface_type.conveyorDirection / 0x3F) * (2 * math.pi)
-    col_props.conveyorSpeed = "Custom"
-    col_props.conveyorSpeedCustom = str(surface_type.conveyorSpeed)
-    setCustomProperty(col_props, "conveyorSpeed", surface_type.conveyorSpeed, enum_conveyor_speed)
-
     if isinstance(surface_type.conveyorSpeed, int):
         speed_int = surface_type.conveyorSpeed
     else:
         speed_int = int(surface_type.conveyorSpeed, 16)
+    col_props.conveyorKeepMomentum = bool(speed_int & 0x04)
+    setCustomProperty(col_props, "conveyorSpeed", f"0x{speed_int & 0x03:02X}", enum_conveyor_speed)
 
     if col_props.conveyorRotation == 0 and speed_int == 0:
         col_props.conveyorOption = "None"
@@ -266,6 +264,14 @@ def parseSurfaces(surfaceList: list[str]):
         "CONVEYOR_SPEED_MEDIUM": "0x02",
         "CONVEYOR_SPEED_FAST": "0x03",
     }
+    new_names_to_old_names.update(
+        {
+            **{f"FLOOR_TYPE_{index}": f"0x{index:02X}" for index in range(0x20)},
+            **{f"WALL_TYPE_{index}": f"0x{index:02X}" for index in range(0x20)},
+            **{f"FLOOR_PROPERTY_{index}": f"0x{index:02X}" for index in range(0x10)},
+            **{f"FLOOR_EFFECT_{index}": f"0x{index:02X}" for index in range(0x04)},
+        }
+    )
 
     for surfaceData in surfaceList:  # SurfaceType
         if "SURFACETYPE0" in surfaceData:
