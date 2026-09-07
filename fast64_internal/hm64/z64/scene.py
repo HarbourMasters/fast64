@@ -266,17 +266,29 @@ def _light_entry(writer: _Writer, light):
     for value in light.ambientColor:
         writer.u8(value)
     for value in light.light1Dir:
-        writer.s8(value)
+        writer.u8(value)
     for value in light.light1Color:
         writer.u8(value)
     for value in light.light2Dir:
-        writer.s8(value)
+        writer.u8(value)
     for value in light.light2Color:
         writer.u8(value)
     for value in light.fogColor:
         writer.u8(value)
-    writer.s16(light.fogNear)
+    writer.u16(((light.blendRate // 4) << 10) | light.fogNear)
     writer.u16(light.zFar)
+
+
+def _light_settings(header, source_commands) -> list:
+    settings = header.lighting.settings
+    source_settings = _source_entries(source_commands.get(_CMD["LIGHTING"]), 22)
+    if (
+        header.lighting.envLightMode == "LIGHT_MODE_TIME"
+        and source_settings
+        and len(settings) == len(source_settings) * 4
+    ):
+        return source_settings
+    return settings
 
 
 def _surface_words(surface) -> tuple[int, int]:
@@ -704,8 +716,6 @@ def _write_scene_header(
         entrances.extend(struct.unpack("<BB", entry) for entry in source_entrances[len(entrances) :])
     if len(spawns) < len(source_spawns):
         spawns.extend(source_spawns[len(spawns) :])
-    source_lights = _source_entries(source_commands.get(_CMD["LIGHTING"]), 22)
-    use_source_lighting = bool(source_lights)
     writer.u32(
         10
         + int(cutscene_path is not None)
@@ -766,13 +776,12 @@ def _write_scene_header(
     writer.s8(_number(infos.skyboxConfig, "skybox config"))
     writer.s8(_number(header.lighting.envLightMode, "skybox lighting mode"))
     writer.command(_CMD["LIGHTING"])
-    if use_source_lighting:
-        writer.u32(len(source_lights))
-        for light in source_lights:
+    light_settings = _light_settings(header, source_commands)
+    writer.u32(len(light_settings))
+    for light in light_settings:
+        if isinstance(light, bytes):
             writer.data.extend(light)
-    else:
-        writer.u32(len(header.lighting.settings))
-        for light in header.lighting.settings:
+        else:
             _light_entry(writer, light)
     writer.command(_CMD["EXITS"])
     writer.u32(len(header.exits.exitList))
