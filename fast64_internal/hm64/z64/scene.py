@@ -36,7 +36,7 @@ from ..f3d.soh_xml_exporter import register as ensure_hm64_soh_xml
 from ..f3d.f3d_texture_writer_hm64 import register as ensure_hm64_texture_writer
 from ..f3d.hm64_f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ..utility import is_hm64, writeXMLData
-from .o2r_import import get_hm64_o2r_source, normalize_o2r_path, _resource_type
+from .o2r_import import get_hm64_o2r_source, normalize_o2r_path
 from .o2r_object_ids import O2R_OBJECT_IDS
 
 
@@ -917,14 +917,6 @@ def _reference_archive(archive):
     return archive
 
 
-def _copy_scene_cutscenes(export_root: Path, internal_directory: str, archive):
-    for path, data in archive.files_by_prefix(internal_directory).items():
-        if len(data) >= _RESOURCE_HEADER_SIZE and _resource_type(data) == "OCVT":
-            target = export_root / normalize_o2r_path(path).removeprefix("alt/")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-
-
 @contextmanager
 def _use_hm64_scene_mesh_writer():
     original = (
@@ -987,7 +979,6 @@ def export_hm64_scene(scene_obj, transform, settings):
     if (bpy.context.scene.hm64_o2r_path or "").strip():
         archive = get_hm64_o2r_source(bpy.context.scene).archive
         reference_archive = _reference_archive(archive)
-        _copy_scene_cutscenes(Path(export_root), internal_directory, archive)
         base_cutscene_paths = _base_header_cutscene_paths(internal_directory, scene_name, reference_archive)
         base_camera_settings = _base_header_command_presence(
             internal_directory, scene_name, reference_archive, _CMD["CAMERA_SETTINGS"]
