@@ -3,6 +3,7 @@ import re
 import bpy
 
 from typing import Optional
+from mathutils import Matrix
 
 from ...utility import CData, getGroupIndexFromname, getGroupNameFromIndex, readFile, writeFile
 from ...f3d.flipbook import flipbook_to_c, flipbook_2d_to_c, flipbook_data_to_c
@@ -10,6 +11,7 @@ from ...f3d.f3d_gbi import MTX_SIZE
 from ...f3d.f3d_material import createF3DMat, F3DMaterial_UpdateLock, update_preset_manual
 from ...z64.utility import replaceMatchContent, getOOTScale
 from ...z64.texture_array import TextureFlipbook
+from ...f3d.f3d_gbi import FMesh
 from .zelda2_hair import ZELDA2_HAIR_MATRIX_BONES, ZELDA2_HAIR_SKELETON_NAME
 
 from ..f3d.hm64_f3d_writer import (
@@ -17,14 +19,19 @@ from ..f3d.hm64_f3d_writer import (
     saveOrGetF3DMaterial,
     saveMeshWithLargeTexturesByFaces,
     saveMeshByFaces,
+    MeshInfo,
 )
 
 from ...z64.model_classes import (
     OOTTriangleConverter,
     OOTTriangleConverterInfo,
+    OOTTriangleConverter,
     OOTModel,
     ootGetActorData,
     ootGetLinkData,
+    OOTVertexGroupInfo,
+    LimbSkinType,
+    SkinAnimData,
 )
 
 
@@ -135,18 +142,18 @@ def getColliderMat(name: str, color: tuple[float, float, float, float]) -> bpy.t
 # 	mesh,
 # 	anySkinnedFaces (to determine if skeleton should be flex)
 def ootProcessVertexGroup(
-    fModel,
-    meshObj,
-    vertexGroup,
-    convertTransformMatrix,
-    armatureObj,
-    namePrefix,
-    meshInfo,
-    drawLayerOverride,
-    convertTextureData,
-    lastMaterialName,
+    fModel: OOTModel,
+    meshObj: bpy.types.Object,
+    vertexGroup: str,
+    convertTransformMatrix: Matrix,
+    armatureObj: bpy.types.Object,
+    namePrefix: str,
+    meshInfo: MeshInfo[OOTVertexGroupInfo],
+    drawLayerOverride: str,
+    convertTextureData: bool,
+    lastMaterialName: str | None,
     optimize: bool,
-):
+) -> tuple[FMesh | None, bool, str | None]:
     lastMaterialName = None
     claimed_exception_faces = getattr(meshInfo, "hm64_claimed_exception_faces", None)
     if claimed_exception_faces is None:
@@ -156,8 +163,19 @@ def ootProcessVertexGroup(
     mesh = meshObj.data
     currentGroupIndex = getGroupIndexFromname(meshObj, vertexGroup)
     nextDLIndex = len(meshInfo.vertexGroupInfo.vertexGroupToMatrixIndex)
+
+    limbSkinType = meshInfo.vertexGroupInfo.skinnedVertexGroups[vertexGroup].type
+    smoothSkinned = False
+
     bone = armatureObj.data.bones[vertexGroup]
     zelda2_matrix_groups = _get_zelda2_hair_matrix_groups(namePrefix, vertexGroup, meshObj, armatureObj)
+
+    if limbSkinType in (LimbSkinType.EMPTY, LimbSkinType.SKINNED) and not zelda2_matrix_groups:
+        return None, False, lastMaterialName
+    elif limbSkinType == LimbSkinType.SKIN_LIMB_TYPE_ANIMATED:
+        smoothSkinned = True
+        currentGroupIndex = -1
+
     if zelda2_matrix_groups:
         head_bone_index = armatureObj.data.bones.find(vertexGroup)
         head_limb_index = meshInfo.vertexGroupInfo.boneIndexToLimbIndex[head_bone_index]
@@ -205,7 +223,10 @@ def ootProcessVertexGroup(
                     hasSkinnedFaces = True
                 if vertGroupIndex in zelda2_matrix_groups:
                     uses_runtime_matrix = True
-                if vertGroupIndex not in meshInfo.vertexGroupInfo.vertexGroupToLimb:
+                if (
+                    limbSkinType != LimbSkinType.SKIN_LIMB_TYPE_ANIMATED
+                    and vertGroupIndex not in meshInfo.vertexGroupInfo.vertexGroupToLimb
+                ):
                     is_zelda2_matrix = vertGroupIndex in zelda2_matrix_groups
                     if is_zelda2_matrix or _is_hm64_link_torso_exception(
                         namePrefix,
@@ -243,13 +264,7 @@ def ootProcessVertexGroup(
         # This doesn't handle case where vertices belong to a limb, but not triangles.
         # Therefore we create a dummy DL
         if anyConnectedToUnhandledBone:
-            fMesh = fModel.addMesh(
-                vertexGroup,
-                namePrefix,
-                drawLayerOverride,
-                False,
-                bone,
-            )
+            fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone)
             fModel.endDraw(fMesh, bone)
             meshInfo.vertexGroupInfo.vertexGroupToMatrixIndex[currentGroupIndex] = nextDLIndex
             return fMesh, False, lastMaterialName
@@ -280,13 +295,10 @@ def ootProcessVertexGroup(
     # however it seems like OOT skeletons don't have this ability.
     # Therefore we always use the drawLayerOverride as the draw layer key.
     # This means everything will be saved to one mesh.
-    fMesh = fModel.addMesh(
-        vertexGroup,
-        namePrefix,
-        drawLayerOverride,
-        False,
-        bone,
-    )
+    if not smoothSkinned:
+        fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone)
+    else:
+        fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone, meshOverride=SkinAnimData)
 
     previous_scope_key = getattr(fModel, "hm64_material_scope_key", None)
     previous_manifest_owner = getattr(fModel, "hm64_material_manifest_owner_name", None)
@@ -303,6 +315,9 @@ def ootProcessVertexGroup(
             )
 
             if fMaterial.isTexLarge[0] or fMaterial.isTexLarge[1]:
+                if smoothSkinned:
+                    raise NotImplementedError("Large Texture Mode isn't implemented for SkinLimb Exports")
+
                 currentGroupIndex = saveMeshWithLargeTexturesByFaces(
                     material,
                     faces,
