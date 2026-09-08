@@ -49,7 +49,7 @@ Meshes must use F3D materials, as they do everywhere else in Fast64. If you have
 
 Shading comes from vertex color. The game loads no lights for a model. A vanilla model carries its shading baked into its vertices instead.
 
-The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha in the first cycle and scales it by the primitive color's alpha in the second, giving one fade control over the whole material. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded.
+The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha in the first cycle and scales it by the primitive color's alpha in the second, giving one fade control over the whole material. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded. "BK Vertex Colored Texture Cutout Transparent" takes both, for a cutout that also fades at its vertices.
 
 No preset sets a render mode, and none should. A chunk jumps into the render mode table the game builds instead, picked by its Draw Layer. Ticking Set Render Mode writes a mode into the display list after that jump, which overrides it and takes the actor's depth behavior away from the game.
 
