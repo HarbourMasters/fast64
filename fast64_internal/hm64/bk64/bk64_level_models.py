@@ -198,9 +198,15 @@ def bk64_level_half_paths(resource: str) -> dict:
     # a vanilla level's halves are separate assets, so the ids differ between them
     named = re.fullmatch(r"ASSET_[0-9A-Fa-f]{4}_(.+)", stem)
     vanilla = bk64_level_layers(named.group(1)) if named else {}
+    # the decomp names a model by its id alone, model/14CF.model.bin
+    decomp = re.fullmatch(r"([0-9A-Fa-f]{4})(\.model)?", stem)
+    if decomp and int(decomp.group(1), 16) in BK64_LEVEL_MODELS:
+        vanilla = bk64_level_layers(BK64_LEVEL_MODELS[int(decomp.group(1), 16)][0])
     paths = {}
     for layer in ("OPA", "XLU"):
-        if layer in vanilla:
+        if decomp and layer in vanilla:
+            paths[layer] = f"{prefix}{vanilla[layer]:04X}{decomp.group(2) or ''}"
+        elif layer in vanilla:
             paths[layer] = f"{prefix}ASSET_{vanilla[layer]:04X}_{named.group(1)}_{layer}"
         else:
             paths[layer] = f"{prefix}{stem}_{layer}"

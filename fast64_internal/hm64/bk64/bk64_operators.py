@@ -113,7 +113,8 @@ class BK64_ExportModel(Operator):
 
                 shapes = read_collision_shapes(root_obj, settings.scale)
                 collision_only = read_collision_only(context, root_obj, settings.scale)
-                resources = export_bk64_model(context, root_obj, settings, shapes, collision_only)
+                png_folder = export_dir if scene.saveTextures else None
+                resources = export_bk64_model(context, root_obj, settings, shapes, collision_only, png_folder)
 
                 extension = ".bin" if settings.file_format == "BIN" else ""
                 for suffix, data in resources.items():
@@ -226,7 +227,8 @@ class BK64_ExportLevelHalves(Operator):
                     settings.name = paths[layer]
                     shapes = read_collision_shapes(holder, settings.scale)
                     collision_only = read_collision_only(context, holder, settings.scale)
-                    resources = export_bk64_model(context, holder, settings, shapes, collision_only)
+                    png_folder = export_dir if scene.saveTextures else None
+                    resources = export_bk64_model(context, holder, settings, shapes, collision_only, png_folder)
                     for res_suffix, data in resources.items():
                         path = os.path.join(export_dir, settings.name + res_suffix + extension)
                         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)

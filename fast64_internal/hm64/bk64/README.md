@@ -249,7 +249,7 @@ A cut duplicates the vertices along the seam, because the two halves are separat
 
 Set Level Half outright to override the reading, and expect to for a vanilla level. Most of them keep translucent materials in their opaque half, where a face blends and still writes depth, so rebuilding one to its original layout means placing the halves yourself. From Materials sends those faces to the translucent half instead, which is the usual choice for glass and water in a level of your own. A level brought in with Halves set to Both is tagged outright and reads nothing off its materials.
 
-The naming is handled for you. A level of your own gets `_OPA` and `_XLU` on the end of its Resource Path. A vanilla level gets the two names the port loads it by, and those differ by more than the suffix: Gobi's Valley is `ASSET_1474_GV_GOBIS_VALLEY_OPA` and `ASSET_1475_GV_GOBIS_VALLEY_XLU`. Point Resource Path at either one and both come out right.
+The naming is handled for you. A level of your own gets `_OPA` and `_XLU` on the end of its Resource Path. A vanilla level gets the two names the port loads it by, and those differ by more than the suffix: Gobi's Valley is `ASSET_1474_GV_GOBIS_VALLEY_OPA` and `ASSET_1475_GV_GOBIS_VALLEY_XLU`. Point Resource Path at either one and both come out right. The decomp's names work the same way: `1474.model` writes `1474.model` and `1475.model`, for its `assets/model` folder.
 
 Both halves go out every time, even an empty one, so replacing a level can't leave its old half standing. A half you gave no geometry is written as a model that draws nothing. An opaque only level still gets a translucent model, named from its own asset, for a hack meaning to add one. The map only draws it once its scene definition names an xlu asset.
 
@@ -274,6 +274,10 @@ Format sets what is written, for animations as well as models. O2R writes the re
 Textures are written differently for a `.bin`, because nothing outside the game reproduces the game's own shading. Fast64 materials keep their color in the light and let the combiner fold it into the texture. For a `.bin` the export bakes that fold into the pixels and leaves the vertex color neutral. Both of the shaded-texture setups Fast64 writes are handled: a flat tint, and the decal setup where the texture's alpha picks between a base color and the detail painted over it. A material that combines them some other way keeps its texture and vertex color unchanged.
 
 A `.bin` takes RGBA16, RGBA32, CI4 and CI8, the four types the game's own header names. An o2r texture list also carries IA8, which is the format Lightning's animated frames are stored in.
+
+Every `.bin` ends its texture list with an 8x8 white RGBA16. Faces with no texture of their own are bound to it, since the combiner still samples one.
+
+Save Textures As PNGs, in the F3D Global Settings, writes each texture into Export Folder as a PNG as well. The warning in its label is about C exports and doesn't apply here.
 
 The exporter writes loose resources into Export Folder. Turn that folder into an archive with Torch's packer. It zips the folder as it is, and the folder layout becomes the archive layout:
 

@@ -1164,7 +1164,7 @@ def blank_half_object(context, mesh_objects, half: str, temp_objects):
     return blank
 
 
-def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=None):
+def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=None, png_folder=None):
     """Builds the whole resource family as {suffix: bytes}.
 
     Keys are "" for the model, then "_VTX", "_GEO" and "_tex_<i>".
@@ -1541,6 +1541,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         }
         for index, texture in enumerate(texture_resources):
             resources[f"_tex_{index}"] = texture
+        if png_folder is not None:
+            fModel.save_textures(png_folder)
         return resources
 
     finally:
