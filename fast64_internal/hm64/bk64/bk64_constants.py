@@ -118,6 +118,14 @@ MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part a
 # is the effect's parameter (core2 func_8034C6DC). For a scroll it is the speed.
 SCROLL_UID_BASE = 100
 MAX_SCROLL_SPEED = 99
+MESH_EFFECT_UID_BASE = {
+    "SCROLL": SCROLL_UID_BASE,
+    "FLICKER": 200,  # vtx/normalset.c never reads the parameter
+    "BOB": 300,  # vtx/alphablend.c reads it as the height of the rise
+    "GLOW": 500,
+    "WAVE": 700,  # vtx/scale.c reads it in tenths, and anything past 10 as 1.0
+    "ALPHA_GLOW": 800,
+}
 
 GEO_TYPE_MIPMAP_TRILINEAR = 0x02
 

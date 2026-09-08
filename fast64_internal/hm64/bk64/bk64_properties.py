@@ -93,6 +93,15 @@ bk64_material_level_half_enum = (
     ("TRANSLUCENT", "Translucent", "Goes to the translucent model whatever its Draw Layer"),
 )
 
+bk64_mesh_effect_enum = (
+    ("SCROLL", "Texture Scroll", "Slides the texture up the faces"),
+    ("FLICKER", "Flicker", "Random brightness every frame. Speed does nothing here"),
+    ("BOB", "Bob", "Rises and falls. Speed is how far, in BK units"),
+    ("GLOW", "Glow", "Fades between dark and bright"),
+    ("WAVE", "Wave", "Rolling waves across the faces, darker in the troughs. Speed runs 1 to 10"),
+    ("ALPHA_GLOW", "Alpha Glow", "Fades between clear and solid"),
+)
+
 bk64_draw_layer_enum = (
     ("OPAQUE", "Opaque", "Solid geometry"),
     ("OPAQUE_NO_AA", "Opaque, No AA", "Solid, without the antialiased edge"),
@@ -165,6 +174,7 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_anim_include_rest",
     "hm64_bk64_anim_import_path",
     "hm64_bk64_scroll_speed",
+    "hm64_bk64_mesh_effect",
 )
 
 _BK64_OBJECT_PROPS = ("hm64_bk64_level_half", "hm64_bk64_geo_type_raw")
@@ -265,12 +275,18 @@ def bk64_properties_register():
         "split a level into halves--Level Half does that",
     )
     bpy.types.Scene.hm64_bk64_scroll_speed = IntProperty(
-        name="Scroll Speed",
+        name="Speed",
         min=1,
         max=MAX_SCROLL_SPEED,
         default=20,
-        description="How fast Add Texture Scroll slides the selected faces. In Banjo's Backpack, "
-        "Slow, Normal and Fast are 6, 20 and 60",
+        description="How fast the effect runs, or for Bob how far. In Banjo's Backpack, Slow, Normal and "
+        "Fast scrolling are 6, 20 and 60",
+    )
+    bpy.types.Scene.hm64_bk64_mesh_effect = EnumProperty(
+        name="Effect",
+        items=bk64_mesh_effect_enum,
+        default="SCROLL",
+        description="The animation the game runs on the faces you mark",
     )
     bpy.types.Object.hm64_bk64_geo_type_raw = IntProperty(
         name="Imported Geo Type",

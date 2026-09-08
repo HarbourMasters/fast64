@@ -8,7 +8,7 @@ from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS
 from .bk64_model import in_level_half, level_half_faces
 from .bk64_operators import (
-    BK64_AddTextureScroll,
+    BK64_AddMeshEffect,
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
     BK64_ExportAnimation,
@@ -167,14 +167,15 @@ class BK64_MeshToolsPanel(BK64_Panel):
         col.operator(BK64_MarkCollisionOnly.bl_idname)
 
         col.separator()
-        prop_split(col, scene, "hm64_bk64_scroll_speed", "Scroll Speed")
-        col.operator(BK64_AddTextureScroll.bl_idname)
+        prop_split(col, scene, "hm64_bk64_mesh_effect", "Effect")
+        prop_split(col, scene, "hm64_bk64_scroll_speed", "Speed")
+        col.operator(BK64_AddMeshEffect.bl_idname)
 
         box = col.box().column()
         box.label(text="These change the mesh you have selected, not the export.")
         box.label(text="Collision Only makes a mesh an invisible floor or wall.")
-        box.label(text="Pick the faces in edit mode before Add Texture Scroll.")
-        box.label(text="Only the vertical direction moves, and only on a level.")
+        box.label(text="Pick the faces in edit mode before Add Mesh Effect.")
+        box.label(text="Scroll only moves vertically, and effects only run on a level.")
 
 
 class BK64_BonePanel(BK64_Panel):
