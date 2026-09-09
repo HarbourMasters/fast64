@@ -86,7 +86,7 @@ GEO_CMD_REFPOINT = 0x0A
 GEO_CMD_SELECTOR = 0x0C
 GEO_CMD_DRAWDIST = 0x0D
 GEO_CMD_CULL = 0x0E  # a sphere the game tests before drawing what hangs off it
-GEO_CMD_CAMERA = 0x0F  # the areas what hangs off it draws inside, or outside with flag 2
+GEO_CMD_CAMERA = 0x0F  # bit 1 draws while the camera is outside every area listed, bit 2 while it is inside one
 GEO_CMD_TEXWRAP = 0x10  # 1 clamps the mipmap tiles that follow, 2 wraps them
 
 # Tooie's drawing commands and the sub-lists each one names, keyed by opcode

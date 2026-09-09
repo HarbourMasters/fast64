@@ -1317,6 +1317,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         texture_resources, tex_infos, tex_blob, white_offset, animated_offsets = collect_textures(
             fModel, rom_format, folds, opaque_images, mip_images, animated
         )
+        if png_folder is not None:
+            fModel.save_textures(png_folder)
         slot_table = [(0, 0, 0.0)] * ANIM_TEX_SLOT_COUNT
         for image, (slot, frames, rate) in animated.items():
             offset, frame_bytes, count = animated_offsets[slot]
@@ -1541,8 +1543,6 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         }
         for index, texture in enumerate(texture_resources):
             resources[f"_tex_{index}"] = texture
-        if png_folder is not None:
-            fModel.save_textures(png_folder)
         return resources
 
     finally:
