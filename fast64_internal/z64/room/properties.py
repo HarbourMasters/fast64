@@ -37,7 +37,11 @@ ootEnumRoomMenu = ootEnumRoomMenuAlternate + [
 
 class OOTObjectProperty(PropertyGroup):
     expandTab: BoolProperty(name="Expand Tab")
-    objectKey: EnumProperty(items=game_data.z64.objects.ootEnumObjectKey, default="obj_human")
+    objectKey: EnumProperty(
+        items=game_data.z64.objects.ootEnumObjectKey
+        + [("gameplay_keep", "Gameplay Keep", "Shared gameplay object bank")],
+        default="obj_human",
+    )
     objectIDCustom: StringProperty(default="OBJECT_CUSTOM")
 
     @staticmethod
