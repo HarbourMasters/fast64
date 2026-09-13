@@ -506,6 +506,8 @@ class F3DContext:
 
         # When a tile is loaded, store dict of tmem : texture name
         self.tmemDict: dict[int, str] = {}
+        # Indices of the tiles that were configured by the display list
+        self.configuredTiles: set[int] = set()
 
         # This should be modified before parsing f3d
         self.matrixData: dict[str, mathutils.Matrix] = {}  # bone name : matrix
@@ -587,6 +589,7 @@ class F3DContext:
         ]
 
         self.tileSizes = [DPSetTileSize(i, 0, 0, 32, 32) for i in range(8)]
+        self.configuredTiles = set()
 
         self.lights = Lights("lights_context", self.f3d)
         self.lights.l = [
@@ -740,9 +743,11 @@ class F3DContext:
                 self.loadTexture(dlData, textureName, region, tileSettings, False)
                 self.applyTileToMaterial(0, tileSettings, tileSizeSettings, dlData)
 
+            # The default tmem of tile 1 is 0, same as the usual tmem of tile 0's texture,
+            # so only use tile 1 if the display list actually configured it.
             tileSettings = self.tileSettings[1]
             tileSizeSettings = self.tileSizes[1]
-            if tileSettings.tmem in self.tmemDict:
+            if 1 in self.configuredTiles and tileSettings.tmem in self.tmemDict:
                 textureName = self.tmemDict[tileSettings.tmem]
                 self.loadTexture(dlData, textureName, region, tileSettings, False)
                 self.applyTileToMaterial(1, tileSettings, tileSizeSettings, dlData)
@@ -768,17 +773,30 @@ class F3DContext:
         return material.f3d_mat.key()
 
     def getMaterialIndex(self):
-        key = self.getMaterialKey(self.materialContext)
-        if key in self.materialDict:
-            material = self.materialDict[key]
-            if material in self.materials:
-                return self.materials.index(material)
-            else:
-                self.materials.append(material)
-                return len(self.materials) - 1
+        # Applying TLUTs can change the material context (texture and palette references),
+        # so it must happen before hashing, otherwise the lookup key would not match the cached key.
+        self.applyTLUTToIndex(0)
+        self.applyTLUTToIndex(1)
 
-        self.addMaterial()
-        return len(self.materials) - 1
+        key = self.getMaterialKey(self.materialContext)
+        material = self.materialDict.get(key)
+        if material is None:
+            material = self.addMaterial()
+            # Updating the nodes of the new material normalizes some of its properties (ex. the TLUT mode),
+            # so it can end up identical to a material that was created from a different context state.
+            finalKey = self.getMaterialKey(material)
+            existingMaterial = self.materialDict.get(finalKey)
+            if existingMaterial is not None:
+                bpy.data.materials.remove(material)
+                material = existingMaterial
+            else:
+                self.materialDict[finalKey] = material
+            # Also cache under the key of the material context, which is what lookups use.
+            self.materialDict[key] = material
+
+        if material not in self.materials:
+            self.materials.append(material)
+        return self.materials.index(material)
 
     def getImageName(self, image):
         for name, otherImage in self.textureData.items():
@@ -843,10 +861,8 @@ class F3DContext:
             else:
                 print("Ignoring TLUT.")
 
-    def addMaterial(self):
-        self.applyTLUTToIndex(0)
-        self.applyTLUTToIndex(1)
-
+    def addMaterial(self) -> bpy.types.Material:
+        """Creates a new material from the current material context, see getMaterialIndex() for caching."""
         materialCopy = self.materialContext.copy()
 
         # disable flag so that we can lock it, then unlock after update
@@ -857,8 +873,7 @@ class F3DContext:
             update_node_values_of_material(material, bpy.context)
             material.f3d_mat.presetName = "Custom"
 
-        self.materials.append(materialCopy)
-        self.materialDict[self.getMaterialKey(materialCopy)] = materialCopy
+        return materialCopy
 
     def getSizeMacro(self, size: str, suffix: str):
         if hasattr(self.f3d, size):
@@ -1337,6 +1352,7 @@ class F3DContext:
     def setTileSize(self, params: "list[str | int]"):
         tileSizeSettings = self.getTileSizeSettings(params[0])
         tileSettings = self.getTileSettings(params[0])
+        self.configuredTiles.add(self.getTileIndex(params[0]))
 
         dimensions = [0, 0, 0, 0]
         for i in range(1, 5):
@@ -1356,6 +1372,7 @@ class F3DContext:
 
     def setTile(self, params: "list[str | int]", dlData: str):
         tileIndex = self.getTileIndex(params[4])
+        self.configuredTiles.add(tileIndex)
         tileSettings = self.getTileSettings(params[4])
         tileSettings.fmt = getTileFormat(params[0], self.f3d)
         tileSettings.siz = getTileSize(params[1], self.f3d)
@@ -2180,10 +2197,12 @@ def parseTextureData(dlData, textureName, f3dContext, imageFormat, imageSize, wi
         if is_oot:
             path = str(oot_get_assets_path(path, check_exists=False))
         originalImage = bpy.data.images.load(f3dContext.getImagePathFromInclude(path, is_oot))
+        imageName = originalImage.name
         image = originalImage.copy()
         image.pack()
         image.filepath = ""
         bpy.data.images.remove(originalImage)
+        image.name = imageName  # the copy was given a ".001" suffix while the original still existed
 
         # Blender UV origin is bottom right, while N64 is top right, so we must flip LUT since we read it as data
         if isLUT:

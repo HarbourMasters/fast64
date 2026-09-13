@@ -1890,6 +1890,12 @@ def prop_group_to_json(prop_group, blacklist: list[str] = None, whitelist: list[
             return get_clean_color(prop)
         elif hasattr(prop, "to_list"):  # for IDPropertyArray classes
             return prop.to_list()
+        elif type(prop).__name__ == "bpy_prop_array" or isinstance(prop, (Vector, Euler, Quaternion)):
+            # rna arrays (ex. FloatVectorProperty) must be converted to plain lists, otherwise the property
+            # wrapper itself ends up in the data, which compares by identity instead of by value
+            return [prop_to_json(value) for value in prop]
+        elif isinstance(prop, Matrix):
+            return [[value for value in row] for row in prop]
         elif hasattr(prop, "to_dict"):
             return prop.to_dict()
         else:

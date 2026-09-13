@@ -3362,7 +3362,7 @@ class ProceduralAnimProperty(PropertyGroup):
         json_to_prop_group(self, data, ["animate"])
 
     def key(self):
-        return frozenset(self.to_dict().items())
+        return str(self.to_dict())
 
 
 class ProcAnimVectorProperty(PropertyGroup):
@@ -3380,7 +3380,7 @@ class ProcAnimVectorProperty(PropertyGroup):
         json_to_prop_group(self, data)
 
     def key(self):
-        return frozenset(self.to_dict().items())
+        return str(self.to_dict())
 
 
 class PrimDepthSettings(PropertyGroup):
@@ -5039,7 +5039,8 @@ class F3DMaterialProperty(PropertyGroup):
         f3d = f3d if f3d else get_F3D_GBI()
         data = {**self.n64_colors_to_dict(use_dict), **self.f3d_colors_to_dict(use_dict)}
         if f3d.F3DEX_GBI_3:
-            data.update(self.f3dex3_colors_to_dict(f3d))
+            data.update(self.f3dex3_colors_to_dict())
+        return data
 
     def colors_from_dict(self, data: dict):
         self.f3d_colors_from_dict(data)
@@ -5063,6 +5064,16 @@ class F3DMaterialProperty(PropertyGroup):
         self.uv_basis = "TEXEL" + str(data.get("uvBasis", 0))
 
     def key(self) -> F3DMaterialHash:
+        """
+        Hashable description of everything that affects how the material is exported and rendered.
+        Used to find identical materials (ex. to reuse materials while importing).
+        Colors that are not set are only represented by their "set" flag: their values are not exported,
+        so materials that only differ by the leftover values of unset colors are considered equal.
+        """
+        colors = self.colors_to_dict(get_F3D_GBI(), all_combiner_uses(self))
+        for name, value in colors.items():
+            if isinstance(value, dict) and value.get("set") is False:
+                colors[name] = {"set": False}
         return (
             self.UVanim0.key(),
             self.UVanim1.key(),
@@ -5072,7 +5083,8 @@ class F3DMaterialProperty(PropertyGroup):
             self.draw_layer.key(),
             str(self.extra_texture_settings_to_dict().items()),
             str(self.cel_shading.to_dict()) if self.use_cel_shading else None,
-            str(self.colors_to_dict(get_F3D_GBI(), all_combiner_uses(self))),
+            str(self.combiner_to_dict()),
+            str(colors),
         )
 
 
