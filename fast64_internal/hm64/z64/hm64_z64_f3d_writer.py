@@ -264,7 +264,7 @@ def ootProcessVertexGroup(
         # This doesn't handle case where vertices belong to a limb, but not triangles.
         # Therefore we create a dummy DL
         if anyConnectedToUnhandledBone:
-            fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone)
+            fMesh = fModel.addMesh(vertexGroup, "", drawLayerOverride, False, bone)
             fModel.endDraw(fMesh, bone)
             meshInfo.vertexGroupInfo.vertexGroupToMatrixIndex[currentGroupIndex] = nextDLIndex
             return fMesh, False, lastMaterialName
@@ -296,9 +296,9 @@ def ootProcessVertexGroup(
     # Therefore we always use the drawLayerOverride as the draw layer key.
     # This means everything will be saved to one mesh.
     if not smoothSkinned:
-        fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone)
+        fMesh = fModel.addMesh(vertexGroup, "", drawLayerOverride, False, bone)
     else:
-        fMesh = fModel.addMesh(vertexGroup, namePrefix, drawLayerOverride, False, bone, meshOverride=SkinAnimData)
+        fMesh = fModel.addMesh(vertexGroup, "", drawLayerOverride, False, bone, meshOverride=SkinAnimData)
 
     previous_scope_key = getattr(fModel, "hm64_material_scope_key", None)
     previous_manifest_owner = getattr(fModel, "hm64_material_manifest_owner_name", None)
