@@ -4,6 +4,8 @@ import os
 from contextlib import contextmanager
 
 import bpy
+import mathutils
+from bpy.app.handlers import persistent
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
@@ -12,6 +14,7 @@ from .bk64_anim import actions_for, export_bk64_animation, import_bk64_animation
 from .bk64_constants import (
     CAMERA_AREA_KIND,
     COLLISION_ONLY_PROP,
+    HIT_SPHERE_PROP,
     GEO_TYPE_ENV_MAP,
     GEO_TYPE_MIPMAP_TRILINEAR,
     MESH_EFFECT_UID_BASE,
@@ -29,8 +32,10 @@ from .bk64_model import (
     level_half_objects,
     whole_level_half,
     promote_materials_to_2_cycle,
+    from_bk_space,
     read_collision_only,
     read_collision_shapes,
+    read_vertex_bounds,
     select_loose_vertices,
     split_mesh_at_bones,
 )
@@ -240,12 +245,6 @@ class BK64_ExportLevelHalves(Operator):
                 # both halves raise the same ones, and one settings collects them all
                 for warning in dict.fromkeys(settings.warnings):
                     self.report({"WARNING"}, warning)
-                for layer in blanked:
-                    self.report(
-                        {"WARNING"},
-                        f"Give a material Translucent, or set Level Half on the objects that belong in "
-                        f"the {layer} half.",
-                    )
                 note = f" {' and '.join(blanked)} had no geometry and went out blank." if blanked else ""
                 self.report({"INFO"}, f"Exported {' and '.join(written)} to {export_dir}.{note}")
             return {"FINISHED"}
@@ -289,6 +288,8 @@ class BK64_ExportAnimation(Operator):
                 with open(path, "wb") as file:
                     file.write(data)
 
+                for warning in dict.fromkeys(settings.warnings):
+                    self.report({"WARNING"}, warning)
                 self.report({"INFO"}, f"Exported {settings.anim_path}{extension} to {export_dir}")
             return {"FINISHED"}
 
@@ -515,6 +516,79 @@ class BK64_MarkCollisionOnly(Operator):
                         else f"{counted} draw again."
                     ),
                 )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+def _place_hit_sphere(empty, root_obj, scale: float, bounds):
+    """Move and size one hit sphere empty"""
+    # a write here tags another depsgraph update, so only write a change
+    size = bounds["local_norm"] / scale
+    at = from_bk_space(root_obj, scale) @ mathutils.Vector(bounds["center"])
+    # location reads through the parent, so take the world point back through it
+    local = (root_obj.matrix_world @ empty.matrix_parent_inverse).inverted() @ at
+    if abs(empty.empty_display_size - size) > 1e-6:
+        empty.empty_display_size = size
+    if (empty.location - local).length > 1e-6:
+        empty.location = local
+    if max(abs(value - 1.0) for value in empty.scale) > 1e-6:
+        empty.scale = (1.0, 1.0, 1.0)
+
+
+@persistent
+def _follow_hit_spheres(scene, depsgraph):
+    """Keep every hit sphere on the model it was made from"""
+    for empty in bpy.data.objects:
+        root_obj = empty.parent
+        if not empty.get(HIT_SPHERE_PROP) or root_obj is None:
+            continue
+        try:
+            bounds = read_vertex_bounds(depsgraph, root_obj, scene.hm64_bk64_scale)
+            if bounds["count"]:
+                _place_hit_sphere(empty, root_obj, scene.hm64_bk64_scale, bounds)
+        except Exception:  # a handler that raises does so on every update
+            continue
+
+
+class BK64_ShowHitSphere(Operator):
+    bl_idname = "object.hm64_bk64_show_hit_sphere"
+    bl_label = "Show Hit Sphere"
+    bl_description = "Put an empty around the model at the radius an actor gets hit inside"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            with object_mode(context):
+                root_obj = resolve_root(context)
+                scale = context.scene.hm64_bk64_scale
+                bounds = read_vertex_bounds(context.evaluated_depsgraph_get(), root_obj, scale)
+                if not bounds["count"]:
+                    raise PluginError(f"'{root_obj.name}' has no mesh geometry to measure.")
+
+                name = f"{root_obj.name}_hit_sphere"
+                empty = bpy.data.objects.get(name)
+                if empty is None or empty.type != "EMPTY":
+                    empty = bpy.data.objects.new(name, None)
+                    context.scene.collection.objects.link(empty)
+                empty[HIT_SPHERE_PROP] = 1
+                empty.empty_display_type = "SPHERE"
+                empty.show_in_front = True  # or the mesh hides the far side of it
+                empty.parent = root_obj
+                empty.matrix_parent_inverse = root_obj.matrix_world.inverted()
+                _place_hit_sphere(empty, root_obj, scale, bounds)
+
+            cull = max(bounds["global_norm"], root_obj.hm64_bk64_cull_radius_raw)
+            spot = "({:.3f}, {:.3f}, {:.3f})".format(
+                *(from_bk_space(root_obj, scale) @ mathutils.Vector(bounds["furthest"]))
+            )
+            self.report(
+                {"INFO"},
+                f"Hit radius {bounds['local_norm']}, cull radius {cull}. The vertex setting the hit "
+                f"radius is at {spot} in world space, furthest from the center of the model's box.",
+            )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -753,6 +827,7 @@ bk64_operator_classes = (
     BK64_AddMeshEffect,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
+    BK64_ShowHitSphere,
     BK64_ImportSkeleton,
     BK64_ImportModel,
     BK64_ImportLevel,
@@ -763,8 +838,11 @@ bk64_operator_classes = (
 def bk64_operators_register():
     for cls in bk64_operator_classes:
         register_class(cls)
+    bpy.app.handlers.depsgraph_update_post.append(_follow_hit_spheres)
 
 
 def bk64_operators_unregister():
     for cls in reversed(bk64_operator_classes):
         unregister_class(cls)
+    if _follow_hit_spheres in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_follow_hit_spheres)

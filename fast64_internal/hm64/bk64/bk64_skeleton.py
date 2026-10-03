@@ -61,11 +61,22 @@ def build_bone_table(armature_obj: bpy.types.Object, transform_matrix: mathutils
 
     bones: list[BK64Bone] = []
     index_of_name: dict[str, int] = {}
+    taken = {bone.hm64_bk64_bone_id for bone in armature.bones if bone.hm64_bk64_bone_id > 0}
+
+    def next_free_id():
+        candidate = 1
+        while candidate in taken:
+            candidate += 1
+        return candidate
 
     def visit(bone: bpy.types.Bone, parent_index: int):
         position = transform_matrix @ bone.head_local
         index = len(bones)
-        bone_id = bone.hm64_bk64_bone_id if bone.hm64_bk64_bone_id > 0 else index + 1
+        if bone.hm64_bk64_bone_id > 0:
+            bone_id = bone.hm64_bk64_bone_id
+        else:
+            bone_id = next_free_id()
+            taken.add(bone_id)
         bones.append(BK64Bone(bone.name, (position.x, position.y, position.z), bone_id, parent_index))
         index_of_name[bone.name] = index
         for child in _sorted_children(bone):

@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import struct
 
+import numpy
+
 import bmesh
 import bpy
 import mathutils
@@ -13,6 +15,8 @@ from ...f3d.f3d_gbi import (
     DLFormat,
     FModel,
     GfxMatWriteMethod,
+    SPDisplayList,
+    SPEndDisplayList,
     SPTexture,
 )
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
@@ -26,6 +30,7 @@ from ...utility import (
 from .bk64_constants import (
     ANIM_TEX_SLOT_COUNT,
     bk64_world_defaults,
+    BONE_TAG_ATTRIBUTE,
     COLLISION_COLOR_ATTR,
     COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
@@ -109,25 +114,31 @@ def _write_vertex_resource(vertices):
 
 def _vertex_bounds(vertices):
     """The BKVertexList header"""
+    return _position_bounds([vertex[0] for vertex in vertices])
+
+
+def _position_bounds(positions):
     # BK culls off center + local_norm, global_norm is from the model origin
-    if not vertices:
-        return dict(min=(0, 0, 0), max=(0, 0, 0), center=(0, 0, 0), local_norm=0, count=0, global_norm=0)
+    points = numpy.asarray(positions, dtype=numpy.float64).reshape(-1, 3)
+    if not len(points):
+        empty = (0, 0, 0)
+        return dict(min=empty, max=empty, center=empty, local_norm=0, count=0, global_norm=0, furthest=empty)
 
-    positions = [vertex[0] for vertex in vertices]
-    low = tuple(min(position[axis] for position in positions) for axis in range(3))
-    high = tuple(max(position[axis] for position in positions) for axis in range(3))
-    center = tuple((low[axis] + high[axis]) / 2.0 for axis in range(3))
-
-    def distance(point, origin):
-        return math.sqrt(sum((point[axis] - origin[axis]) ** 2 for axis in range(3)))
-
+    # the panel reads this on every redraw, so it takes the mesh in one pass
+    points = numpy.clip(numpy.rint(points), -32768, 32767)
+    low, high = points.min(axis=0), points.max(axis=0)
+    # vanilla truncates the midpoint, then measures both radii off that
+    center = numpy.trunc((low + high) / 2.0)
+    spread = numpy.sqrt(((points - center) ** 2).sum(axis=1))
+    furthest = int(spread.argmax())
     return dict(
-        min=low,
-        max=high,
-        center=center,
-        local_norm=math.ceil(max(distance(position, center) for position in positions)),
-        count=len(vertices),
-        global_norm=math.ceil(max(distance(position, (0, 0, 0)) for position in positions)),
+        min=tuple(int(value) for value in low),
+        max=tuple(int(value) for value in high),
+        center=tuple(int(value) for value in center),
+        local_norm=int(spread[furthest]),
+        count=len(points),
+        global_norm=int(numpy.sqrt((points**2).sum(axis=1)).max()),
+        furthest=tuple(int(value) for value in points[furthest]),
     )
 
 
@@ -514,6 +525,32 @@ def _to_bk_space(root_obj, scale: float):
     return BLENDER_TO_BK @ mathutils.Matrix.Diagonal(mathutils.Vector((scale, scale, scale))).to_4x4() @ origin
 
 
+def from_bk_space(root_obj, scale: float):
+    """BK model space back to Blender space"""
+    return _to_bk_space(root_obj, scale).inverted()
+
+
+def read_vertex_bounds(depsgraph, root_obj, scale: float):
+    """The BKVertexList header the export would write, from the meshes as they stand"""
+    to_bk = _to_bk_space(root_obj, scale)
+
+    blocks = []
+    for obj in [root_obj] + list(root_obj.children_recursive):
+        if obj.type != "MESH" or (obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)):
+            continue
+        # modifiers reach the file, so measure the evaluated mesh
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        count = len(mesh.vertices)
+        if count:
+            flat = numpy.empty(count * 3, dtype=numpy.float64)
+            mesh.vertices.foreach_get("co", flat)
+            matrix = numpy.array(to_bk @ obj.matrix_world)
+            blocks.append(flat.reshape(count, 3) @ matrix[:3, :3].T + matrix[:3, 3])
+        evaluated.to_mesh_clear()
+    return _position_bounds(numpy.concatenate(blocks) if blocks else [])
+
+
 def read_camera_areas(root_obj, scale: float, warnings=None):
     """The camera gate boxes under the root, as the unk20 section wants them"""
     to_bk = _to_bk_space(root_obj, scale)
@@ -612,10 +649,11 @@ def read_collision_only(context, root_obj, scale: float):
     """
     to_bk = _to_bk_space(root_obj, scale)
 
-    vertices, index_of, triangles = [], {}, []
+    vertices, index_of, triangles, bones = [], {}, [], []
     for obj in [root_obj] + list(root_obj.children_recursive):
         if obj.type != "MESH" or not obj.get(COLLISION_ONLY_PROP):
             continue
+        bone_of_group = {group.index: group.name for group in obj.vertex_groups}
 
         # what the vertex carried before the import, white when it's new
         colors = obj.data.attributes.get(COLLISION_COLOR_ATTR)
@@ -632,10 +670,18 @@ def read_collision_only(context, root_obj, scale: float):
                         "Give every face a material with a Collision Type set, or unmark the object."
                     )
                 corners = []
+                deform = bm.verts.layers.deform.active
                 for vert in face.verts:
-                    key = tuple(s16(value) for value in vert.co)
+                    held = (
+                        max(vert[deform].items(), key=lambda item: item[1], default=(None, 0.0))[0]
+                        if deform is not None
+                        else None
+                    )
+                    bone_name = bone_of_group.get(held)
+                    key = (tuple(s16(value) for value in vert.co), bone_name)
                     if key not in index_of:
                         index_of[key] = len(vertices)
+                        bones.append(bone_name)
                         readable = colors is not None and vert.index < len(colors.data)
                         color = (
                             tuple(max(0, min(255, round(channel * 255))) for channel in colors.data[vert.index].color)
@@ -647,13 +693,13 @@ def read_collision_only(context, root_obj, scale: float):
                             if uvs is not None and vert.index < len(uvs.data)
                             else (0, 0)
                         )
-                        vertices.append((key, uv, color))
+                        vertices.append((key[0], uv, color))
                     corners.append(index_of[key])
                 triangles.append((corners[0], corners[1], corners[2], surface[0], surface[1]))
         finally:
             bm.free()
 
-    return vertices, triangles
+    return vertices, triangles, bones
 
 
 def _check_cycle_type(mesh_objects):
@@ -865,14 +911,15 @@ def _vertex_bones(context, mesh_objects, bones, space_matrix, scale_matrix):
     return bound
 
 
-def _vertex_bone_entries(vertices, bound, warnings, space_matrix):
-    """One entry per bound coordinate, listing every vertex written at it"""
+def _vertex_bone_entries(vertices, bone_tags, warnings, space_matrix):
+    """One entry per bound coordinate and bone, listing every vertex written there"""
     at_position = {}
     loose = set()
     for index, vertex in enumerate(vertices):
+        bone = bone_tags[index] if index < len(bone_tags) else 0
         key = written_key(vertex[0])
-        if key in bound:
-            at_position.setdefault(key, []).append(index)
+        if bone:
+            at_position.setdefault((key, bone - 1), []).append(index)
         else:
             loose.add(key)
 
@@ -891,10 +938,10 @@ def _vertex_bone_entries(vertices, bound, warnings, space_matrix):
         )
 
     entries = []
-    for position, indices in at_position.items():
+    for (position, bone), indices in at_position.items():
         # the count is one byte. A busier coordinate needs several entries.
         for start in range(0, len(indices), 0x7F):
-            entries.append(dict(coord=position, bone=bound[position], vertices=indices[start : start + 0x7F]))
+            entries.append(dict(coord=position, bone=bone, vertices=indices[start : start + 0x7F]))
     return entries
 
 
@@ -938,10 +985,34 @@ def _tag_mesh_groups(bm, mesh_obj, index_of):
         vertex[layer] = index_of.setdefault(held, len(index_of))
 
 
+def _tag_bone_binding(bm, mesh_obj, index_of_bone):
+    bone_of_group = {
+        group.index: index_of_bone[group.name] for group in mesh_obj.vertex_groups if group.name in index_of_bone
+    }
+    deform = bm.verts.layers.deform.active
+    if not bone_of_group or deform is None:
+        return
+    layer = bm.verts.layers.int.get(BONE_TAG_ATTRIBUTE) or bm.verts.layers.int.new(BONE_TAG_ATTRIBUTE)
+    for vertex in bm.verts:
+        weights = {}
+        for index, weight in vertex[deform].items():
+            if index in bone_of_group and weight > 0.0:
+                bone = bone_of_group[index]
+                weights[bone] = weights.get(bone, 0.0) + weight
+        # ties go to the earlier table entry
+        vertex[layer] = max(weights.items(), key=lambda item: (item[1], -item[0]))[0] + 1 if weights else 0
+
+
 def _piece_mesh_tags(piece):
     """One tag per source vertex, or None when the piece has none"""
-    attribute = piece.data.attributes.get(MESH_TAG_ATTRIBUTE)
-    return [item.value for item in attribute.data] if attribute else None
+    mesh_attribute = piece.data.attributes.get(MESH_TAG_ATTRIBUTE)
+    bone_attribute = piece.data.attributes.get(BONE_TAG_ATTRIBUTE)
+    if bone_attribute is None:
+        return [item.value for item in mesh_attribute.data] if mesh_attribute else None
+    bones = [item.value for item in bone_attribute.data]
+    if mesh_attribute is None:
+        return [(0, bone) for bone in bones]
+    return [(item.value, bone) for item, bone in zip(mesh_attribute.data, bones)]
 
 
 def _mesh_list_entries(tags, uid_sets):
@@ -957,7 +1028,7 @@ def _mesh_list_entries(tags, uid_sets):
 def _collect_vertices(fMeshes, shade_colors, force_unlit: bool, reflective=frozenset()):
     # startAddress is a byte offset, so SPVertex.to_binary emits the segment 1
     # address directly and nothing needs patching after
-    vertices, tags, owners, spans = [], [], [], {}
+    vertices, tags, owners, spans, bone_tags = [], [], [], {}, []
     for fMesh in fMeshes:
         spans[id(fMesh)] = len(vertices)
         for triGroup in fMesh.triangleGroups:
@@ -975,10 +1046,12 @@ def _collect_vertices(fMeshes, shade_colors, force_unlit: bool, reflective=froze
                     else tuple(vtx.colorOrNormal)
                 )
                 vertices.append((tuple(vtx.position), vtx.packedNormal, tuple(vtx.uv), color))
-                tags.append(vtx.meshTag or 0)  # 0 is the empty set, which a model with no meshes writes
+                tag, bone = vtx.meshTag if isinstance(vtx.meshTag, tuple) else (vtx.meshTag, 0)
+                tags.append(tag or 0)  # 0 is the empty set, which a model with no meshes writes
+                bone_tags.append(bone or 0)  # 0 is no bone, the table's own entries start at 1
             owners.append((first, len(vertices), id(triGroup.fMaterial)))
         spans[id(fMesh)] = (spans[id(fMesh)], len(vertices))
-    return vertices, tags, owners, spans
+    return vertices, tags, owners, spans, bone_tags
 
 
 def _layout_bone_of_source(records, bones):
@@ -1022,10 +1095,13 @@ def _gather_parts(
             bones = [BK64Bone(root_obj.name, (0.0, 0.0, 0.0), 1, NO_PARENT)]
         holder = bones[0].name
         meshes_by_bone = {holder: []}
+        index_of_bone = {bone.name: index for index, bone in enumerate(bones)} if bind else {}
         for mesh_obj in mesh_objects:
             bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, bind)
             try:
                 _tag_mesh_groups(bm, mesh_obj, mesh_uids)
+                if bind:
+                    _tag_bone_binding(bm, mesh_obj, index_of_bone)
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
             finally:
                 bm.free()
@@ -1292,6 +1368,16 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     for command in gfx_list.commands:
                         if isinstance(command, SPTexture):
                             command.on = 0
+        # the next chunk's prologue clears what this revert clears, so it is dead
+        reverts = {id(value[0].revert) for value in fModel.materials.values() if getattr(value[0], "revert", None)}
+        for fMesh in ordered_fMeshes:
+            commands = fMesh.draw.commands
+            # by index: these are dataclasses, so remove() can take the wrong one
+            last = len(commands) - 1
+            while last >= 0 and isinstance(commands[last], SPEndDisplayList):
+                last -= 1
+            if last >= 0 and isinstance(commands[last], SPDisplayList) and id(commands[last].displayList) in reverts:
+                del commands[last]
         # an import stores geo type on the object, since a level's halves disagree
         geo_type = root_obj.hm64_bk64_geo_type_raw or settings.geo_type_bits()
         # the bits shipped, not the scene setting: a level's second half clears that
@@ -1351,7 +1437,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # they gate when the boxes they test against are missing
         camera_areas = read_camera_areas(root_obj, settings.scale, settings.warnings)
 
-        vertices, mesh_tags, vertex_owners, spans = _collect_vertices(
+        vertices, mesh_tags, vertex_owners, spans, bone_tags = _collect_vertices(
             ordered_fMeshes, shade_colors, settings.force_unlit, reflective
         )
         if not vertices:
@@ -1421,16 +1507,6 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 for shape in shapes[group]:
                     shape["bone"] = index_of_bone.get(shape.pop("bone_name"), -1)
 
-        # binding matches on position. Take it before the collision only vertices
-        # land, or one sitting on a drawn vertex joins its entry.
-        bound_vertices = (
-            _vertex_bone_entries(vertices, owner_of_pos, settings.warnings, transform_matrix @ to_bk_space)
-            if bind
-            else []
-        )
-        if bind and not bound_vertices:
-            raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
-
         meshes = _mesh_list_entries(mesh_tags, sorted(mesh_uids, key=mesh_uids.get))
         lost = sorted({uid for held in mesh_uids for uid in held} - {entry["uid"] for entry in meshes})
         if lost:
@@ -1440,7 +1516,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             )
 
         if collision_only is not None:
-            hidden_vertices, hidden_surfaces = collision_only
+            hidden_vertices, hidden_surfaces, hidden_bones = collision_only
             base = len(vertices)
             if base + len(hidden_vertices) > MAX_VERTEX_COUNT:
                 raise PluginError(
@@ -1449,6 +1525,14 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 )
             vertices += [(position, 0, uv, color) for position, uv, color in hidden_vertices]
             collision += [((base + a, base + b, base + c), flags, unk6) for a, b, c, flags, unk6 in hidden_surfaces]
+            index_of_bone = {bone.name: index for index, bone in enumerate(bones)}
+            bone_tags += [index_of_bone[name] + 1 if name in index_of_bone else 0 for name in hidden_bones]
+
+        bound_vertices = (
+            _vertex_bone_entries(vertices, bone_tags, settings.warnings, transform_matrix @ to_bk_space) if bind else []
+        )
+        if bind and not bound_vertices:
+            raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
 
         if len(vertices) > MAX_VERTEX_COUNT:
             raise PluginError(
@@ -1459,6 +1543,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # after the append, the way vanilla does it. global_norm is the radius
         # collision gets tested against at all
         bounds = _vertex_bounds(vertices)
+        # some vanilla models cull further out than their vertices reach
+        bounds["global_norm"] = max(bounds["global_norm"], root_obj.hm64_bk64_cull_radius_raw)
         if shapes:
             # bkmodelunk14list_func_802EBAE0 answers no without testing a shape
             # once a query is past this. Every vanilla model sets it to its own

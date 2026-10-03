@@ -73,7 +73,7 @@ def _quantize(value: float, channel: int, bone_name: str):
     return int(round(value * ANIM_FIXED_POINT))
 
 
-def _bone_channels(armature_obj, bones, to_bk, anim_scale: float, previous):
+def _bone_channels(armature_obj, bones, to_bk, anim_scale: float, previous, sheared=None):
     # each is a delta from rest in its parent's space, the game composes them
     # down the table
     frame = []
@@ -88,6 +88,12 @@ def _bone_channels(armature_obj, bones, to_bk, anim_scale: float, previous):
             delta = deltas[bone.parent_index].inverted() @ delta
 
         _translation, rotation, bone_scale = delta.decompose()
+        if sheared is not None:
+            # a turn against a parent's uneven scale leaves shear, and no channel holds it
+            rebuilt = rotation.to_matrix() @ mathutils.Matrix.Diagonal(bone_scale)
+            held = delta.to_3x3()
+            if max(abs(rebuilt[row][col] - held[row][col]) for row in range(3) for col in range(3)) > 1e-3:
+                sheared.add(bone.name)
         # to_euler can jump a full turn. Keep each one near the last.
         euler = rotation.to_euler("XYZ", previous[index])
         previous[index] = euler
@@ -359,19 +365,28 @@ def export_bk64_animation(context, armature_obj, settings):
     previous = [mathutils.Euler((0.0, 0.0, 0.0), "XYZ") for _bone in bones]
 
     original_frame = context.scene.frame_current
-    samples, fine = [], []
+    samples, fine, sheared = [], [], set()
     try:
         for offset in range(last - first + 1):
             # half frames too, the game reads between them
             for step in (0.0, 0.5) if offset < last - first else (0.0,):
                 context.scene.frame_set(first + offset, subframe=step)
                 evaluated = armature_obj.evaluated_get(context.evaluated_depsgraph_get())
-                channels = _bone_channels(evaluated, bones, to_bk, settings.anim_scale, previous)
+                channels = _bone_channels(evaluated, bones, to_bk, settings.anim_scale, previous, sheared)
                 fine.append((frames[offset] + step, channels))
                 if step == 0.0:
                     samples.append(channels)
     finally:
         context.scene.frame_set(original_frame)
+
+    if sheared:
+        listed = ", ".join(sorted(sheared)[:3]) + (" and others" if len(sheared) > 3 else "")
+        counted = "1 bone sits" if len(sheared) == 1 else f"{len(sheared)} bones sit"
+        settings.warnings.append(
+            f"{counted} at an angle to a parent scaled unevenly ({listed}), which needs a shear "
+            "no animation channel holds. Those bones play back skewed. Even the parent's scale out, "
+            "or turn the bone about the axis the parent scales along."
+        )
 
     elements = _elements(bones, samples, frames, fine, settings.anim_include_rest)
     if not elements:

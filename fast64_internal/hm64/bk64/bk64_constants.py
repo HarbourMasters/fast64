@@ -113,6 +113,7 @@ MAX_LAYOUT_BONE = 127  # the geo layout's BONE command holds its bone index in a
 
 MESH_GROUP_PREFIX = "bk64_mesh_"  # the uid rides in the name, it's what the game looks a mesh up by
 MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part and piece splits
+BONE_TAG_ATTRIBUTE = "bk64_bone_tag"  # holds a bound vertex's bone through the same splits
 
 # A mesh's effect comes from which hundred its uid falls in, and uid minus that base
 # is the effect's parameter (core2 func_8034C6DC). For a scroll it is the speed.
@@ -152,11 +153,16 @@ OP_TRI2 = 0xB1
 OP_CLEARGEOMETRYMODE = 0xB6
 OP_SETGEOMETRYMODE = 0xB7
 OP_ENDDL = 0xB8
+OP_OTHERMODE_L = 0xB9
+OP_OTHERMODE_H = 0xBA
 OP_CULLDL = 0xBE
 OP_TRI1 = 0xBF
 OP_SETTILE = 0xF5
 OP_SETTILESIZE = 0xF2
 OP_LOADBLOCK = 0xF3
+OP_LOADSYNC = 0xE6
+OP_PIPESYNC = 0xE7
+OP_TILESYNC = 0xE8
 OP_SETPRIMCOLOR = 0xFA
 OP_SETENVCOLOR = 0xFB
 OP_SETCOMBINE = 0xFC
@@ -375,6 +381,7 @@ COLLISION_GRID_PROP = "hm64_bk64_collision_grid"
 SHAPE_KIND = "hm64_bk64_shape"
 SHAPE_PIVOT = "hm64_bk64_shape_pivot"  # the point a box turns about, kept to export it back in place
 COLLISION_ONLY_PROP = "hm64_bk64_collision_only"
+HIT_SPHERE_PROP = "hm64_bk64_hit_sphere"  # how the handler finds the empties it keeps placed
 
 # a stand-in root has to carry these, or the section each feeds ships empty
 MODEL_STASH_PROPS = (GEO_LAYOUT_PROP, COLLISION_GRID_PROP)

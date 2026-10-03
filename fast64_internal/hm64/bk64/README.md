@@ -51,6 +51,8 @@ Shading comes from vertex color. The game loads no lights for a model. A vanilla
 
 The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha in the first cycle and scales it by the primitive color's alpha in the second, giving one fade control over the whole material. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded. "BK Vertex Colored Texture Cutout Transparent" takes both, for a cutout that also fades at its vertices.
 
+Alpha Compare, in the material tab beside Draw Layer, is what makes a cutout clip instead of blend. Threshold tests each pixel's alpha and throws the failing ones away; None lets them blend. Vanilla turns it on around the chunks that need it, foliage and railings among them, and an imported material arrives with whatever it shipped with. The presets leave it at None, so a cutout you build yourself needs it set.
+
 No preset sets a render mode, and none should. A chunk jumps into the render mode table the game builds instead, picked by its Draw Layer. Ticking Set Render Mode writes a mode into the display list after that jump, which overrides it and takes the actor's depth behavior away from the game.
 
 The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below. The cutout and transparent presets set that to Translucent for you, and the rest put it back to From Scene. A cutout gets no alpha on the opaque entry. Nothing holds them together afterwards: move a material to the opaque layer and it still previews blended while it ships solid.
@@ -121,7 +123,14 @@ Setting a Geo Type on a bone only takes effect with Split At Bones, apart from R
 
 A model standing in for one of Banjo's transformations has to carry a Reference Point in slot 1 and another in slot 2. The game reads those two back to place the player's collision spheres, and every transformation model carries them. Without them both spheres collapse onto the player's own position and enemies pass through untouched. Put slot 1 around two thirds of the way up the model and slot 2 near the bottom, matching whichever model you replace.
 
-Bound entries are keyed by rest position. Two vertices at exactly the same position go to the same bone regardless of their vertex groups. Move one of them if a joint needs them apart.
+Bound entries are keyed by rest position and bone together, so two vertices sitting on the same coordinate can still follow different bones. Each entry carries a position and the matrix to put it through, and the game reloads that matrix whenever the entry names a different one, so a coordinate may appear more than once.
+
+### Hit And Cull Radius
+The export panel works two numbers out of the mesh. Hit Radius is how far out an actor gets hit, measured from the center of the model's box. Cull Radius is measured from the origin, and decides when the model leaves the screen and which lights reach it. "Show Hit Sphere" puts an empty on the model at the hit radius, so you can see what you're editing against. That empty is a readout--moving or resizing it changes nothing, since the export measures the mesh. It follows the model as you edit, and it names the vertex the hit radius came from, so you know which one to pull in.
+
+Getting hit is a sphere test, so the furthest vertex from the box center decides how wide the model hits, whichever direction it points. Vanilla's final battle Gruntilda is 654 units across and hits out to 396, since her broom tail sits 330 units behind her. Narrowing a model doesn't shrink that sphere--trimming what reaches does. Collision only meshes count toward both numbers, since they go out on the end of the same vertex list.
+
+Some vanilla models cull further out than their own geometry reaches, `ASSET_4E4_SNORE_Z` out to 3900 against the 39 it spans. An import keeps that in Imported Cull Radius on the object and the export never writes less, since measuring the mesh can't put it back. Set it to 0 to go by the mesh.
 
 ### Bone IDs
 Animations address bones by ID, not by name or position, so the IDs your bone table carries decide which animations your model can play. Which way you set them depends on where the animations come from.
@@ -172,6 +181,8 @@ Scenery carries collision, characters don't.
 Collision is set per material, under BK64 Collision in the material tab. Leave it at No Collision and those faces stay out of the list, which is how an ordinary model exports with none. Set it to Ground and Banjo can stand on those faces. Sound Type picks the footstep. Map Default and the numbered map sounds resolve through the map the model loads into, so a level replacing TTC gets sand. The named sounds are the same everywhere, and the Surface Flags cover slopes, hazards and the rest.
 
 The triangles reference the model's own vertices. Collision costs a triangle list and nothing more.
+
+On a rigged model the collision follows the skeleton. Every collision vertex is bound to the bone it was weighted to, the way vanilla does it, so a limb takes its collision with it rather than leaving it behind at rest. A collision only mesh imported from the game arrives already weighted.
 
 Collision doesn't have to follow the mesh. Select a mesh and press Toggle Collision Only. It stops drawing but still collides: an invisible floor, a barrier across a gap, or a cheap box standing in for something detailed. Give every face a material with a Collision Type set, since a face with none is an error rather than a guess. The mesh goes out as extra vertices on the end of the model's own list, the way vanilla does it, and the model's radius grows to reach them.
 
