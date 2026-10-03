@@ -1409,6 +1409,11 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     return materials, slot_image, slot_scale
 
 
+def _corner_positions(indices, vertices):
+    """Where a triangle's corners sit, so a seam duplicate still matches"""
+    return tuple(sorted(tuple(vertices[index][0]) for index in indices if index < len(vertices)))
+
+
 def _build_faces(geometry, surfaces, vertices, materials, to_blender):
     """(corners, material slot, bone index, source vertices) per face, and the positions"""
     positions, face_data, remap = [], [], {}
@@ -1732,6 +1737,18 @@ def import_bk64_model(context, path: str, settings):
     for entry in model["bound_vertices"] or []:
         for vertex_index in entry["vertices"]:
             bone_of_vertex[vertex_index] = entry["bone"]
+    by_position = {}
+    for triple, surface in surfaces.items():
+        key = _corner_positions(triple, vertices)
+        by_position[key] = surface if by_position.get(key, surface) == surface else None
+    for _matrix, _source, faces in geometry:
+        for indices, _draw in faces:
+            triple = tuple(sorted(indices))
+            if triple in surfaces:
+                continue
+            surface = by_position.get(_corner_positions(indices, vertices))
+            if surface is not None:
+                surfaces[triple] = surface
 
     window = context.window_manager
     workspace = getattr(context, "workspace", None)
@@ -1756,8 +1773,10 @@ def import_bk64_model(context, path: str, settings):
 
     # vanilla puts collision on geometry it never draws, cheap floors and walls
     # the mesh has no face for
-    drawn = {tuple(sorted(indices)) for _matrix, _source, faces in geometry for indices, _draw in faces}
-    leftover = {triple: surface for triple, surface in surfaces.items() if triple not in drawn}
+    drawn = {_corner_positions(indices, vertices) for _matrix, _source, faces in geometry for indices, _draw in faces}
+    leftover = {
+        triple: surface for triple, surface in surfaces.items() if _corner_positions(triple, vertices) not in drawn
+    }
     model["collision_only_object"] = (
         _build_collision_only(
             context, base, leftover, vertices, armature_obj, mesh_obj, to_blender, bone_of_vertex, bone_names
