@@ -23,14 +23,17 @@ from .bk64_constants import (
     OP_DL,
     OP_ENDDL,
     OP_LOADBLOCK,
+    OP_LOADSYNC,
     OP_MOVEMEM,
     OP_MOVEWORD,
+    OP_PIPESYNC,
     OP_POPMTX,
     OP_SETCOMBINE,
     OP_SETGEOMETRYMODE,
     OP_SETTILE,
     OP_SETTILESIZE,
     OP_SETTIMG,
+    OP_TILESYNC,
     OP_TRI1,
     OP_TRI2,
     OP_VTX,
@@ -474,7 +477,27 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
         out.append((w0, w1))
     if white_offset is not None:
         out = _bind_untextured(out, white_offset)
+    out = _drop_idle_syncs(out)
     out.append((OP_ENDDL << 24, 0))
+    return out
+
+
+_SYNC_OPS = frozenset({OP_LOADSYNC, OP_PIPESYNC, OP_TILESYNC})
+
+
+def _drop_idle_syncs(words):
+    """Syncs with no primitive pending to wait on"""
+    # a chunk is jumped into, so the one before it drew
+    out, pending = [], True
+    for word in words:
+        opcode = (word[0] >> 24) & 0xFF
+        if opcode in _SYNC_OPS:
+            if not pending:
+                continue
+            pending = False
+        elif opcode in (OP_TRI1, OP_TRI2):
+            pending = True
+        out.append(word)
     return out
 
 
