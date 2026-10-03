@@ -437,16 +437,29 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
     # texture gen reads, and modelRender hands it a LookAt and no lights, the
     # same as vanilla.
     reflective = any(((w0 >> 24) & 0xFF) == OP_SETGEOMETRYMODE and (w1 & G_TEXTURE_GEN) for w0, w1 in words)
+    hoist_index, hoist_bits = None, 0
+    for index, (w0, w1) in enumerate(words):
+        opcode = (w0 >> 24) & 0xFF
+        if opcode in {OP_VTX, OP_TRI1, OP_TRI2, OP_CLEARGEOMETRYMODE}:
+            break
+        if opcode == OP_SETGEOMETRYMODE:
+            bits = w1 & ~G_LIGHTING if (w1 & G_LIGHTING) and not reflective else w1
+            if bits:
+                hoist_index, hoist_bits = index, bits
+            break
     out = [
         (OP_CLEARGEOMETRYMODE << 24, GEO_MODE_CHUNK_CLEAR),
-        (OP_SETGEOMETRYMODE << 24, G_SHADE | G_SHADING_SMOOTH),  # the clear takes shade and no material puts it back
+        # the clear takes shade and no material puts it back
+        (OP_SETGEOMETRYMODE << 24, G_SHADE | G_SHADING_SMOOTH | hoist_bits),
     ]
     if rendermode_entry is not None:
         # jump into the table instead of setting a mode, leaving the actor's depth mode to hold
         out.append((OP_DL << 24, (SEG_RENDERMODE << 24) | (rendermode_entry * RENDERMODE_ENTRY_STRIDE)))
     mip_active = False
-    for w0, w1 in words:
+    for index, (w0, w1) in enumerate(words):
         opcode = (w0 >> 24) & 0xFF
+        if index == hoist_index:
+            continue
         if opcode in {OP_ENDDL, OP_CULLDL}:  # BK culls off the vertex header
             continue
         if opcode in {OP_MOVEMEM, OP_MOVEWORD}:
