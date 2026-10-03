@@ -534,6 +534,8 @@ def _place_hit_sphere(empty, root_obj, scale: float, bounds):
         empty.empty_display_size = size
     if (empty.location - local).length > 1e-6:
         empty.location = local
+    if max(abs(value - 1.0) for value in empty.scale) > 1e-6:
+        empty.scale = (1.0, 1.0, 1.0)
 
 
 @persistent
