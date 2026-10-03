@@ -245,12 +245,6 @@ class BK64_ExportLevelHalves(Operator):
                 # both halves raise the same ones, and one settings collects them all
                 for warning in dict.fromkeys(settings.warnings):
                     self.report({"WARNING"}, warning)
-                for layer in blanked:
-                    self.report(
-                        {"WARNING"},
-                        f"Give a material Translucent, or set Level Half on the objects that belong in "
-                        f"the {layer} half.",
-                    )
                 note = f" {' and '.join(blanked)} had no geometry and went out blank." if blanked else ""
                 self.report({"INFO"}, f"Exported {' and '.join(written)} to {export_dir}.{note}")
             return {"FINISHED"}
