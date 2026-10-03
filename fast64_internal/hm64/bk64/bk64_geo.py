@@ -482,6 +482,7 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
         out.append((w0, w1))
     if white_offset is not None:
         out = _bind_untextured(out, white_offset)
+    out = _drop_settled_geo_modes(out)
     out = _drop_rewritten_state(out)
     out = _drop_idle_syncs(out)
     out.append((OP_ENDDL << 24, 0))
@@ -529,6 +530,41 @@ def _drop_rewritten_state(words):
                 continue
             held[slot] = (w0, w1)
         out.append((w0, w1))
+    return out
+
+
+def _drop_settled_geo_modes(words):
+    """Geometry mode runs that leave the mode as they found it"""
+    if len(words) < 2 or (words[0][0] >> 24) & 0xFF != OP_CLEARGEOMETRYMODE:
+        return words
+    known = GEO_MODE_CHUNK_CLEAR
+    mode = words[1][1] & known if (words[1][0] >> 24) & 0xFF == OP_SETGEOMETRYMODE else 0
+    out, index = list(words[:2]), 2
+    draws = {OP_VTX, OP_TRI1, OP_TRI2}
+    while index < len(words):
+        span, geo, others, after = index, [], [], mode
+        while span < len(words):
+            word = words[span]
+            opcode = (word[0] >> 24) & 0xFF
+            if opcode in draws:
+                break
+            if opcode == OP_CLEARGEOMETRYMODE:
+                after &= ~word[1]
+                geo.append(word)
+            elif opcode == OP_SETGEOMETRYMODE:
+                after |= word[1]
+                geo.append(word)
+            else:
+                others.append(word)
+            span += 1
+        if geo and (after != mode or any(word[1] & ~known for word in geo)):
+            out += words[index:span]
+            mode = after
+        else:
+            out += others
+        if span < len(words):
+            out.append(words[span])
+        index = span + 1
     return out
 
 
