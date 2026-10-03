@@ -289,6 +289,8 @@ class BK64_ExportAnimation(Operator):
                 with open(path, "wb") as file:
                     file.write(data)
 
+                for warning in dict.fromkeys(settings.warnings):
+                    self.report({"WARNING"}, warning)
                 self.report({"INFO"}, f"Exported {settings.anim_path}{extension} to {export_dir}")
             return {"FINISHED"}
 
