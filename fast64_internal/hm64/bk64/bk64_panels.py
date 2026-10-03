@@ -224,6 +224,11 @@ class BK64_MaterialPanel(BK64_Panel):
         material = context.material
         prop_split(col, material, "hm64_bk64_draw_layer", "Draw Layer")
         prop_split(col, material, "hm64_bk64_level_half", "Level Half")
+        prop_split(col, material.f3d_mat.rdp_settings, "g_mdsft_alpha_compare", "Alpha Compare")
+        if material.f3d_mat.rdp_settings.g_mdsft_alpha_compare == "G_AC_NONE" and material.f3d_mat.presetName.endswith(
+            "Cutout"
+        ):
+            col.box().label(text="A cutout blends its edges without Threshold here.")
 
         prop_split(col, material, "hm64_bk64_anim_tex", "Animated Texture")
         if material.hm64_bk64_anim_tex != "NONE":

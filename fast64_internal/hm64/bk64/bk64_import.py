@@ -60,6 +60,7 @@ from .bk64_constants import (
     OP_SETPRIMCOLOR,
     OP_SETTILE,
     OP_TEXTURE,
+    OP_OTHERMODE_L,
     OP_POPMTX,
     OP_SETTIMG,
     OP_TRI1,
@@ -113,6 +114,7 @@ BK_TEX_FORMAT = {value: key for key, value in BK_TEX_TYPE.items()}
 
 # the entry a chunk jumps into, back to the draw layer that writes it again
 DRAW_LAYER_OF_ENTRY = {entry: layer for layer, entry in BK64_DRAW_LAYER_ENTRY.items() if entry is not None}
+ALPHA_COMPARE_OF_BITS = {0: "G_AC_NONE", 1: "G_AC_THRESHOLD", 3: "G_AC_DITHER"}
 
 SHAPE_CODE = "hm64_bk64_hit_code"  # the hit code the export reads back off a volume
 
@@ -1092,6 +1094,7 @@ def new_walk_state():
         "tile": None,
         "combine": None,
         "rendermode": None,
+        "alpha_compare": 0,
         "prim": None,
         "env": None,
         "geomode": GEO_MODE_START,
@@ -1184,6 +1187,7 @@ def _walk_display_list(words, start: int, state):
                     state["mip_tile"] if mipmapped and state["mip_tile"] else state["tile"],
                     state["combine"],
                     state["rendermode"],
+                    state["alpha_compare"],
                     state["prim"],
                     state["env"],
                     state["geomode"],
@@ -1253,6 +1257,9 @@ def _walk_display_list(words, start: int, state):
             state["prim"] = (w1 >> 24 & 0xFF, w1 >> 16 & 0xFF, w1 >> 8 & 0xFF, w1 & 0xFF, w0 >> 8 & 0xFF, w0 & 0xFF)
         elif opcode == OP_SETENVCOLOR:
             state["env"] = (w1 >> 24 & 0xFF, w1 >> 16 & 0xFF, w1 >> 8 & 0xFF, w1 & 0xFF)
+        elif opcode == OP_OTHERMODE_L and ((w0 >> 8) & 0xFF) == 0:
+            # shift 0 is the alpha compare field
+            state["alpha_compare"] = w1 & 0x3
         elif opcode == OP_DL and (w1 >> 24) == SEG_RENDERMODE:
             # a chunk picks its render mode by jumping into the game's table, and
             # one that never jumps keeps whatever the chunk before it left
@@ -1317,7 +1324,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     for index, key in enumerate(ordered):
         if progress is not None:
             progress(index / len(ordered), f"material {index + 1} of {len(ordered)}")
-        (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface = key
+        (texture, tile, combine, rendermode, alpha_compare, prim, env, geomode, texscale, _texlevel), surface = key
         preset = "bk64_shaded_texture" if texture is not None else "bk64_shaded_solid"
         material = _material_from_preset(mesh_obj, preset, prototypes)
         if isinstance(texture, tuple):
@@ -1374,6 +1381,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
             red, green, blue, alpha = env
             material.f3d_mat.env_color = tuple(gammaInverse([c / 255.0 for c in (red, green, blue)])) + (alpha / 255.0,)
             material.f3d_mat.set_env = True
+        material.f3d_mat.rdp_settings.g_mdsft_alpha_compare = ALPHA_COMPARE_OF_BITS.get(alpha_compare, "G_AC_NONE")
         # INHERIT for a chunk that ran before any jump. It exports without one.
         layer = DRAW_LAYER_OF_ENTRY.get(rendermode, "INHERIT")
         material.hm64_bk64_draw_layer = layer
