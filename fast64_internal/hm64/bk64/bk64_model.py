@@ -615,10 +615,11 @@ def read_collision_only(context, root_obj, scale: float):
     """
     to_bk = _to_bk_space(root_obj, scale)
 
-    vertices, index_of, triangles = [], {}, []
+    vertices, index_of, triangles, bones = [], {}, [], []
     for obj in [root_obj] + list(root_obj.children_recursive):
         if obj.type != "MESH" or not obj.get(COLLISION_ONLY_PROP):
             continue
+        bone_of_group = {group.index: group.name for group in obj.vertex_groups}
 
         # what the vertex carried before the import, white when it's new
         colors = obj.data.attributes.get(COLLISION_COLOR_ATTR)
@@ -635,10 +636,18 @@ def read_collision_only(context, root_obj, scale: float):
                         "Give every face a material with a Collision Type set, or unmark the object."
                     )
                 corners = []
+                deform = bm.verts.layers.deform.active
                 for vert in face.verts:
-                    key = tuple(s16(value) for value in vert.co)
+                    held = (
+                        max(vert[deform].items(), key=lambda item: item[1], default=(None, 0.0))[0]
+                        if deform is not None
+                        else None
+                    )
+                    bone_name = bone_of_group.get(held)
+                    key = (tuple(s16(value) for value in vert.co), bone_name)
                     if key not in index_of:
                         index_of[key] = len(vertices)
+                        bones.append(bone_name)
                         readable = colors is not None and vert.index < len(colors.data)
                         color = (
                             tuple(max(0, min(255, round(channel * 255))) for channel in colors.data[vert.index].color)
@@ -650,13 +659,13 @@ def read_collision_only(context, root_obj, scale: float):
                             if uvs is not None and vert.index < len(uvs.data)
                             else (0, 0)
                         )
-                        vertices.append((key, uv, color))
+                        vertices.append((key[0], uv, color))
                     corners.append(index_of[key])
                 triangles.append((corners[0], corners[1], corners[2], surface[0], surface[1]))
         finally:
             bm.free()
 
-    return vertices, triangles
+    return vertices, triangles, bones
 
 
 def _check_cycle_type(mesh_objects):
@@ -1464,12 +1473,6 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 for shape in shapes[group]:
                     shape["bone"] = index_of_bone.get(shape.pop("bone_name"), -1)
 
-        bound_vertices = (
-            _vertex_bone_entries(vertices, bone_tags, settings.warnings, transform_matrix @ to_bk_space) if bind else []
-        )
-        if bind and not bound_vertices:
-            raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
-
         meshes = _mesh_list_entries(mesh_tags, sorted(mesh_uids, key=mesh_uids.get))
         lost = sorted({uid for held in mesh_uids for uid in held} - {entry["uid"] for entry in meshes})
         if lost:
@@ -1479,7 +1482,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             )
 
         if collision_only is not None:
-            hidden_vertices, hidden_surfaces = collision_only
+            hidden_vertices, hidden_surfaces, hidden_bones = collision_only
             base = len(vertices)
             if base + len(hidden_vertices) > MAX_VERTEX_COUNT:
                 raise PluginError(
@@ -1488,6 +1491,14 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 )
             vertices += [(position, 0, uv, color) for position, uv, color in hidden_vertices]
             collision += [((base + a, base + b, base + c), flags, unk6) for a, b, c, flags, unk6 in hidden_surfaces]
+            index_of_bone = {bone.name: index for index, bone in enumerate(bones)}
+            bone_tags += [index_of_bone[name] + 1 if name in index_of_bone else 0 for name in hidden_bones]
+
+        bound_vertices = (
+            _vertex_bone_entries(vertices, bone_tags, settings.warnings, transform_matrix @ to_bk_space) if bind else []
+        )
+        if bind and not bound_vertices:
+            raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
 
         if len(vertices) > MAX_VERTEX_COUNT:
             raise PluginError(

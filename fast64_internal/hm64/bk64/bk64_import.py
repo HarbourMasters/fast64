@@ -1429,7 +1429,9 @@ def _build_faces(geometry, surfaces, vertices, materials, to_blender):
     return face_data, positions, remap
 
 
-def _build_collision_only(context, base: str, leftover, vertices, armature_obj, mesh_obj, to_blender):
+def _build_collision_only(
+    context, base: str, leftover, vertices, armature_obj, mesh_obj, to_blender, bone_of_vertex=None, bone_names=None
+):
     """The collision triangles no drawn face covers, as their own wire mesh"""
     collection = bpy.data.collections.new(f"{base}_collision_only")
     context.scene.collection.children.link(collection)
@@ -1474,6 +1476,16 @@ def _build_collision_only(context, base: str, leftover, vertices, armature_obj, 
         polygon.material_index = slot_of[surface]
 
     obj = bpy.data.objects.new(f"{base}_collision_only", mesh)
+    if bone_of_vertex and bone_names:
+        groups = {}
+        for index, slot in remap.items():
+            bone = bone_of_vertex.get(index)
+            name = bone_names.get(bone) if bone is not None else None
+            if name is None:
+                continue
+            group = groups.get(name) or obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+            groups[name] = group
+            group.add([slot], 1.0, "REPLACE")
     obj.ignore_render = True  # it's collision, nothing draws it
     obj.display_type = "WIRE"
     obj[COLLISION_ONLY_PROP] = 1
@@ -1716,6 +1728,11 @@ def import_bk64_model(context, path: str, settings):
         )
 
     surfaces = model["collision"]
+    bone_of_vertex = {}
+    for entry in model["bound_vertices"] or []:
+        for vertex_index in entry["vertices"]:
+            bone_of_vertex[vertex_index] = entry["bone"]
+
     window = context.window_manager
     workspace = getattr(context, "workspace", None)
     status = getattr(workspace, "status_text_set", None) or getattr(window, "status_text_set", None)
@@ -1742,7 +1759,9 @@ def import_bk64_model(context, path: str, settings):
     drawn = {tuple(sorted(indices)) for _matrix, _source, faces in geometry for indices, _draw in faces}
     leftover = {triple: surface for triple, surface in surfaces.items() if triple not in drawn}
     model["collision_only_object"] = (
-        _build_collision_only(context, base, leftover, vertices, armature_obj, mesh_obj, to_blender)
+        _build_collision_only(
+            context, base, leftover, vertices, armature_obj, mesh_obj, to_blender, bone_of_vertex, bone_names
+        )
         if leftover
         else None
     )

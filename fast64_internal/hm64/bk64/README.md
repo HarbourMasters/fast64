@@ -173,6 +173,8 @@ Collision is set per material, under BK64 Collision in the material tab. Leave i
 
 The triangles reference the model's own vertices. Collision costs a triangle list and nothing more.
 
+On a rigged model the collision follows the skeleton. Every collision vertex is bound to the bone it was weighted to, the way vanilla does it, so a limb takes its collision with it rather than leaving it behind at rest. A collision only mesh imported from the game arrives already weighted.
+
 Collision doesn't have to follow the mesh. Select a mesh and press Toggle Collision Only. It stops drawing but still collides: an invisible floor, a barrier across a gap, or a cheap box standing in for something detailed. Give every face a material with a Collision Type set, since a face with none is an error rather than a guess. The mesh goes out as extra vertices on the end of the model's own list, the way vanilla does it, and the model's radius grows to reach them.
 
 Vanilla leans on this, the beehive and Mumbo's hut among them. Those come in as a `<name>_collision_only` mesh, so a re-export keeps them.
