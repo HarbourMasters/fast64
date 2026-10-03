@@ -28,6 +28,7 @@ from ...utility import (
 from .bk64_constants import (
     ANIM_TEX_SLOT_COUNT,
     bk64_world_defaults,
+    BONE_TAG_ATTRIBUTE,
     COLLISION_COLOR_ATTR,
     COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
@@ -867,14 +868,15 @@ def _vertex_bones(context, mesh_objects, bones, space_matrix, scale_matrix):
     return bound
 
 
-def _vertex_bone_entries(vertices, bound, warnings, space_matrix):
-    """One entry per bound coordinate, listing every vertex written at it"""
+def _vertex_bone_entries(vertices, bone_tags, warnings, space_matrix):
+    """One entry per bound coordinate and bone, listing every vertex written there"""
     at_position = {}
     loose = set()
     for index, vertex in enumerate(vertices):
+        bone = bone_tags[index] if index < len(bone_tags) else 0
         key = written_key(vertex[0])
-        if key in bound:
-            at_position.setdefault(key, []).append(index)
+        if bone:
+            at_position.setdefault((key, bone - 1), []).append(index)
         else:
             loose.add(key)
 
@@ -893,10 +895,10 @@ def _vertex_bone_entries(vertices, bound, warnings, space_matrix):
         )
 
     entries = []
-    for position, indices in at_position.items():
+    for (position, bone), indices in at_position.items():
         # the count is one byte. A busier coordinate needs several entries.
         for start in range(0, len(indices), 0x7F):
-            entries.append(dict(coord=position, bone=bound[position], vertices=indices[start : start + 0x7F]))
+            entries.append(dict(coord=position, bone=bone, vertices=indices[start : start + 0x7F]))
     return entries
 
 
@@ -940,10 +942,34 @@ def _tag_mesh_groups(bm, mesh_obj, index_of):
         vertex[layer] = index_of.setdefault(held, len(index_of))
 
 
+def _tag_bone_binding(bm, mesh_obj, index_of_bone):
+    bone_of_group = {
+        group.index: index_of_bone[group.name] for group in mesh_obj.vertex_groups if group.name in index_of_bone
+    }
+    deform = bm.verts.layers.deform.active
+    if not bone_of_group or deform is None:
+        return
+    layer = bm.verts.layers.int.get(BONE_TAG_ATTRIBUTE) or bm.verts.layers.int.new(BONE_TAG_ATTRIBUTE)
+    for vertex in bm.verts:
+        weights = {}
+        for index, weight in vertex[deform].items():
+            if index in bone_of_group and weight > 0.0:
+                bone = bone_of_group[index]
+                weights[bone] = weights.get(bone, 0.0) + weight
+        # ties go to the earlier table entry
+        vertex[layer] = max(weights.items(), key=lambda item: (item[1], -item[0]))[0] + 1 if weights else 0
+
+
 def _piece_mesh_tags(piece):
     """One tag per source vertex, or None when the piece has none"""
-    attribute = piece.data.attributes.get(MESH_TAG_ATTRIBUTE)
-    return [item.value for item in attribute.data] if attribute else None
+    mesh_attribute = piece.data.attributes.get(MESH_TAG_ATTRIBUTE)
+    bone_attribute = piece.data.attributes.get(BONE_TAG_ATTRIBUTE)
+    if bone_attribute is None:
+        return [item.value for item in mesh_attribute.data] if mesh_attribute else None
+    bones = [item.value for item in bone_attribute.data]
+    if mesh_attribute is None:
+        return [(0, bone) for bone in bones]
+    return [(item.value, bone) for item, bone in zip(mesh_attribute.data, bones)]
 
 
 def _mesh_list_entries(tags, uid_sets):
@@ -959,7 +985,7 @@ def _mesh_list_entries(tags, uid_sets):
 def _collect_vertices(fMeshes, shade_colors, force_unlit: bool, reflective=frozenset()):
     # startAddress is a byte offset, so SPVertex.to_binary emits the segment 1
     # address directly and nothing needs patching after
-    vertices, tags, owners, spans = [], [], [], {}
+    vertices, tags, owners, spans, bone_tags = [], [], [], {}, []
     for fMesh in fMeshes:
         spans[id(fMesh)] = len(vertices)
         for triGroup in fMesh.triangleGroups:
@@ -977,10 +1003,12 @@ def _collect_vertices(fMeshes, shade_colors, force_unlit: bool, reflective=froze
                     else tuple(vtx.colorOrNormal)
                 )
                 vertices.append((tuple(vtx.position), vtx.packedNormal, tuple(vtx.uv), color))
-                tags.append(vtx.meshTag or 0)  # 0 is the empty set, which a model with no meshes writes
+                tag, bone = vtx.meshTag if isinstance(vtx.meshTag, tuple) else (vtx.meshTag, 0)
+                tags.append(tag or 0)  # 0 is the empty set, which a model with no meshes writes
+                bone_tags.append(bone or 0)  # 0 is no bone, the table's own entries start at 1
             owners.append((first, len(vertices), id(triGroup.fMaterial)))
         spans[id(fMesh)] = (spans[id(fMesh)], len(vertices))
-    return vertices, tags, owners, spans
+    return vertices, tags, owners, spans, bone_tags
 
 
 def _layout_bone_of_source(records, bones):
@@ -1024,10 +1052,13 @@ def _gather_parts(
             bones = [BK64Bone(root_obj.name, (0.0, 0.0, 0.0), 1, NO_PARENT)]
         holder = bones[0].name
         meshes_by_bone = {holder: []}
+        index_of_bone = {bone.name: index for index, bone in enumerate(bones)} if bind else {}
         for mesh_obj in mesh_objects:
             bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, bind)
             try:
                 _tag_mesh_groups(bm, mesh_obj, mesh_uids)
+                if bind:
+                    _tag_bone_binding(bm, mesh_obj, index_of_bone)
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
             finally:
                 bm.free()
@@ -1363,7 +1394,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # they gate when the boxes they test against are missing
         camera_areas = read_camera_areas(root_obj, settings.scale, settings.warnings)
 
-        vertices, mesh_tags, vertex_owners, spans = _collect_vertices(
+        vertices, mesh_tags, vertex_owners, spans, bone_tags = _collect_vertices(
             ordered_fMeshes, shade_colors, settings.force_unlit, reflective
         )
         if not vertices:
@@ -1433,12 +1464,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 for shape in shapes[group]:
                     shape["bone"] = index_of_bone.get(shape.pop("bone_name"), -1)
 
-        # binding matches on position. Take it before the collision only vertices
-        # land, or one sitting on a drawn vertex joins its entry.
         bound_vertices = (
-            _vertex_bone_entries(vertices, owner_of_pos, settings.warnings, transform_matrix @ to_bk_space)
-            if bind
-            else []
+            _vertex_bone_entries(vertices, bone_tags, settings.warnings, transform_matrix @ to_bk_space) if bind else []
         )
         if bind and not bound_vertices:
             raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")

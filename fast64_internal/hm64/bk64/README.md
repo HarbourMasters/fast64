@@ -121,7 +121,7 @@ Setting a Geo Type on a bone only takes effect with Split At Bones, apart from R
 
 A model standing in for one of Banjo's transformations has to carry a Reference Point in slot 1 and another in slot 2. The game reads those two back to place the player's collision spheres, and every transformation model carries them. Without them both spheres collapse onto the player's own position and enemies pass through untouched. Put slot 1 around two thirds of the way up the model and slot 2 near the bottom, matching whichever model you replace.
 
-Bound entries are keyed by rest position. Two vertices at exactly the same position go to the same bone regardless of their vertex groups. Move one of them if a joint needs them apart.
+Bound entries are keyed by rest position and bone together, so two vertices sitting on the same coordinate can still follow different bones. Each entry carries a position and the matrix to put it through, and the game reloads that matrix whenever the entry names a different one, so a coordinate may appear more than once.
 
 ### Bone IDs
 Animations address bones by ID, not by name or position, so the IDs your bone table carries decide which animations your model can play. Which way you set them depends on where the animations come from.

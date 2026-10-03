@@ -113,6 +113,7 @@ MAX_LAYOUT_BONE = 127  # the geo layout's BONE command holds its bone index in a
 
 MESH_GROUP_PREFIX = "bk64_mesh_"  # the uid rides in the name, it's what the game looks a mesh up by
 MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part and piece splits
+BONE_TAG_ATTRIBUTE = "bk64_bone_tag"  # holds a bound vertex's bone through the same splits
 
 # A mesh's effect comes from which hundred its uid falls in, and uid minus that base
 # is the effect's parameter (core2 func_8034C6DC). For a scroll it is the speed.
