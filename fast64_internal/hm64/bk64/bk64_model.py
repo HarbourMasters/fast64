@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import struct
 
+import numpy
+
 import bmesh
 import bpy
 import mathutils
@@ -112,25 +114,31 @@ def _write_vertex_resource(vertices):
 
 def _vertex_bounds(vertices):
     """The BKVertexList header"""
+    return _position_bounds([vertex[0] for vertex in vertices])
+
+
+def _position_bounds(positions):
     # BK culls off center + local_norm, global_norm is from the model origin
-    if not vertices:
-        return dict(min=(0, 0, 0), max=(0, 0, 0), center=(0, 0, 0), local_norm=0, count=0, global_norm=0)
+    points = numpy.asarray(positions, dtype=numpy.float64).reshape(-1, 3)
+    if not len(points):
+        empty = (0, 0, 0)
+        return dict(min=empty, max=empty, center=empty, local_norm=0, count=0, global_norm=0, furthest=empty)
 
-    positions = [vertex[0] for vertex in vertices]
-    low = tuple(min(position[axis] for position in positions) for axis in range(3))
-    high = tuple(max(position[axis] for position in positions) for axis in range(3))
-    center = tuple((low[axis] + high[axis]) / 2.0 for axis in range(3))
-
-    def distance(point, origin):
-        return math.sqrt(sum((point[axis] - origin[axis]) ** 2 for axis in range(3)))
-
+    # the panel reads this on every redraw, so it takes the mesh in one pass
+    points = numpy.clip(numpy.rint(points), -32768, 32767)
+    low, high = points.min(axis=0), points.max(axis=0)
+    # vanilla truncates the midpoint, then measures both radii off that
+    center = numpy.trunc((low + high) / 2.0)
+    spread = numpy.sqrt(((points - center) ** 2).sum(axis=1))
+    furthest = int(spread.argmax())
     return dict(
-        min=low,
-        max=high,
-        center=center,
-        local_norm=math.ceil(max(distance(position, center) for position in positions)),
-        count=len(vertices),
-        global_norm=math.ceil(max(distance(position, (0, 0, 0)) for position in positions)),
+        min=tuple(int(value) for value in low),
+        max=tuple(int(value) for value in high),
+        center=tuple(int(value) for value in center),
+        local_norm=int(spread[furthest]),
+        count=len(points),
+        global_norm=int(numpy.sqrt((points**2).sum(axis=1)).max()),
+        furthest=tuple(int(value) for value in points[furthest]),
     )
 
 
@@ -515,6 +523,32 @@ def _to_bk_space(root_obj, scale: float):
         else root_obj.matrix_world.inverted()
     )
     return BLENDER_TO_BK @ mathutils.Matrix.Diagonal(mathutils.Vector((scale, scale, scale))).to_4x4() @ origin
+
+
+def from_bk_space(root_obj, scale: float):
+    """BK model space back to Blender space"""
+    return _to_bk_space(root_obj, scale).inverted()
+
+
+def read_vertex_bounds(depsgraph, root_obj, scale: float):
+    """The BKVertexList header the export would write, from the meshes as they stand"""
+    to_bk = _to_bk_space(root_obj, scale)
+
+    blocks = []
+    for obj in [root_obj] + list(root_obj.children_recursive):
+        if obj.type != "MESH" or (obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)):
+            continue
+        # modifiers reach the file, so measure the evaluated mesh
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        count = len(mesh.vertices)
+        if count:
+            flat = numpy.empty(count * 3, dtype=numpy.float64)
+            mesh.vertices.foreach_get("co", flat)
+            matrix = numpy.array(to_bk @ obj.matrix_world)
+            blocks.append(flat.reshape(count, 3) @ matrix[:3, :3].T + matrix[:3, 3])
+        evaluated.to_mesh_clear()
+    return _position_bounds(numpy.concatenate(blocks) if blocks else [])
 
 
 def read_camera_areas(root_obj, scale: float, warnings=None):
@@ -1509,6 +1543,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # after the append, the way vanilla does it. global_norm is the radius
         # collision gets tested against at all
         bounds = _vertex_bounds(vertices)
+        # some vanilla models cull further out than their vertices reach
+        bounds["global_norm"] = max(bounds["global_norm"], root_obj.hm64_bk64_cull_radius_raw)
         if shapes:
             # bkmodelunk14list_func_802EBAE0 answers no without testing a shape
             # once a query is past this. Every vanilla model sets it to its own

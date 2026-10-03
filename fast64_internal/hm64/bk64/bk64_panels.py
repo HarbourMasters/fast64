@@ -6,7 +6,7 @@ from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS
-from .bk64_model import in_level_half, level_half_faces
+from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
     BK64_AddMeshEffect,
     BK64_ExportAllAnimations,
@@ -20,6 +20,7 @@ from .bk64_operators import (
     BK64_PromoteMaterials,
     BK64_MarkCollisionOnly,
     BK64_SelectLooseVertices,
+    BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
     resolve_root,
 )
@@ -90,18 +91,21 @@ class BK64_ExportModelPanel(BK64_Panel):
         box.label(text="Select the armature, or the mesh for a static model.")
         box.label(text="Split At Bones needs the mesh cut first, Bind Vertices doesn't.")
         box.label(text="Level Half picks which model, Export Level Halves writes both.")
-        box.label(text="Pack the folder with: torch pack <folder> <name>.o2r o2r")
+        box.label(text="Geo Type per bone and collision per material are in Properties.")
+        if scene.hm64_bk64_file_format == "O2R":
+            box.label(text="Pack the folder with: torch pack <folder> <name>.o2r o2r")
 
 
 class BK64_ExportAnimationPanel(BK64_Panel):
     bl_idname = "BK64_PT_export_animation"
     bl_label = "Animations"
-    bl_order = 1
+    bl_order = 2
 
     def draw(self, context):
         col = self.layout.column()
         scene = context.scene
 
+        prop_split(col, scene, "hm64_bk64_anim_scale", "Animation Scale")
         prop_split(col, scene, "hm64_bk64_anim_path", "Animation Path")
         col.prop(scene, "hm64_bk64_anim_include_rest")
         col.operator(BK64_ExportAnimation.bl_idname)
@@ -113,7 +117,7 @@ class BK64_ExportAnimationPanel(BK64_Panel):
         box = col.box().column()
         box.label(text="Exports the armature's active action, over its own frame range.")
         box.label(text="Export All Actions writes every action on this rig, named after it.")
-        box.label(text="Format, folder, scale and Animation Scale come from the panel above.")
+        box.label(text="Format, folder and scale come from the Model Exporter.")
         box.label(text="Animation Scale must match the model this plays on.")
         box.label(text="Import puts one on the selected armature, by bone id.")
 
@@ -121,7 +125,7 @@ class BK64_ExportAnimationPanel(BK64_Panel):
 class BK64_ImportModelPanel(BK64_Panel):
     bl_idname = "BK64_PT_import_model"
     bl_label = "Model Importer"
-    bl_order = 2
+    bl_order = 1
 
     def draw(self, context):
         col = self.layout.column()
@@ -176,6 +180,38 @@ class BK64_MeshToolsPanel(BK64_Panel):
         box.label(text="Collision Only makes a mesh an invisible floor or wall.")
         box.label(text="Pick the faces in edit mode before Add Mesh Effect.")
         box.label(text="Scroll only moves vertically, and effects only run on a level.")
+
+        col.separator()
+        radii = col.box().column()
+        try:
+            root = resolve_root(context)
+        except Exception:  # a draw callback must never raise
+            root = None
+        kept = root.hm64_bk64_cull_radius_raw if root is not None else 0
+        try:
+            bounds = (
+                read_vertex_bounds(context.evaluated_depsgraph_get(), root, scene.hm64_bk64_scale)
+                if root is not None
+                else None
+            )
+        except Exception:
+            bounds = None
+        if bounds is not None and bounds["count"]:
+            radii.label(text=f"Hit Radius: {bounds['local_norm']}")
+            radii.label(text=f"Cull Radius: {max(bounds['global_norm'], kept)}")
+        if root is not None and root.type == "ARMATURE":
+            # the export measures in the armature's space, so its own transform cancels
+            _at, turn, size = root.matrix_world.decompose()
+            if any(abs(value - 1.0) > 1e-4 for value in size) or abs(turn.angle) > 1e-4:
+                radii.label(text="The armature's own scale and rotation stay out of the")
+                radii.label(text="file, so they don't move these. Scale the mesh instead.")
+        radii.operator(BK64_ShowHitSphere.bl_idname)
+        if kept:
+            prop_split(radii, root, "hm64_bk64_cull_radius_raw", "Imported Cull Radius")
+        radii.label(text="An actor is hit anywhere inside its hit radius, out from the")
+        radii.label(text="center of the model's box, so one far vertex widens it.")
+        radii.label(text="Cull radius runs from the origin and decides when it leaves")
+        radii.label(text="the screen. Collision only meshes count toward both.")
 
 
 class BK64_BonePanel(BK64_Panel):

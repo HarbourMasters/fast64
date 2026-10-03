@@ -125,6 +125,13 @@ A model standing in for one of Banjo's transformations has to carry a Reference 
 
 Bound entries are keyed by rest position and bone together, so two vertices sitting on the same coordinate can still follow different bones. Each entry carries a position and the matrix to put it through, and the game reloads that matrix whenever the entry names a different one, so a coordinate may appear more than once.
 
+### Hit And Cull Radius
+The export panel works two numbers out of the mesh. Hit Radius is how far out an actor gets hit, measured from the center of the model's box. Cull Radius is measured from the origin, and decides when the model leaves the screen and which lights reach it. "Show Hit Sphere" puts an empty on the model at the hit radius, so you can see what you're editing against. That empty is a readout--moving or resizing it changes nothing, since the export measures the mesh. It follows the model as you edit, and it names the vertex the hit radius came from, so you know which one to pull in.
+
+Getting hit is a sphere test, so the furthest vertex from the box center decides how wide the model hits, whichever direction it points. Vanilla's final battle Gruntilda is 654 units across and hits out to 396, since her broom tail sits 330 units behind her. Narrowing a model doesn't shrink that sphere--trimming what reaches does. Collision only meshes count toward both numbers, since they go out on the end of the same vertex list.
+
+Some vanilla models cull further out than their own geometry reaches, `ASSET_4E4_SNORE_Z` out to 3900 against the 39 it spans. An import keeps that in Imported Cull Radius on the object and the export never writes less, since measuring the mesh can't put it back. Set it to 0 to go by the mesh.
+
 ### Bone IDs
 Animations address bones by ID, not by name or position, so the IDs your bone table carries decide which animations your model can play. Which way you set them depends on where the animations come from.
 

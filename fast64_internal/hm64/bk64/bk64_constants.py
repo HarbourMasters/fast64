@@ -381,6 +381,7 @@ COLLISION_GRID_PROP = "hm64_bk64_collision_grid"
 SHAPE_KIND = "hm64_bk64_shape"
 SHAPE_PIVOT = "hm64_bk64_shape_pivot"  # the point a box turns about, kept to export it back in place
 COLLISION_ONLY_PROP = "hm64_bk64_collision_only"
+HIT_SPHERE_PROP = "hm64_bk64_hit_sphere"  # how the handler finds the empties it keeps placed
 
 # a stand-in root has to carry these, or the section each feeds ships empty
 MODEL_STASH_PROPS = (GEO_LAYOUT_PROP, COLLISION_GRID_PROP)

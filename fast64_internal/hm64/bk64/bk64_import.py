@@ -99,6 +99,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
+from .bk64_model import read_vertex_bounds
 from .bk64_rom import (
     BKMODEL_SECTIONS,
     BTMODEL_RESOURCE_FIELDS,
@@ -151,7 +152,9 @@ def _read_model(data: bytes):
     flags = struct.unpack_from("<7B", data, offset)
     _has_anim, has_collision, has_shapes = flags[:3]
     offset += 7
+    cull_radius = 0
     if has_vtx:
+        cull_radius = struct.unpack_from("<h", data, offset + 22)[0]
         offset += 24
     words = []
     if has_dl:
@@ -189,6 +192,7 @@ def _read_model(data: bytes):
     return dict(
         geo_type=geo_type,
         tri_count=tri_count,
+        cull_radius=cull_radius,
         has_mesh_list=bool(flags[4]),
         camera_areas=extra["camera_areas"],
         mesh_list=extra["mesh_list"],
@@ -460,9 +464,10 @@ def _read_model_bin(data: bytes):
     tri_count, vertex_count = (
         struct.unpack_from(">HH", data, 0x44) if tooie else (header["tri_count"], header["vertex_count"])
     )
-    vertices = []
+    vertices, cull_radius = [], 0
     if header["vtx"]:
         # a BKVertexList opens with the model's bounds, then the records
+        cull_radius = struct.unpack_from(">h", data, header["vtx"] + 22)[0]
         vertices = _vertex_records(data, header["vtx"] + 24, vertex_count, ">")
 
     tex_infos, blob, external = [], b"", 0
@@ -497,6 +502,7 @@ def _read_model_bin(data: bytes):
     model = dict(
         geo_type=header["geo_type"],
         tri_count=tri_count,
+        cull_radius=cull_radius,
         has_mesh_list=bool(header["mesh_list"]),
         # Tooie fills these two slots with sections of its own, boxes where Kazooie
         # keeps camera areas and vertex effects where it keeps the mesh list
@@ -1830,5 +1836,11 @@ def import_bk64_model(context, path: str, settings):
         mesh_obj.parent = armature_obj
         modifier = mesh_obj.modifiers.new("Armature", "ARMATURE")
         modifier.object = armature_obj
+
+    root_obj = armature_obj or mesh_obj
+    measured = read_vertex_bounds(context.evaluated_depsgraph_get(), root_obj, settings.scale)
+    if model["cull_radius"] > measured["global_norm"]:
+        # measuring the mesh can't put a wider one back
+        root_obj.hm64_bk64_cull_radius_raw = model["cull_radius"]
 
     return armature_obj, mesh_obj, model
