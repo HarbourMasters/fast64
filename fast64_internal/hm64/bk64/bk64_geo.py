@@ -26,9 +26,14 @@ from .bk64_constants import (
     OP_LOADSYNC,
     OP_MOVEMEM,
     OP_MOVEWORD,
+    OP_OTHERMODE_H,
+    OP_OTHERMODE_L,
     OP_PIPESYNC,
     OP_POPMTX,
     OP_SETCOMBINE,
+    OP_SETENVCOLOR,
+    OP_SETPRIMCOLOR,
+    OP_TEXTURE,
     OP_SETGEOMETRYMODE,
     OP_SETTILE,
     OP_SETTILESIZE,
@@ -477,9 +482,21 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
         out.append((w0, w1))
     if white_offset is not None:
         out = _bind_untextured(out, white_offset)
+    out = _drop_rewritten_state(out)
     out = _drop_idle_syncs(out)
     out.append((OP_ENDDL << 24, 0))
     return out
+
+
+# tile and image commands are steps in a load, not registers, so they stay out
+_STATE_OPS = frozenset({OP_SETCOMBINE, OP_TEXTURE, OP_OTHERMODE_H, OP_OTHERMODE_L, OP_SETPRIMCOLOR, OP_SETENVCOLOR})
+
+
+def _state_slot(w0):
+    opcode = (w0 >> 24) & 0xFF
+    if opcode in (OP_OTHERMODE_H, OP_OTHERMODE_L):
+        return (opcode, (w0 >> 8) & 0xFF, w0 & 0xFF)
+    return (opcode,)
 
 
 _SYNC_OPS = frozenset({OP_LOADSYNC, OP_PIPESYNC, OP_TILESYNC})
@@ -498,6 +515,20 @@ def _drop_idle_syncs(words):
         elif opcode in (OP_TRI1, OP_TRI2):
             pending = True
         out.append(word)
+    return out
+
+
+def _drop_rewritten_state(words):
+    """State writes that set a register to what it already holds"""
+    prologue = 2 if words and (words[0][0] >> 24) & 0xFF == OP_CLEARGEOMETRYMODE else 0
+    out, held = list(words[:prologue]), {}
+    for w0, w1 in words[prologue:]:
+        if ((w0 >> 24) & 0xFF) in _STATE_OPS:
+            slot = _state_slot(w0)
+            if held.get(slot) == (w0, w1):
+                continue
+            held[slot] = (w0, w1)
+        out.append((w0, w1))
     return out
 
 
