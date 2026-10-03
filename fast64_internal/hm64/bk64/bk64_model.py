@@ -13,6 +13,8 @@ from ...f3d.f3d_gbi import (
     DLFormat,
     FModel,
     GfxMatWriteMethod,
+    SPDisplayList,
+    SPEndDisplayList,
     SPTexture,
 )
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
@@ -1292,6 +1294,16 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     for command in gfx_list.commands:
                         if isinstance(command, SPTexture):
                             command.on = 0
+        # the next chunk's prologue clears what this revert clears, so it is dead
+        reverts = {id(value[0].revert) for value in fModel.materials.values() if getattr(value[0], "revert", None)}
+        for fMesh in ordered_fMeshes:
+            commands = fMesh.draw.commands
+            # by index: these are dataclasses, so remove() can take the wrong one
+            last = len(commands) - 1
+            while last >= 0 and isinstance(commands[last], SPEndDisplayList):
+                last -= 1
+            if last >= 0 and isinstance(commands[last], SPDisplayList) and id(commands[last].displayList) in reverts:
+                del commands[last]
         # an import stores geo type on the object, since a level's halves disagree
         geo_type = root_obj.hm64_bk64_geo_type_raw or settings.geo_type_bits()
         # the bits shipped, not the scene setting: a level's second half clears that
