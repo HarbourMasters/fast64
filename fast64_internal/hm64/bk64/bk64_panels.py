@@ -216,9 +216,30 @@ class BK64_MeshToolsPanel(BK64_Panel):
         radii.label(text="Cull radius runs from the origin and decides when it leaves")
         radii.label(text="the screen. Collision only meshes count toward both.")
 
+
+def _model_meshes(root):
+    """Every mesh of the model, the root included when it is one"""
+    if root is None:
+        return []
+    return [obj for obj in ([root] + list(root.children_recursive)) if obj.type == "MESH"]
+
+
+class BK64_GeoNodesPanel(BK64_Panel):
+    bl_idname = "BK64_PT_geo_nodes"
+    bl_label = "Geo Nodes"
+    bl_order = 4
+
+    def draw(self, context):
+        col = self.layout.column()
+        try:
+            root = resolve_root(context)
+        except Exception:  # a draw callback must never raise
+            root = None
+        if root is None:
+            col.box().label(text="Select the model to see the nodes it has.")
+
         levels = layout_detail_levels(stored_layout(root) or []) if root is not None else []
         if levels:
-            col.separator()
             detail = col.box().column()
             detail.label(text="Detail Levels")
             for near, far in levels:
@@ -228,8 +249,7 @@ class BK64_MeshToolsPanel(BK64_Panel):
             detail.separator()
             detail.operator(BK64_SplitDetailLevels.bl_idname)
             detail.prop(root, "hm64_bk64_spread_levels")
-            meshes = [root] if root.type == "MESH" else root.children_recursive
-            aside = [obj for obj in meshes if obj.type == "MESH" and any(obj.hm64_bk64_view_offset)]
+            aside = [obj for obj in _model_meshes(root) if any(obj.hm64_bk64_view_offset)]
             if aside:
                 step = max(max(abs(value) for value in obj.hm64_bk64_view_offset) for obj in aside)
                 detail.label(text=f"Standing aside up to {step:.2f} for viewing. The export puts them back.")
@@ -320,6 +340,7 @@ bk64_panel_classes = (
     BK64_ExportAnimationPanel,
     BK64_ImportModelPanel,
     BK64_MeshToolsPanel,
+    BK64_GeoNodesPanel,
     BK64_BonePanel,
     BK64_MaterialPanel,
 )
