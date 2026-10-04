@@ -60,6 +60,7 @@ from .bk64_constants import (
     OP_SETPRIMCOLOR,
     OP_SETTILE,
     OP_TEXTURE,
+    OP_OTHERMODE_L,
     OP_POPMTX,
     OP_SETTIMG,
     OP_TRI1,
@@ -98,6 +99,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
+from .bk64_model import read_vertex_bounds
 from .bk64_rom import (
     BKMODEL_SECTIONS,
     BTMODEL_RESOURCE_FIELDS,
@@ -113,6 +115,7 @@ BK_TEX_FORMAT = {value: key for key, value in BK_TEX_TYPE.items()}
 
 # the entry a chunk jumps into, back to the draw layer that writes it again
 DRAW_LAYER_OF_ENTRY = {entry: layer for layer, entry in BK64_DRAW_LAYER_ENTRY.items() if entry is not None}
+ALPHA_COMPARE_OF_BITS = {0: "G_AC_NONE", 1: "G_AC_THRESHOLD", 3: "G_AC_DITHER"}
 
 SHAPE_CODE = "hm64_bk64_hit_code"  # the hit code the export reads back off a volume
 
@@ -149,7 +152,9 @@ def _read_model(data: bytes):
     flags = struct.unpack_from("<7B", data, offset)
     _has_anim, has_collision, has_shapes = flags[:3]
     offset += 7
+    cull_radius = 0
     if has_vtx:
+        cull_radius = struct.unpack_from("<h", data, offset + 22)[0]
         offset += 24
     words = []
     if has_dl:
@@ -187,6 +192,7 @@ def _read_model(data: bytes):
     return dict(
         geo_type=geo_type,
         tri_count=tri_count,
+        cull_radius=cull_radius,
         has_mesh_list=bool(flags[4]),
         camera_areas=extra["camera_areas"],
         mesh_list=extra["mesh_list"],
@@ -458,9 +464,10 @@ def _read_model_bin(data: bytes):
     tri_count, vertex_count = (
         struct.unpack_from(">HH", data, 0x44) if tooie else (header["tri_count"], header["vertex_count"])
     )
-    vertices = []
+    vertices, cull_radius = [], 0
     if header["vtx"]:
         # a BKVertexList opens with the model's bounds, then the records
+        cull_radius = struct.unpack_from(">h", data, header["vtx"] + 22)[0]
         vertices = _vertex_records(data, header["vtx"] + 24, vertex_count, ">")
 
     tex_infos, blob, external = [], b"", 0
@@ -495,6 +502,7 @@ def _read_model_bin(data: bytes):
     model = dict(
         geo_type=header["geo_type"],
         tri_count=tri_count,
+        cull_radius=cull_radius,
         has_mesh_list=bool(header["mesh_list"]),
         # Tooie fills these two slots with sections of its own, boxes where Kazooie
         # keeps camera areas and vertex effects where it keeps the mesh list
@@ -1092,6 +1100,7 @@ def new_walk_state():
         "tile": None,
         "combine": None,
         "rendermode": None,
+        "alpha_compare": 0,
         "prim": None,
         "env": None,
         "geomode": GEO_MODE_START,
@@ -1184,6 +1193,7 @@ def _walk_display_list(words, start: int, state):
                     state["mip_tile"] if mipmapped and state["mip_tile"] else state["tile"],
                     state["combine"],
                     state["rendermode"],
+                    state["alpha_compare"],
                     state["prim"],
                     state["env"],
                     state["geomode"],
@@ -1253,6 +1263,9 @@ def _walk_display_list(words, start: int, state):
             state["prim"] = (w1 >> 24 & 0xFF, w1 >> 16 & 0xFF, w1 >> 8 & 0xFF, w1 & 0xFF, w0 >> 8 & 0xFF, w0 & 0xFF)
         elif opcode == OP_SETENVCOLOR:
             state["env"] = (w1 >> 24 & 0xFF, w1 >> 16 & 0xFF, w1 >> 8 & 0xFF, w1 & 0xFF)
+        elif opcode == OP_OTHERMODE_L and ((w0 >> 8) & 0xFF) == 0:
+            # shift 0 is the alpha compare field
+            state["alpha_compare"] = w1 & 0x3
         elif opcode == OP_DL and (w1 >> 24) == SEG_RENDERMODE:
             # a chunk picks its render mode by jumping into the game's table, and
             # one that never jumps keeps whatever the chunk before it left
@@ -1317,7 +1330,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     for index, key in enumerate(ordered):
         if progress is not None:
             progress(index / len(ordered), f"material {index + 1} of {len(ordered)}")
-        (texture, tile, combine, rendermode, prim, env, geomode, texscale, _texlevel), surface = key
+        (texture, tile, combine, rendermode, alpha_compare, prim, env, geomode, texscale, _texlevel), surface = key
         preset = "bk64_shaded_texture" if texture is not None else "bk64_shaded_solid"
         material = _material_from_preset(mesh_obj, preset, prototypes)
         if isinstance(texture, tuple):
@@ -1374,6 +1387,7 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
             red, green, blue, alpha = env
             material.f3d_mat.env_color = tuple(gammaInverse([c / 255.0 for c in (red, green, blue)])) + (alpha / 255.0,)
             material.f3d_mat.set_env = True
+        material.f3d_mat.rdp_settings.g_mdsft_alpha_compare = ALPHA_COMPARE_OF_BITS.get(alpha_compare, "G_AC_NONE")
         # INHERIT for a chunk that ran before any jump. It exports without one.
         layer = DRAW_LAYER_OF_ENTRY.get(rendermode, "INHERIT")
         material.hm64_bk64_draw_layer = layer
@@ -1409,6 +1423,11 @@ def _build_materials(mesh_obj, base: str, geometry, surfaces, images, animated=N
     return materials, slot_image, slot_scale
 
 
+def _corner_positions(indices, vertices):
+    """Where a triangle's corners sit, so a seam duplicate still matches"""
+    return tuple(sorted(tuple(vertices[index][0]) for index in indices if index < len(vertices)))
+
+
 def _build_faces(geometry, surfaces, vertices, materials, to_blender):
     """(corners, material slot, bone index, source vertices) per face, and the positions"""
     positions, face_data, remap = [], [], {}
@@ -1429,7 +1448,9 @@ def _build_faces(geometry, surfaces, vertices, materials, to_blender):
     return face_data, positions, remap
 
 
-def _build_collision_only(context, base: str, leftover, vertices, armature_obj, mesh_obj, to_blender):
+def _build_collision_only(
+    context, base: str, leftover, vertices, armature_obj, mesh_obj, to_blender, bone_of_vertex=None, bone_names=None
+):
     """The collision triangles no drawn face covers, as their own wire mesh"""
     collection = bpy.data.collections.new(f"{base}_collision_only")
     context.scene.collection.children.link(collection)
@@ -1474,6 +1495,16 @@ def _build_collision_only(context, base: str, leftover, vertices, armature_obj, 
         polygon.material_index = slot_of[surface]
 
     obj = bpy.data.objects.new(f"{base}_collision_only", mesh)
+    if bone_of_vertex and bone_names:
+        groups = {}
+        for index, slot in remap.items():
+            bone = bone_of_vertex.get(index)
+            name = bone_names.get(bone) if bone is not None else None
+            if name is None:
+                continue
+            group = groups.get(name) or obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+            groups[name] = group
+            group.add([slot], 1.0, "REPLACE")
     obj.ignore_render = True  # it's collision, nothing draws it
     obj.display_type = "WIRE"
     obj[COLLISION_ONLY_PROP] = 1
@@ -1716,6 +1747,23 @@ def import_bk64_model(context, path: str, settings):
         )
 
     surfaces = model["collision"]
+    bone_of_vertex = {}
+    for entry in model["bound_vertices"] or []:
+        for vertex_index in entry["vertices"]:
+            bone_of_vertex[vertex_index] = entry["bone"]
+    by_position = {}
+    for triple, surface in surfaces.items():
+        key = _corner_positions(triple, vertices)
+        by_position[key] = surface if by_position.get(key, surface) == surface else None
+    for _matrix, _source, faces in geometry:
+        for indices, _draw in faces:
+            triple = tuple(sorted(indices))
+            if triple in surfaces:
+                continue
+            surface = by_position.get(_corner_positions(indices, vertices))
+            if surface is not None:
+                surfaces[triple] = surface
+
     window = context.window_manager
     workspace = getattr(context, "workspace", None)
     status = getattr(workspace, "status_text_set", None) or getattr(window, "status_text_set", None)
@@ -1739,10 +1787,14 @@ def import_bk64_model(context, path: str, settings):
 
     # vanilla puts collision on geometry it never draws, cheap floors and walls
     # the mesh has no face for
-    drawn = {tuple(sorted(indices)) for _matrix, _source, faces in geometry for indices, _draw in faces}
-    leftover = {triple: surface for triple, surface in surfaces.items() if triple not in drawn}
+    drawn = {_corner_positions(indices, vertices) for _matrix, _source, faces in geometry for indices, _draw in faces}
+    leftover = {
+        triple: surface for triple, surface in surfaces.items() if _corner_positions(triple, vertices) not in drawn
+    }
     model["collision_only_object"] = (
-        _build_collision_only(context, base, leftover, vertices, armature_obj, mesh_obj, to_blender)
+        _build_collision_only(
+            context, base, leftover, vertices, armature_obj, mesh_obj, to_blender, bone_of_vertex, bone_names
+        )
         if leftover
         else None
     )
@@ -1784,5 +1836,11 @@ def import_bk64_model(context, path: str, settings):
         mesh_obj.parent = armature_obj
         modifier = mesh_obj.modifiers.new("Armature", "ARMATURE")
         modifier.object = armature_obj
+
+    root_obj = armature_obj or mesh_obj
+    measured = read_vertex_bounds(context.evaluated_depsgraph_get(), root_obj, settings.scale)
+    if model["cull_radius"] > measured["global_norm"]:
+        # measuring the mesh can't put a wider one back
+        root_obj.hm64_bk64_cull_radius_raw = model["cull_radius"]
 
     return armature_obj, mesh_obj, model

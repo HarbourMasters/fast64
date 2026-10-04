@@ -177,7 +177,7 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_mesh_effect",
 )
 
-_BK64_OBJECT_PROPS = ("hm64_bk64_level_half", "hm64_bk64_geo_type_raw")
+_BK64_OBJECT_PROPS = ("hm64_bk64_level_half", "hm64_bk64_geo_type_raw", "hm64_bk64_cull_radius_raw")
 
 _BK64_BONE_PROPS = (
     "hm64_bk64_bone_id",
@@ -294,6 +294,13 @@ def bk64_properties_register():
         min=0,
         description="The geo type word an imported model came in with, written back as it is. It sits "
         "on the object because a level's two halves differ. Set it to 0 to use Env Map and Mipmap",
+    )
+    bpy.types.Object.hm64_bk64_cull_radius_raw = IntProperty(
+        name="Imported Cull Radius",
+        default=0,
+        min=0,
+        description="How far an imported model kept drawing past its own geometry. The export "
+        "never writes less than this. Set it to 0 to measure the mesh instead",
     )
     bpy.types.Object.hm64_bk64_level_half = EnumProperty(
         name="Level Half",

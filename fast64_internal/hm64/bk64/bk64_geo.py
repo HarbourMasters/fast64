@@ -23,14 +23,22 @@ from .bk64_constants import (
     OP_DL,
     OP_ENDDL,
     OP_LOADBLOCK,
+    OP_LOADSYNC,
     OP_MOVEMEM,
     OP_MOVEWORD,
+    OP_OTHERMODE_H,
+    OP_OTHERMODE_L,
+    OP_PIPESYNC,
     OP_POPMTX,
     OP_SETCOMBINE,
+    OP_SETENVCOLOR,
+    OP_SETPRIMCOLOR,
+    OP_TEXTURE,
     OP_SETGEOMETRYMODE,
     OP_SETTILE,
     OP_SETTILESIZE,
     OP_SETTIMG,
+    OP_TILESYNC,
     OP_TRI1,
     OP_TRI2,
     OP_VTX,
@@ -429,16 +437,29 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
     # texture gen reads, and modelRender hands it a LookAt and no lights, the
     # same as vanilla.
     reflective = any(((w0 >> 24) & 0xFF) == OP_SETGEOMETRYMODE and (w1 & G_TEXTURE_GEN) for w0, w1 in words)
+    hoist_index, hoist_bits = None, 0
+    for index, (w0, w1) in enumerate(words):
+        opcode = (w0 >> 24) & 0xFF
+        if opcode in {OP_VTX, OP_TRI1, OP_TRI2, OP_CLEARGEOMETRYMODE}:
+            break
+        if opcode == OP_SETGEOMETRYMODE:
+            bits = w1 & ~G_LIGHTING if (w1 & G_LIGHTING) and not reflective else w1
+            if bits:
+                hoist_index, hoist_bits = index, bits
+            break
     out = [
         (OP_CLEARGEOMETRYMODE << 24, GEO_MODE_CHUNK_CLEAR),
-        (OP_SETGEOMETRYMODE << 24, G_SHADE | G_SHADING_SMOOTH),  # the clear takes shade and no material puts it back
+        # the clear takes shade and no material puts it back
+        (OP_SETGEOMETRYMODE << 24, G_SHADE | G_SHADING_SMOOTH | hoist_bits),
     ]
     if rendermode_entry is not None:
         # jump into the table instead of setting a mode, leaving the actor's depth mode to hold
         out.append((OP_DL << 24, (SEG_RENDERMODE << 24) | (rendermode_entry * RENDERMODE_ENTRY_STRIDE)))
     mip_active = False
-    for w0, w1 in words:
+    for index, (w0, w1) in enumerate(words):
         opcode = (w0 >> 24) & 0xFF
+        if index == hoist_index:
+            continue
         if opcode in {OP_ENDDL, OP_CULLDL}:  # BK culls off the vertex header
             continue
         if opcode in {OP_MOVEMEM, OP_MOVEWORD}:
@@ -474,7 +495,89 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
         out.append((w0, w1))
     if white_offset is not None:
         out = _bind_untextured(out, white_offset)
+    out = _drop_settled_geo_modes(out)
+    out = _drop_rewritten_state(out)
+    out = _drop_idle_syncs(out)
     out.append((OP_ENDDL << 24, 0))
+    return out
+
+
+# tile and image commands are steps in a load, not registers, so they stay out
+_STATE_OPS = frozenset({OP_SETCOMBINE, OP_TEXTURE, OP_OTHERMODE_H, OP_OTHERMODE_L, OP_SETPRIMCOLOR, OP_SETENVCOLOR})
+
+
+def _state_slot(w0):
+    opcode = (w0 >> 24) & 0xFF
+    if opcode in (OP_OTHERMODE_H, OP_OTHERMODE_L):
+        return (opcode, (w0 >> 8) & 0xFF, w0 & 0xFF)
+    return (opcode,)
+
+
+_SYNC_OPS = frozenset({OP_LOADSYNC, OP_PIPESYNC, OP_TILESYNC})
+
+
+def _drop_idle_syncs(words):
+    """Syncs with no primitive pending to wait on"""
+    # a chunk is jumped into, so the one before it drew
+    out, pending = [], True
+    for word in words:
+        opcode = (word[0] >> 24) & 0xFF
+        if opcode in _SYNC_OPS:
+            if not pending:
+                continue
+            pending = False
+        elif opcode in (OP_TRI1, OP_TRI2):
+            pending = True
+        out.append(word)
+    return out
+
+
+def _drop_rewritten_state(words):
+    """State writes that set a register to what it already holds"""
+    prologue = 2 if words and (words[0][0] >> 24) & 0xFF == OP_CLEARGEOMETRYMODE else 0
+    out, held = list(words[:prologue]), {}
+    for w0, w1 in words[prologue:]:
+        if ((w0 >> 24) & 0xFF) in _STATE_OPS:
+            slot = _state_slot(w0)
+            if held.get(slot) == (w0, w1):
+                continue
+            held[slot] = (w0, w1)
+        out.append((w0, w1))
+    return out
+
+
+def _drop_settled_geo_modes(words):
+    """Geometry mode runs that leave the mode as they found it"""
+    if len(words) < 2 or (words[0][0] >> 24) & 0xFF != OP_CLEARGEOMETRYMODE:
+        return words
+    known = GEO_MODE_CHUNK_CLEAR
+    mode = words[1][1] & known if (words[1][0] >> 24) & 0xFF == OP_SETGEOMETRYMODE else 0
+    out, index = list(words[:2]), 2
+    draws = {OP_VTX, OP_TRI1, OP_TRI2}
+    while index < len(words):
+        span, geo, others, after = index, [], [], mode
+        while span < len(words):
+            word = words[span]
+            opcode = (word[0] >> 24) & 0xFF
+            if opcode in draws:
+                break
+            if opcode == OP_CLEARGEOMETRYMODE:
+                after &= ~word[1]
+                geo.append(word)
+            elif opcode == OP_SETGEOMETRYMODE:
+                after |= word[1]
+                geo.append(word)
+            else:
+                others.append(word)
+            span += 1
+        if geo and (after != mode or any(word[1] & ~known for word in geo)):
+            out += words[index:span]
+            mode = after
+        else:
+            out += others
+        if span < len(words):
+            out.append(words[span])
+        index = span + 1
     return out
 
 
