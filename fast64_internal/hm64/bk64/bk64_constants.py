@@ -112,7 +112,8 @@ MAX_BONE_ID = 0x6C  # the bone transform table is 0x6D entries, indexed by id un
 MAX_LAYOUT_BONE = 127  # the geo layout's BONE command holds its bone index in an s8
 
 MESH_GROUP_PREFIX = "bk64_mesh_"  # the uid rides in the name, it's what the game looks a mesh up by
-GEO_NODE_PREFIXES = {"lod": "bk64_lod_"}
+GEO_NODE_PREFIXES = {"lod": "bk64_lod_", "sort": "bk64_sort_"}
+SORT_SIDES = ("a", "b")  # a sort draws its two halves nearest last
 GEO_NODE_ATTR = "bk64_geo_node"  # the node a face draws under, packed into one int
 MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part and piece splits
 BONE_TAG_ATTRIBUTE = "bk64_bone_tag"  # holds a bound vertex's bone through the same splits

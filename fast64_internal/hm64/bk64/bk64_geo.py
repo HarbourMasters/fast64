@@ -7,6 +7,7 @@ from ...f3d.f3d_gbi import VTX_SIZE, SPDisplayList, SPEndDisplayList
 from ...utility import PluginError
 from .bk64_constants import (
     GEO_NODE_PREFIXES,
+    SORT_SIDES,
     ANIM_TEX_SLOT_COUNT,
     G_LIGHTING,
     G_SHADE,
@@ -86,10 +87,14 @@ def geo_node_of_group(name: str):
         parts = name[len(prefix) :].split("_")
         if kind == "lod" and len(parts) == 2 and all(part.isdigit() for part in parts):
             return ("lod", int(parts[0]), int(parts[1]))
+        if kind == "sort" and len(parts) == 2 and parts[0].isdigit() and parts[1] in SORT_SIDES:
+            return ("sort", int(parts[0]), SORT_SIDES.index(parts[1]))
     return None
 
 
 def geo_node_group(node) -> str:
+    if node[0] == "sort":
+        return f"{GEO_NODE_PREFIXES['sort']}{node[1]}_{SORT_SIDES[node[2]]}"
     return GEO_NODE_PREFIXES[node[0]] + "_".join(str(number) for number in node[1:])
 
 
@@ -99,6 +104,8 @@ def geo_node_value(node) -> int:
         return 0
     if node[0] == "lod":
         return (1 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0x3FFF) << 14) | min(node[2], 0x3FFF)
+    if node[0] == "sort":
+        return (2 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0x3FFF) << 1) | node[2]
     raise PluginError(f"{node[0]} nodes have no face tag yet.")
 
 
@@ -108,7 +115,75 @@ def geo_node_of_value(value: int):
         return None
     if (value >> GEO_NODE_KIND_SHIFT) == 1:
         return ("lod", (value >> 14) & 0x3FFF, value & 0x3FFF)
+    if (value >> GEO_NODE_KIND_SHIFT) == 2:
+        return ("sort", (value >> 1) & 0x3FFF, value & 1)
     return None
+
+
+def sort_records(halves, records_of, warnings=None):
+    """(a sort node per filled pair of halves, the chunks they took)"""
+    built, taken = [], set()
+    for index, sides in sorted(halves.items()):
+        if len(sides) != len(SORT_SIDES):
+            if warnings is not None:
+                name = geo_node_group(("sort", index, 0 if 1 in sides else 1))
+                warnings.append(
+                    f"Sort {index} only has one half, so its geometry draws in the order it was "
+                    f"built. Put the other half in {name}."
+                )
+            continue
+        # the game reads a point per half to tell which one is nearer the camera
+        middles = []
+        for side in range(len(SORT_SIDES)):
+            points = [point for _chunk, chunk_points in sides[side] for point in chunk_points]
+            middles.append(
+                tuple(sum(point[axis] for point in points) / len(points) for axis in range(3))
+                if points
+                else (0.0, 0.0, 0.0)
+            )
+        branches = [[records_of(chunk) for chunk, _points in sides[side]] for side in range(len(SORT_SIDES))]
+        built.append(("sort", middles[0], middles[1], branches[0], branches[1], 0))
+        taken |= {chunk for side in sides.values() for chunk, _points in side}
+    return built, taken
+
+
+def without_chunks(records, taken):
+    """The layout with the chunks a sort took over left out of it"""
+    out = []
+    for record in records:
+        kind = record[0]
+        if kind == "loaddl" and record[1] in taken:
+            continue
+        if kind == "bone" and record[2] in taken:
+            continue
+        if kind == "skinning":
+            kept = [index for index in record[1] if index not in taken]
+            if not kept:
+                continue
+            out.append(("skinning", kept))
+            continue
+        if kind == "bonebranch":
+            out.append(("bonebranch", record[1], without_chunks(record[2], taken)))
+        elif kind == "selector":
+            out.append(("selector", record[1], [without_chunks(option, taken) for option in record[2]]))
+        elif kind == "sort":
+            out.append(
+                (
+                    "sort",
+                    record[1],
+                    record[2],
+                    without_chunks(record[3], taken),
+                    without_chunks(record[4], taken),
+                    record[5],
+                )
+            )
+        elif kind == "lod":
+            out.append(("lod", record[1], record[2], record[3], without_chunks(record[4], taken)))
+        elif kind in ("drawdist", "camera"):
+            out.append(tuple(record[:-1]) + (without_chunks(record[-1], taken),))
+        else:
+            out.append(record)
+    return out
 
 
 def layout_detail_levels(records, found=None):

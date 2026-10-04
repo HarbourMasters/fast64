@@ -79,6 +79,8 @@ from .bk64_geo import (
     geo_node_of_value,
     geo_node_value,
     place_in_node,
+    sort_records,
+    without_chunks,
     fixup_chunk,
     flatten_gfx_list,
     geo_records,
@@ -1627,6 +1629,18 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # only split rigging draws under BONE commands, but both need the table:
         # the game builds no matrix list without one
         bone_table = bones if armature_obj is not None else []
+
+        def record_of(chunk):
+            bone_index, gfx_index = chunk
+            return ("bone", bone_index, gfx_index) if rigged else ("loaddl", gfx_index)
+
+        halves = {}
+        for position, chunk in enumerate(chunks):
+            node = node_of_chunk.get(chunk[1])
+            if node is not None and node[0] == "sort":
+                halves.setdefault(node[1], {}).setdefault(node[2], []).append((chunk, chunk_bounds[position]))
+        sorts, in_a_sort = sort_records(halves, record_of, settings.warnings)
+
         if stored is not None:
             records = relink_layout(stored, from_source)
             if records is not None:
@@ -1635,7 +1649,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 drawn = {index for _k, indices, _m, _p, _r in layout_records(records) for index in indices}
                 missed = set()
                 for chunk_bone, gfx_index in chunks:
-                    if gfx_index in drawn:
+                    if gfx_index in drawn or (chunk_bone, gfx_index) in in_a_sort:
                         continue
                     added = ("bone", chunk_bone, gfx_index) if rigged else ("loaddl", gfx_index)
                     node = node_of_chunk.get(gfx_index)
@@ -1644,6 +1658,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     if node is not None:
                         missed.add(node)
                     records.append(added)
+                records = without_chunks(records, {gfx for _bone, gfx in in_a_sort}) + sorts
                 for node in sorted(missed):
                     settings.warnings.append(
                         f"This model has nothing matching {geo_node_group(node)}, so what you put in "
@@ -1652,7 +1667,11 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             if records is None:
                 stored = None
         if stored is None:
-            records = geo_records(bones, chunks, armature_obj, rigged, chunk_bounds)
+            plain = [(chunk, bounds) for chunk, bounds in zip(chunks, chunk_bounds) if chunk not in in_a_sort]
+            records = geo_records(
+                bones, [chunk for chunk, _b in plain], armature_obj, rigged, [bounds for _c, bounds in plain]
+            )
+            records += sorts
             # a refpoint names no display list and outlives a relink that gave up
             emitted = {record[1] for record in records if record[0] == "refpoint"}
             for point in layout_refpoints(stored_layout(root_obj) or []):
