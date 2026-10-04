@@ -1844,6 +1844,7 @@ def import_bk64_model(context, path: str, settings):
 
     # vanilla's levels share their bones, so only a group can tell the copies apart
     levels = _lod_levels(layout)
+    made = set()
     for near, far, chunk_indices in levels:
         members = {
             corner
@@ -1852,9 +1853,12 @@ def import_bk64_model(context, path: str, settings):
             for corner in corners
         }
         if members:
-            group = mesh_obj.vertex_groups.new(name=geo_node_group(("lod", int(near), int(far))))
+            name = geo_node_group(("lod", int(near), int(far)))
+            # two levels can cover the same distances, and a second group would be renamed
+            group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
             group.add(sorted(members), 1.0, "REPLACE")
-    model["lod_levels"] = len(levels)
+            made.add(name)
+    model["lod_levels"] = len(made)
 
     # the export reads these back by name. A renamed group stops being a mesh.
     dropped = 0
