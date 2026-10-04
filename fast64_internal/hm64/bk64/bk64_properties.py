@@ -183,6 +183,7 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_anim_import_path",
     "hm64_bk64_scroll_speed",
     "hm64_bk64_mesh_effect",
+    "hm64_bk64_sort_index",
 )
 
 _BK64_OBJECT_PROPS = (
@@ -336,6 +337,12 @@ def bk64_properties_register():
         min=0,
         description="How far an imported model kept drawing past its own geometry. The export "
         "never writes less than this. Set it to 0 to measure the mesh instead",
+    )
+    bpy.types.Scene.hm64_bk64_sort_index = IntProperty(
+        name="Sort",
+        default=1,
+        min=1,
+        description="Which sort the buttons below put geometry in. A model can hold more than one",
     )
     bpy.types.Object.hm64_bk64_view_offset = FloatVectorProperty(
         name="Spread",

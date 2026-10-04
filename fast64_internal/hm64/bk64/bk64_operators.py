@@ -22,6 +22,7 @@ from .bk64_constants import (
     MESH_GROUP_PREFIX,
     MODEL_STASH_PROPS,
     SHAPE_KIND,
+    SORT_SIDES,
 )
 from .bk64_import import import_bk64_model
 from .bk64_geo import geo_node_group, geo_node_of_group
@@ -609,38 +610,8 @@ class BK64_PutInDetailLevel(Operator):
 
     def execute(self, context):
         try:
-            editing = context.mode == "EDIT_MESH"
-            meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
-            if not meshes:
-                raise PluginError("Select the mesh to put in a level.")
             wanted = geo_node_group(("lod", self.near, self.far)) if self.far else None
-
-            moved = 0
-            # a vertex group can't be touched from edit mode, and leaving it writes
-            # the selection back to the mesh, which is where this reads it from
-            with object_mode(context):
-                for mesh_obj in meshes:
-                    indices = [vertex.index for vertex in mesh_obj.data.vertices if vertex.select or not editing]
-                    if not indices:
-                        continue
-                    # a face draws in one level, so leaving the others is part of the move
-                    left = [
-                        group
-                        for group in mesh_obj.vertex_groups
-                        if geo_node_of_group(group.name) is not None and group.name != wanted
-                    ]
-                    for group in left:
-                        group.remove(indices)
-                    for group in left:
-                        if not any(
-                            entry.group == group.index for vert in mesh_obj.data.vertices for entry in vert.groups
-                        ):
-                            mesh_obj.vertex_groups.remove(group)
-                    if wanted is not None:
-                        group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
-                        group.add(indices, 1.0, "REPLACE")
-                    moved += len(indices)
-
+            moved = _put_in_node(context, wanted)
             counted = "1 vertex" if moved == 1 else f"{moved} vertices"
             self.report(
                 {"INFO"},
@@ -653,6 +624,39 @@ class BK64_PutInDetailLevel(Operator):
         except Exception as exc:
             raisePluginError(self, exc)
             return {"CANCELLED"}
+
+
+def _put_in_node(context, wanted):
+    """Move the selection into that node's group, out of whatever node held it"""
+    editing = context.mode == "EDIT_MESH"
+    meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+    if not meshes:
+        raise PluginError("Select the mesh to move.")
+
+    moved = 0
+    # a vertex group can't be touched from edit mode, and leaving it writes the
+    # selection back to the mesh, where this reads it
+    with object_mode(context):
+        for mesh_obj in meshes:
+            indices = [vertex.index for vertex in mesh_obj.data.vertices if vertex.select or not editing]
+            if not indices:
+                continue
+            # geometry draws under one node, so leaving the others is part of the move
+            left = [
+                group
+                for group in mesh_obj.vertex_groups
+                if geo_node_of_group(group.name) is not None and group.name != wanted
+            ]
+            for group in left:
+                group.remove(indices)
+            for group in left:
+                if not any(entry.group == group.index for vert in mesh_obj.data.vertices for entry in vert.groups):
+                    mesh_obj.vertex_groups.remove(group)
+            if wanted is not None:
+                group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
+                group.add(indices, 1.0, "REPLACE")
+            moved += len(indices)
+    return moved
 
 
 class BK64_SplitDetailLevels(Operator):
@@ -688,6 +692,38 @@ class BK64_SplitDetailLevels(Operator):
 
             counted = "1 level" if made == 1 else f"{made} levels"
             self.report({"INFO"}, f"{counted} left as their own object. The export draws them the same.")
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_PutInSort(Operator):
+    bl_idname = "object.hm64_bk64_put_in_sort"
+    bl_label = "Put In Sort"
+    bl_description = (
+        "Draw the selected meshes as this half of a sort, or the selected vertices in edit mode. "
+        "The two halves draw nearest last"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: IntProperty(default=1, min=1)
+    side: IntProperty(default=0, min=-1, max=1)
+
+    def execute(self, context):
+        try:
+            wanted = geo_node_group(("sort", self.index, self.side)) if self.side >= 0 else None
+            moved = _put_in_node(context, wanted)
+            counted = "1 vertex" if moved == 1 else f"{moved} vertices"
+            self.report(
+                {"INFO"},
+                (
+                    f"{counted} now draw as half {SORT_SIDES[self.side]} of sort {self.index}."
+                    if wanted is not None
+                    else f"{counted} left their sort, so they draw in the order they were built."
+                ),
+            )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -932,6 +968,7 @@ bk64_operator_classes = (
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
     BK64_PutInDetailLevel,
+    BK64_PutInSort,
     BK64_SplitDetailLevels,
     BK64_ShowHitSphere,
     BK64_ImportSkeleton,
