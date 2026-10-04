@@ -152,6 +152,8 @@ The value isn't set automatically. An actor has to call `modelRender_setAppendag
 
 **Level Of Detail** draws what's under it only while the camera is between Near Distance and Far Distance of the joint, both in BK units. Far Distance has to be set or it never draws.
 
+A vanilla model that already has levels of detail hangs them all off the same bones, so they import on top of each other. Each level's geometry goes into a vertex group named for the distances it covers, `bk64_lod_0_350` and so on, which is how you tell the copies apart: select a group in edit mode and hide it to work on the rest.
+
 **Sort** orders its two child bones by which one is nearer the camera, for translucent halves that have to draw back to front. It takes exactly two.
 
 **Draw Distance** skips everything under it when its box is off screen. The box is calculated from the geometry it guards, leaving nothing to set.

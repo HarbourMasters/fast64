@@ -729,6 +729,11 @@ class BK64_ImportModel(Operator):
                 kept = model.get("geo_commands", ())
                 if kept:
                     notes.append(f"Its geo layout uses {', '.join(kept)}, kept for re-export.")
+                if model.get("lod_levels"):
+                    notes.append(
+                        f"Its {model['lod_levels']} detail levels came in as vertex groups, named "
+                        "for the distances they cover."
+                    )
                 if model["mesh_list"]:
                     notes.append(f"Its mesh list came in as {len(model['mesh_list'])} vertex groups.")
                     if model["mesh_list_dropped"]:

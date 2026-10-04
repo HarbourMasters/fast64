@@ -99,6 +99,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
+from .bk64_geo import geo_node_group
 from .bk64_model import read_vertex_bounds
 from .bk64_rom import (
     BKMODEL_SECTIONS,
@@ -1428,6 +1429,48 @@ def _corner_positions(indices, vertices):
     return tuple(sorted(tuple(vertices[index][0]) for index in indices if index < len(vertices)))
 
 
+def _branch_chunks(records):
+    """Every display list a branch of the layout draws"""
+    found = set()
+    for record in records:
+        kind = record[0]
+        if kind == "loaddl":
+            found.add(record[1])
+        elif kind == "skinning":
+            found.update(record[1])
+        elif kind == "bonebranch":
+            found |= _branch_chunks(record[2])
+        elif kind == "selector":
+            for option in record[2]:
+                found |= _branch_chunks(option)
+        elif kind == "sort":
+            found |= _branch_chunks(record[3]) | _branch_chunks(record[4])
+        elif kind in ("lod", "drawdist", "camera"):
+            found |= _branch_chunks(record[-1])
+    return found
+
+
+def _lod_levels(records, levels=None):
+    """(near, far, display lists) per level of detail"""
+    levels = [] if levels is None else levels
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            levels.append((record[2], record[1], _branch_chunks(record[4])))
+            _lod_levels(record[4], levels)
+        elif kind == "bonebranch":
+            _lod_levels(record[2], levels)
+        elif kind == "selector":
+            for option in record[2]:
+                _lod_levels(option, levels)
+        elif kind == "sort":
+            _lod_levels(record[3], levels)
+            _lod_levels(record[4], levels)
+        elif kind in ("drawdist", "camera"):
+            _lod_levels(record[-1], levels)
+    return levels
+
+
 def _build_faces(geometry, surfaces, vertices, materials, to_blender):
     """(corners, material slot, bone index, source vertices) per face, and the positions"""
     positions, face_data, remap = [], [], {}
@@ -1798,6 +1841,20 @@ def import_bk64_model(context, path: str, settings):
         if leftover
         else None
     )
+
+    # vanilla's levels share their bones, so only a group can tell the copies apart
+    levels = _lod_levels(layout)
+    for near, far, chunk_indices in levels:
+        members = {
+            corner
+            for corners, _material, _matrix, _source_vertices, _orig, source in face_data
+            if source in chunk_indices
+            for corner in corners
+        }
+        if members:
+            group = mesh_obj.vertex_groups.new(name=geo_node_group(("lod", int(near), int(far))))
+            group.add(sorted(members), 1.0, "REPLACE")
+    model["lod_levels"] = len(levels)
 
     # the export reads these back by name. A renamed group stops being a mesh.
     dropped = 0

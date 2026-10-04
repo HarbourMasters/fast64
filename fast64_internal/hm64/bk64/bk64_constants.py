@@ -112,6 +112,7 @@ MAX_BONE_ID = 0x6C  # the bone transform table is 0x6D entries, indexed by id un
 MAX_LAYOUT_BONE = 127  # the geo layout's BONE command holds its bone index in an s8
 
 MESH_GROUP_PREFIX = "bk64_mesh_"  # the uid rides in the name, it's what the game looks a mesh up by
+GEO_NODE_PREFIXES = {"lod": "bk64_lod_"}
 MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part and piece splits
 BONE_TAG_ATTRIBUTE = "bk64_bone_tag"  # holds a bound vertex's bone through the same splits
 

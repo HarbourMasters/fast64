@@ -6,6 +6,7 @@ import struct
 from ...f3d.f3d_gbi import VTX_SIZE, SPDisplayList, SPEndDisplayList
 from ...utility import PluginError
 from .bk64_constants import (
+    GEO_NODE_PREFIXES,
     ANIM_TEX_SLOT_COUNT,
     G_LIGHTING,
     G_SHADE,
@@ -72,6 +73,25 @@ def stored_layout(root_obj):
         return json.loads(raw)
     except ValueError:
         return None
+
+
+GEO_NODE_KIND_SHIFT = 28
+
+
+def geo_node_of_group(name: str):
+    """The layout node a group name means, or None where it names none"""
+    for kind, prefix in GEO_NODE_PREFIXES.items():
+        if not name.startswith(prefix):
+            continue
+        parts = name[len(prefix) :].split("_")
+        if kind == "lod" and len(parts) == 2 and all(part.isdigit() for part in parts):
+            return ("lod", int(parts[0]), int(parts[1]))
+    return None
+
+
+def geo_node_group(node) -> str:
+    return GEO_NODE_PREFIXES[node[0]] + "_".join(str(number) for number in node[1:])
+
 
 
 def relink_layout(records, from_source):
