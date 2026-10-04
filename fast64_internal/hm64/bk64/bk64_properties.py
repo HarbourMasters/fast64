@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
+import mathutils
+from bpy.props import (
+    BoolProperty,
+    EnumProperty,
+    FloatProperty,
+    FloatVectorProperty,
+    IntProperty,
+    StringProperty,
+)
 
 from ...render_settings import on_update_render_settings
 from .bk64_constants import (
@@ -177,7 +185,13 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_mesh_effect",
 )
 
-_BK64_OBJECT_PROPS = ("hm64_bk64_level_half", "hm64_bk64_geo_type_raw", "hm64_bk64_cull_radius_raw")
+_BK64_OBJECT_PROPS = (
+    "hm64_bk64_level_half",
+    "hm64_bk64_geo_type_raw",
+    "hm64_bk64_cull_radius_raw",
+    "hm64_bk64_view_offset",
+    "hm64_bk64_spread_levels",
+)
 
 _BK64_BONE_PROPS = (
     "hm64_bk64_bone_id",
@@ -209,6 +223,27 @@ _BK64_MATERIAL_PROPS = (
     "hm64_bk64_anim_slot",
     "hm64_bk64_anim_rate",
 )
+
+
+def _spread_detail_levels(self, context):
+    """Stand each level aside, or put it back"""
+    from .bk64_geo import geo_node_of_group
+
+    meshes = [self] if self.type == "MESH" else [obj for obj in self.children_recursive if obj.type == "MESH"]
+    levels = []
+    for mesh_obj in meshes:
+        node = next(
+            (geo_node_of_group(group.name) for group in mesh_obj.vertex_groups if geo_node_of_group(group.name)),
+            None,
+        )
+        if node is not None:
+            levels.append((node, mesh_obj))
+
+    step = max((max(mesh_obj.dimensions) for _node, mesh_obj in levels), default=0.0) * 1.2
+    for index, (_node, mesh_obj) in enumerate(sorted(levels, key=lambda pair: pair[0])):
+        aside = mathutils.Vector((step * index, 0.0, 0.0)) if self.hm64_bk64_spread_levels else mathutils.Vector()
+        mesh_obj.location += aside - mathutils.Vector(mesh_obj.hm64_bk64_view_offset)
+        mesh_obj.hm64_bk64_view_offset = aside
 
 
 def bk64_properties_register():
@@ -301,6 +336,18 @@ def bk64_properties_register():
         min=0,
         description="How far an imported model kept drawing past its own geometry. The export "
         "never writes less than this. Set it to 0 to measure the mesh instead",
+    )
+    bpy.types.Object.hm64_bk64_view_offset = FloatVectorProperty(
+        name="Spread",
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        description="How far this object stands aside for viewing. The export takes it back out",
+    )
+    bpy.types.Object.hm64_bk64_spread_levels = BoolProperty(
+        name="Spread Detail Levels",
+        default=False,
+        update=_spread_detail_levels,
+        description="Stand the model's detail levels side by side while you work. They export stacked either way",
     )
     bpy.types.Object.hm64_bk64_level_half = EnumProperty(
         name="Level Half",

@@ -226,6 +226,14 @@ def _write_model_resource(
     return data
 
 
+def drawn_matrix(obj):
+    """The object's matrix with any viewing spread taken back out"""
+    spread = mathutils.Vector(obj.hm64_bk64_view_offset)
+    if spread.length_squared == 0.0:
+        return obj.matrix_world
+    return mathutils.Matrix.Translation(-spread) @ obj.matrix_world
+
+
 def _evaluated_bmesh(context, mesh_obj, space_matrix, ignore_armature: bool):
     # the triangle converter applies the export transform but not the object's
     # world matrix. Bake that in here.
@@ -248,7 +256,7 @@ def _evaluated_bmesh(context, mesh_obj, space_matrix, ignore_armature: bool):
         for modifier in disabled:
             modifier.show_viewport = True
 
-    bm.transform(space_matrix @ mesh_obj.matrix_world)
+    bm.transform(space_matrix @ drawn_matrix(mesh_obj))
     bmesh.ops.triangulate(bm, faces=bm.faces[:])
     bm.faces.index_update()
     bm.faces.ensure_lookup_table()
@@ -551,7 +559,7 @@ def read_vertex_bounds(depsgraph, root_obj, scale: float):
         if count:
             flat = numpy.empty(count * 3, dtype=numpy.float64)
             mesh.vertices.foreach_get("co", flat)
-            matrix = numpy.array(to_bk @ obj.matrix_world)
+            matrix = numpy.array(to_bk @ drawn_matrix(obj))
             blocks.append(flat.reshape(count, 3) @ matrix[:3, :3].T + matrix[:3, 3])
         evaluated.to_mesh_clear()
     return _position_bounds(numpy.concatenate(blocks) if blocks else [])
@@ -1599,6 +1607,11 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 f"{len(vertices)} vertices is past the {MAX_VERTEX_COUNT} the game can index. "
                 "Simplify the mesh, or split it across more than one model."
             )
+
+        aside = [obj for obj in mesh_objects if any(obj.hm64_bk64_view_offset)]
+        if aside:
+            counted = "1 object stands" if len(aside) == 1 else f"{len(aside)} objects stand"
+            settings.warnings.append(f"{counted} aside for viewing, and went out stacked.")
 
         # after the append, the way vanilla does it. global_norm is the radius
         # collision gets tested against at all

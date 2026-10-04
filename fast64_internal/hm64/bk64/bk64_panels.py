@@ -6,6 +6,7 @@ from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS
+from .bk64_geo import layout_detail_levels, stored_layout
 from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
     BK64_AddMeshEffect,
@@ -19,7 +20,9 @@ from .bk64_operators import (
     BK64_ImportSkeleton,
     BK64_PromoteMaterials,
     BK64_MarkCollisionOnly,
+    BK64_PutInDetailLevel,
     BK64_SelectLooseVertices,
+    BK64_SplitDetailLevels,
     BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
     resolve_root,
@@ -212,6 +215,26 @@ class BK64_MeshToolsPanel(BK64_Panel):
         radii.label(text="center of the model's box, so one far vertex widens it.")
         radii.label(text="Cull radius runs from the origin and decides when it leaves")
         radii.label(text="the screen. Collision only meshes count toward both.")
+
+        levels = layout_detail_levels(stored_layout(root) or []) if root is not None else []
+        if levels:
+            col.separator()
+            detail = col.box().column()
+            detail.label(text="Detail Levels")
+            for near, far in levels:
+                button = detail.operator(BK64_PutInDetailLevel.bl_idname, text=f"Put In {near}-{far}")
+                button.near, button.far = near, far
+            detail.operator(BK64_PutInDetailLevel.bl_idname, text="Take Out Of Every Level").far = 0
+            detail.separator()
+            detail.operator(BK64_SplitDetailLevels.bl_idname)
+            detail.prop(root, "hm64_bk64_spread_levels")
+            meshes = [root] if root.type == "MESH" else root.children_recursive
+            aside = [obj for obj in meshes if obj.type == "MESH" and any(obj.hm64_bk64_view_offset)]
+            if aside:
+                step = max(max(abs(value) for value in obj.hm64_bk64_view_offset) for obj in aside)
+                detail.label(text=f"Standing aside up to {step:.2f} for viewing. The export puts them back.")
+            detail.label(text="The model draws one level at a time, by how far away the")
+            detail.label(text="camera is. Geometry in no level draws at every distance.")
 
 
 class BK64_BonePanel(BK64_Panel):

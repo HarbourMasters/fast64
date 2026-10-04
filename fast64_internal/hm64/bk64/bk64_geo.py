@@ -111,6 +111,28 @@ def geo_node_of_value(value: int):
     return None
 
 
+def layout_detail_levels(records, found=None):
+    """(near, far) per level of detail, nearest first"""
+    found = [] if found is None else found
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            level = (round(record[2]), round(record[1]))
+            if level not in found:
+                found.append(level)
+            layout_detail_levels(record[4], found)
+        elif kind == "bonebranch":
+            layout_detail_levels(record[2], found)
+        elif kind == "selector":
+            for option in record[2]:
+                layout_detail_levels(option, found)
+        elif kind == "sort":
+            layout_detail_levels(record[3], found)
+            layout_detail_levels(record[4], found)
+        elif kind in ("drawdist", "camera"):
+            layout_detail_levels(record[-1], found)
+    return sorted(found)
+
 
 def place_in_node(records, node, added):
     """Put a record under the node a group named, if the layout has one"""

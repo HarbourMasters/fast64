@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import bpy
 import mathutils
 from bpy.app.handlers import persistent
+from bpy.props import IntProperty
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
@@ -23,6 +24,7 @@ from .bk64_constants import (
     SHAPE_KIND,
 )
 from .bk64_import import import_bk64_model
+from .bk64_geo import geo_node_group, geo_node_of_group
 from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
 from .bk64_model import (
     armature_of,
@@ -596,6 +598,103 @@ class BK64_ShowHitSphere(Operator):
             return {"CANCELLED"}
 
 
+class BK64_PutInDetailLevel(Operator):
+    bl_idname = "object.hm64_bk64_put_in_detail_level"
+    bl_label = "Put In Detail Level"
+    bl_description = "Draw the selected meshes only at this distance, or the selected vertices in edit mode"
+    bl_options = {"REGISTER", "UNDO"}
+
+    near: IntProperty(default=0)
+    far: IntProperty(default=0)
+
+    def execute(self, context):
+        try:
+            editing = context.mode == "EDIT_MESH"
+            meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+            if not meshes:
+                raise PluginError("Select the mesh to put in a level.")
+            wanted = geo_node_group(("lod", self.near, self.far)) if self.far else None
+
+            moved = 0
+            # a vertex group can't be touched from edit mode, and leaving it writes
+            # the selection back to the mesh, which is where this reads it from
+            with object_mode(context):
+                for mesh_obj in meshes:
+                    indices = [vertex.index for vertex in mesh_obj.data.vertices if vertex.select or not editing]
+                    if not indices:
+                        continue
+                    # a face draws in one level, so leaving the others is part of the move
+                    left = [
+                        group
+                        for group in mesh_obj.vertex_groups
+                        if geo_node_of_group(group.name) is not None and group.name != wanted
+                    ]
+                    for group in left:
+                        group.remove(indices)
+                    for group in left:
+                        if not any(
+                            entry.group == group.index for vert in mesh_obj.data.vertices for entry in vert.groups
+                        ):
+                            mesh_obj.vertex_groups.remove(group)
+                    if wanted is not None:
+                        group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
+                        group.add(indices, 1.0, "REPLACE")
+                    moved += len(indices)
+
+            counted = "1 vertex" if moved == 1 else f"{moved} vertices"
+            self.report(
+                {"INFO"},
+                f"{counted} now draw between {self.near} and {self.far}."
+                if wanted is not None
+                else f"{counted} left their detail level, so they draw at every distance.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_SplitDetailLevels(Operator):
+    bl_idname = "object.hm64_bk64_split_detail_levels"
+    bl_label = "Split Detail Levels"
+    bl_description = "Give each detail level its own object, so one can be hidden or moved without the rest"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            root_obj = resolve_root(context)
+            meshes = [root_obj] if root_obj.type == "MESH" else root_obj.children_recursive
+            made = 0
+            for mesh_obj in [obj for obj in meshes if obj.type == "MESH"]:
+                levels = [
+                    group.name
+                    for group in mesh_obj.vertex_groups
+                    if geo_node_of_group(group.name) is not None and len(mesh_obj.vertex_groups) > 1
+                ]
+                # the first level stays in the object it is in, the rest move out
+                for name in levels[1:]:
+                    with object_mode(context):
+                        for obj in context.view_layer.objects:
+                            obj.select_set(obj is mesh_obj)
+                        context.view_layer.objects.active = mesh_obj
+                    bpy.ops.object.mode_set(mode="EDIT")
+                    bpy.ops.mesh.select_all(action="DESELECT")
+                    mesh_obj.vertex_groups.active_index = mesh_obj.vertex_groups[name].index
+                    bpy.ops.object.vertex_group_select()
+                    bpy.ops.mesh.separate(type="SELECTED")
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                    made += 1
+
+            counted = "1 level" if made == 1 else f"{made} levels"
+            self.report({"INFO"}, f"{counted} left as their own object. The export draws them the same.")
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 class BK64_ImportAnimation(Operator):
     bl_idname = "scene.hm64_bk64_import_animation"
     bl_label = "Import BK Animation"
@@ -832,6 +931,8 @@ bk64_operator_classes = (
     BK64_AddMeshEffect,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
+    BK64_PutInDetailLevel,
+    BK64_SplitDetailLevels,
     BK64_ShowHitSphere,
     BK64_ImportSkeleton,
     BK64_ImportModel,
