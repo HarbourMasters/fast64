@@ -263,7 +263,7 @@ class BK64_GeoNodesPanel(BK64_Panel):
         prop_split(sorts, scene, "hm64_bk64_sort_index", "Sort")
         row = sorts.row(align=True)
         for side, name in enumerate(SORT_SIDES):
-            button = row.operator(BK64_PutInSort.bl_idname, text=f"Put In {name.upper()}")
+            button = row.operator(BK64_PutInSort.bl_idname, text=f"Put In Half {name.upper()}")
             button.index, button.side = scene.hm64_bk64_sort_index, side
         sorts.operator(BK64_PutInSort.bl_idname, text="Take Out Of Every Sort").side = -1
 
@@ -277,8 +277,10 @@ class BK64_GeoNodesPanel(BK64_Panel):
             sides = ", ".join(sorted(held[index]))
             sorts.label(text=f"Sort {index} holds half {sides}")
 
-        sorts.label(text="A sort draws its two halves nearest last, for geometry that")
-        sorts.label(text="reads wrong through itself. Both halves have to be filled.")
+        sorts.label(text="Fixes translucent faces that draw over each other in the")
+        sorts.label(text="wrong order. Put each side in one half and the game keeps")
+        sorts.label(text="the nearer half in front. Opaque geometry doesn't need it.")
+        sorts.label(text="Fill both halves.")
 
 
 class BK64_BonePanel(BK64_Panel):

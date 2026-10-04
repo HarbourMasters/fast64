@@ -702,10 +702,7 @@ class BK64_SplitDetailLevels(Operator):
 class BK64_PutInSort(Operator):
     bl_idname = "object.hm64_bk64_put_in_sort"
     bl_label = "Put In Sort"
-    bl_description = (
-        "Draw the selected meshes as this half of a sort, or the selected vertices in edit mode. "
-        "The two halves draw nearest last"
-    )
+    bl_description = "Draw the selected meshes as this half of a sort, or the selected vertices in edit mode"
     bl_options = {"REGISTER", "UNDO"}
 
     index: IntProperty(default=1, min=1)

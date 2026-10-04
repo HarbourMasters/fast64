@@ -342,7 +342,7 @@ def bk64_properties_register():
         name="Sort",
         default=1,
         min=1,
-        description="Which sort the buttons below put geometry in. A model can hold more than one",
+        description="Which sort the buttons below fill. A model can hold several",
     )
     bpy.types.Object.hm64_bk64_view_offset = FloatVectorProperty(
         name="Spread",
