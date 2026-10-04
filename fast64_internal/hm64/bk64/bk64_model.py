@@ -35,6 +35,7 @@ from .bk64_constants import (
     COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
+    GEO_NODE_ATTR,
     CAMERA_AREA_KIND,
     SOURCE_CHUNK_ATTR,
     CYCLE_TYPE_2CYCLE,
@@ -73,6 +74,11 @@ from .bk64_texture import (
 )
 from .bk64_geo import (
     count_triangles,
+    geo_node_group,
+    geo_node_of_group,
+    geo_node_of_value,
+    geo_node_value,
+    place_in_node,
     fixup_chunk,
     flatten_gfx_list,
     geo_records,
@@ -746,25 +752,73 @@ def _face_sources(mesh):
     ]
 
 
+def geo_node_groups(obj):
+    """The node each of the object's groups names, by group index"""
+    found = {}
+    for group in obj.vertex_groups:
+        node = geo_node_of_group(group.name)
+        if node is not None:
+            found[group.index] = node
+    return found
+
+
+def _tag_geo_nodes(bm, mesh_obj):
+    # a part is rebuilt from scratch and arrives with no vertex groups
+    nodes = geo_node_groups(mesh_obj)
+    deform = bm.verts.layers.deform.active
+    if not nodes or deform is None:
+        return
+    layer = bm.faces.layers.int.get(GEO_NODE_ATTR) or bm.faces.layers.int.new(GEO_NODE_ATTR)
+    for face in bm.faces:
+        corners = set()
+        for vert in face.verts:
+            corners |= {nodes[index] for index in vert[deform].keys() if index in nodes}
+        face[layer] = geo_node_value(corners.pop() if len(corners) == 1 else None)
+
+
+def _face_nodes(obj):
+    """The layout node each face draws under, or None where its corners disagree"""
+    layer = obj.data.attributes.get(GEO_NODE_ATTR)
+    if layer is not None and layer.domain == "FACE":
+        return [geo_node_of_value(item.value) for item in layer.data]
+
+    nodes = geo_node_groups(obj)
+    if not nodes:
+        return [None] * len(obj.data.polygons)
+
+    of_vertex = {}
+    for vertex in obj.data.vertices:
+        found = {nodes[group.group] for group in vertex.groups if group.group in nodes}
+        of_vertex[vertex.index] = found.pop() if len(found) == 1 else None
+    out = []
+    for polygon in obj.data.polygons:
+        corners = {of_vertex.get(index) for index in polygon.vertices}
+        out.append(corners.pop() if len(corners) == 1 else None)
+    return out
+
+
 def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
     """The part as (key, object) pairs, cut where its faces disagree"""
     # a chunk jumps into one render mode entry. Other faces need their own.
+    # TODO: vanilla jumps again mid chunk, so a chunk mixing layers costs an extra one here
     layer_of_slot = {
         index: draw_layer_of(slot.material, scene_layer) for index, slot in enumerate(part_obj.material_slots)
     }
     sources = _face_sources(part_obj.data)
+    nodes = _face_nodes(part_obj)
     part_obj.data.calc_loop_triangles()
     key_of_face = [
-        (layer_of_slot.get(polygon.material_index, scene_layer), sources[index])
+        (layer_of_slot.get(polygon.material_index, scene_layer), sources[index], nodes[index])
         for index, polygon in enumerate(part_obj.data.polygons)
     ]
-    default = (scene_layer, -1)
+    default = (scene_layer, -1, None)
     wanted = set(key_of_face) or {default}
     if len(wanted) <= 1:
         return [(wanted.pop(), part_obj)]
 
     pieces = []
-    for key in sorted(wanted):
+    # a mesh with faces in a node and faces in none holds a tuple beside a None
+    for key in sorted(wanted, key=lambda key: (key[0], key[1], key[2] or ())):
         bm = bmesh.new()
         bm.from_mesh(part_obj.data)
         bm.faces.ensure_lookup_table()
@@ -773,7 +827,9 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
             geom=[face for face in bm.faces if key_of_face[face.index] != key],
             context="FACES",
         )
-        piece = _bmesh_to_object(context, bm, f"{part_obj.name}_{key[0].lower()}_{key[1]}", part_obj)
+        # the whole key rides in the name, or two pieces of one mesh collide
+        named = "_".join(str(part) for part in (key[2] or ()))
+        piece = _bmesh_to_object(context, bm, f"{part_obj.name}_{key[0].lower()}_{key[1]}_{named}", part_obj)
         bm.free()
         if piece is not None:
             temp_objects.append(piece)
@@ -1100,6 +1156,7 @@ def _gather_parts(
             bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, bind)
             try:
                 _tag_mesh_groups(bm, mesh_obj, mesh_uids)
+                _tag_geo_nodes(bm, mesh_obj)
                 if bind:
                     _tag_bone_binding(bm, mesh_obj, index_of_bone)
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
@@ -1117,6 +1174,7 @@ def _gather_parts(
         bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, True)
         try:
             _tag_mesh_groups(bm, mesh_obj, mesh_uids)
+            _tag_geo_nodes(bm, mesh_obj)
             if mesh_obj.parent_type == "BONE" and mesh_obj.parent_bone:
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
                 if part is not None:
@@ -1335,7 +1393,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     )
                     if fMeshes:
                         by_layer.setdefault(layer, []).extend(fMeshes.values())
-            for layer in sorted(by_layer):
+            for layer in sorted(by_layer, key=lambda key: (key[0], key[1], key[2] or ())):
                 chunk_fMeshes.append((bone_index, layer, by_layer[layer]))
                 ordered_fMeshes += by_layer[layer]
 
@@ -1459,7 +1517,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 if kind == "skinning":
                     skinning_sources.update(indices)
         source_counts = {}
-        for _bone_index, (_layer, chunk_source), _fMeshes in chunk_fMeshes:
+        for _bone_index, (_layer, chunk_source, _node), _fMeshes in chunk_fMeshes:
             source_counts[chunk_source] = source_counts.get(chunk_source, 0) + 1
         owner_of_pos = (
             _vertex_bones(context, mesh_objects, bones, to_bk_space, transform_matrix)
@@ -1472,7 +1530,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         chunk_bounds = []
         rigid_seams = set()
         from_source = {}  # original chunk -> the indices its faces went out as
-        for bone_index, (layer, source), bone_fMeshes in chunk_fMeshes:
+        node_of_chunk = {}
+        for bone_index, (layer, source, node), bone_fMeshes in chunk_fMeshes:
             raw = []
             for fMesh in bone_fMeshes:
                 raw += flatten_gfx_list(fMesh.draw, fModel.f3d, segments)
@@ -1489,6 +1548,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 if pair is None:
                     rigid_seams.add((source_bones or {}).get(source, f"chunk {source}"))
             for part in pair if pair is not None else (chunk_words,):
+                node_of_chunk[len(dl_words)] = node
                 chunks.append((bone_index, len(dl_words)))
                 chunk_bounds.append(points if part is not (pair[0] if pair else None) else [])
                 if source >= 0:
@@ -1558,12 +1618,24 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             records = relink_layout(stored, from_source)
             if records is not None:
                 records = guard_layout(records, settings.warnings)
-                # anything the modeller added is outside the layout, hung off its
-                # bone at the end. Anything else draws plainly, off no matrix.
+                # what the modeller added goes in the node they put it in, or beside them all at the end
                 drawn = {index for _k, indices, _m, _p, _r in layout_records(records) for index in indices}
+                missed = set()
                 for chunk_bone, gfx_index in chunks:
-                    if gfx_index not in drawn:
-                        records.append(("bone", chunk_bone, gfx_index) if rigged else ("loaddl", gfx_index))
+                    if gfx_index in drawn:
+                        continue
+                    added = ("bone", chunk_bone, gfx_index) if rigged else ("loaddl", gfx_index)
+                    node = node_of_chunk.get(gfx_index)
+                    if node is not None and place_in_node(records, node, added):
+                        continue
+                    if node is not None:
+                        missed.add(node)
+                    records.append(added)
+                for node in sorted(missed):
+                    settings.warnings.append(
+                        f"This model has nothing matching {geo_node_group(node)}, so what you put in "
+                        "that group goes out drawing plainly instead."
+                    )
             if records is None:
                 stored = None
         if stored is None:

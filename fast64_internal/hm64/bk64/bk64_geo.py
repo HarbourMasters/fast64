@@ -93,6 +93,47 @@ def geo_node_group(node) -> str:
     return GEO_NODE_PREFIXES[node[0]] + "_".join(str(number) for number in node[1:])
 
 
+def geo_node_value(node) -> int:
+    """The node packed into one int for a face to carry, 0 for None"""
+    if node is None:
+        return 0
+    if node[0] == "lod":
+        return (1 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0x3FFF) << 14) | min(node[2], 0x3FFF)
+    raise PluginError(f"{node[0]} nodes have no face tag yet.")
+
+
+def geo_node_of_value(value: int):
+    """The node a face tag names, or None where it carries no tag"""
+    if not value:
+        return None
+    if (value >> GEO_NODE_KIND_SHIFT) == 1:
+        return ("lod", (value >> 14) & 0x3FFF, value & 0x3FFF)
+    return None
+
+
+
+def place_in_node(records, node, added):
+    """Put a record under the node a group named, if the layout has one"""
+    for record in records:
+        kind = record[0]
+        if kind == "lod" and node[0] == "lod" and (round(record[2]), round(record[1])) == (node[1], node[2]):
+            record[4].append(added)
+            return True
+        if kind == "selector":
+            branches = record[2]
+        elif kind == "sort":
+            branches = [record[3], record[4]]
+        elif kind == "bonebranch":
+            branches = [record[2]]
+        elif kind in ("lod", "drawdist", "camera"):
+            branches = [record[-1]]
+        else:
+            continue
+        for branch in branches:
+            if place_in_node(branch, node, added):
+                return True
+    return False
+
 
 def relink_layout(records, from_source):
     """The stored layout with every original chunk index swapped for the new ones, or None"""

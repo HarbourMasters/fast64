@@ -154,6 +154,8 @@ The value isn't set automatically. An actor has to call `modelRender_setAppendag
 
 A vanilla model that already has levels of detail hangs them all off the same bones, so they import on top of each other. Each level's geometry goes into a vertex group named for the distances it covers, `bk64_lod_0_350` and so on, which is how you tell the copies apart: select a group in edit mode and hide it to work on the rest.
 
+Those names decide where new geometry goes. Put a hat in `bk64_lod_0_350` and it draws only while the camera is inside 350 units, so a model wanting a hat at every level needs one per group. Leave it in no group at all and it goes out beside the levels rather than inside one, drawing at every distance, which is usually what a single hat wants. A group naming distances the model doesn't have is a warning, and that geometry draws always. Mesh Tools lists the levels a model has, with a button per level that puts the selection in it, so the names don't have to be typed.
+
 **Sort** orders its two child bones by which one is nearer the camera, for translucent halves that have to draw back to front. It takes exactly two.
 
 **Draw Distance** skips everything under it when its box is off screen. The box is calculated from the geometry it guards, leaving nothing to set.
