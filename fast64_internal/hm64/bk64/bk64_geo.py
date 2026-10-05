@@ -128,8 +128,8 @@ def geo_node_of_value(value: int):
 
 
 def sort_records(halves, records_of, warnings=None):
-    """(a sort node per filled pair of halves, the chunks they took)"""
-    built, taken = [], set()
+    """(a sort node per filled pair of halves, {chunk it took: which sort took it})"""
+    built, taken = [], {}
     for index, sides in sorted(halves.items()):
         if len(sides) != len(SORT_SIDES):
             if warnings is not None:
@@ -150,44 +150,58 @@ def sort_records(halves, records_of, warnings=None):
             )
         branches = [[records_of(chunk) for chunk, _points in sides[side]] for side in range(len(SORT_SIDES))]
         built.append(("sort", middles[0], middles[1], branches[0], branches[1], 0))
-        taken |= {chunk for side in sides.values() for chunk, _points in side}
+        for chunk in {chunk for side in sides.values() for chunk, _points in side}:
+            taken[chunk] = len(built) - 1
     return built, taken
 
 
-def without_chunks(records, taken):
-    """The layout with the chunks a sort took over left out of it"""
+def without_chunks(records, taken, sorts=(), placed=None):
+    """The layout with each sort standing where the chunks it took over stood"""
     out = []
+    placed = set() if placed is None else placed
+
+    def hand_over(chunk):
+        which = taken.get(chunk)
+        if which is not None and which not in placed:
+            placed.add(which)
+            out.append(sorts[which])
+
     for record in records:
         kind = record[0]
         if kind == "loaddl" and record[1] in taken:
+            hand_over(record[1])
             continue
         if kind == "bone" and record[2] in taken:
+            hand_over(record[2])
             continue
         if kind == "skinning":
             kept = [index for index in record[1] if index not in taken]
+            for index in record[1]:
+                if index in taken:
+                    hand_over(index)
             if not kept:
                 continue
             out.append(("skinning", kept))
             continue
         if kind == "bonebranch":
-            out.append(("bonebranch", record[1], without_chunks(record[2], taken)))
+            out.append(("bonebranch", record[1], without_chunks(record[2], taken, sorts, placed)))
         elif kind == "selector":
-            out.append(("selector", record[1], [without_chunks(option, taken) for option in record[2]]))
+            out.append(("selector", record[1], [without_chunks(option, taken, sorts, placed) for option in record[2]]))
         elif kind == "sort":
             out.append(
                 (
                     "sort",
                     record[1],
                     record[2],
-                    without_chunks(record[3], taken),
-                    without_chunks(record[4], taken),
+                    without_chunks(record[3], taken, sorts, placed),
+                    without_chunks(record[4], taken, sorts, placed),
                     record[5],
                 )
             )
         elif kind == "lod":
-            out.append(("lod", record[1], record[2], record[3], without_chunks(record[4], taken)))
+            out.append(("lod", record[1], record[2], record[3], without_chunks(record[4], taken, sorts, placed)))
         elif kind in ("drawdist", "camera"):
-            out.append(tuple(record[:-1]) + (without_chunks(record[-1], taken),))
+            out.append(tuple(record[:-1]) + (without_chunks(record[-1], taken, sorts, placed),))
         else:
             out.append(record)
     return out

@@ -1669,7 +1669,11 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     if node is not None:
                         missed.add(node)
                     records.append(added)
-                records = without_chunks(records, {gfx for _bone, gfx in in_a_sort}) + sorts
+                # a sort stands where its geometry stood, inside whatever level or state held it
+                took = {gfx: which for (_bone, gfx), which in in_a_sort.items()}
+                standing = set()
+                records = without_chunks(records, took, sorts, standing)
+                records += [sort for which, sort in enumerate(sorts) if which not in standing]
                 for node in sorted(missed):
                     settings.warnings.append(
                         f"This model has nothing matching {geo_node_group(node)}, so what you put in "
