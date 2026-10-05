@@ -5,7 +5,7 @@ from bpy.utils import register_class, unregister_class
 from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
-from .bk64_constants import BK_COLLISION_FLAG_BITS, SORT_SIDES
+from .bk64_constants import BK_COLLISION_FLAG_BITS, MAX_SORTS, SORT_SIDES
 from .bk64_geo import geo_node_of_group, layout_detail_levels, layout_selectors, stored_layout
 from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
@@ -276,7 +276,10 @@ class BK64_GeoNodesPanel(BK64_Panel):
                     held.setdefault(node[1], set()).add(SORT_SIDES[node[2]])
         for index in sorted(held):
             sides = ", ".join(sorted(held[index]))
-            sorts.label(text=f"Sort {index} holds half {sides}")
+            row = sorts.row()
+            row.label(text=f"Sort {index} holds half {sides}")
+            if index <= MAX_SORTS:
+                row.prop(root, "hm64_bk64_sort_one_half", index=index - 1, text="Only The Nearer Half")
 
         sorts.label(text="Fixes translucent faces that draw over each other in the")
         sorts.label(text="wrong order. Put each side in one half and the game keeps")

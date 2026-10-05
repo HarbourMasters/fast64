@@ -4,6 +4,7 @@ import bpy
 import mathutils
 from bpy.props import (
     BoolProperty,
+    BoolVectorProperty,
     EnumProperty,
     FloatProperty,
     FloatVectorProperty,
@@ -19,6 +20,7 @@ from .bk64_constants import (
     GEO_TYPE_MIPMAP_TRILINEAR,
     MAX_BONE_ID,
     MAX_SCROLL_SPEED,
+    MAX_SORTS,
     RENDERMODE_AA_OPAQUE,
 )
 from .bk64_level_models import bk64_level_layers, bk64_level_names
@@ -193,6 +195,7 @@ _BK64_OBJECT_PROPS = (
     "hm64_bk64_cull_radius_raw",
     "hm64_bk64_view_offset",
     "hm64_bk64_spread_levels",
+    "hm64_bk64_sort_one_half",
 )
 
 _BK64_BONE_PROPS = (
@@ -382,6 +385,11 @@ def bk64_properties_register():
         size=3,
         default=(0.0, 0.0, 0.0),
         description="How far this object stands aside for viewing. The export takes it back out",
+    )
+    bpy.types.Object.hm64_bk64_sort_one_half = BoolVectorProperty(
+        name="Only The Nearer Half",
+        size=MAX_SORTS,
+        description="Draw only the half the camera is on, instead of both with the nearer in front",
     )
     bpy.types.Object.hm64_bk64_spread_levels = BoolProperty(
         name="Spread Detail Levels",

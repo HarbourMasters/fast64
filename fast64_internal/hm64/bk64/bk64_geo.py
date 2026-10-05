@@ -127,7 +127,7 @@ def geo_node_of_value(value: int):
     return None
 
 
-def sort_records(halves, records_of, warnings=None):
+def sort_records(halves, records_of, warnings=None, one_half=()):
     """(a sort node per filled pair of halves, {chunk it took: which sort took it})"""
     built, taken = [], {}
     for index, sides in sorted(halves.items()):
@@ -149,7 +149,9 @@ def sort_records(halves, records_of, warnings=None):
                 else (0.0, 0.0, 0.0)
             )
         branches = [[records_of(chunk) for chunk, _points in sides[side]] for side in range(len(SORT_SIDES))]
-        built.append(("sort", middles[0], middles[1], branches[0], branches[1], 0))
+        # bit 0 draws the near half on its own instead of both, nearest last
+        flags = 1 if index <= len(one_half) and one_half[index - 1] else 0
+        built.append(("sort", middles[0], middles[1], branches[0], branches[1], flags))
         for chunk in {chunk for side in sides.values() for chunk, _points in side}:
             taken[chunk] = len(built) - 1
     return built, taken

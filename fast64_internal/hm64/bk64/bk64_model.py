@@ -1650,7 +1650,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             node = node_of_chunk.get(chunk[1])
             if node is not None and node[0] == "sort":
                 halves.setdefault(node[1], {}).setdefault(node[2], []).append((chunk, chunk_bounds[position]))
-        sorts, in_a_sort = sort_records(halves, record_of, settings.warnings)
+        sorts, in_a_sort = sort_records(halves, record_of, settings.warnings, list(root_obj.hm64_bk64_sort_one_half))
 
         if stored is not None:
             records = relink_layout(stored, from_source)
