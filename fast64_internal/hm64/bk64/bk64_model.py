@@ -506,8 +506,8 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
     # a face with nothing to vote on lands on the root, right for scenery and wrong for a limb
     if unweighted and warnings is not None:
         warnings.append(
-            f"{unweighted} faces on '{mesh_obj.name}' carry no weight to a bone's vertex group "
-            f"and went onto '{fallback_bone_name}'."
+            f"{unweighted} faces on '{mesh_obj.name}' are in no bone's vertex group, so they went "
+            f"onto '{fallback_bone_name}' and move with it. Weight them to the bone they belong to."
         )
 
     seams = bone_seam_edges(bm, bone_of_face, armature_obj, source_bones)
@@ -519,8 +519,12 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
         if len(bm.verts) != len(mesh_obj.data.vertices):
             fix = "Apply its modifiers first, they make geometry Split Mesh At Bones never saw."
         else:
-            fix = "Run Split Mesh At Bones."
-        raise PluginError(f"'{mesh_obj.name}' is welded across {len(seams)} bone boundaries, at {where}. {fix}")
+            fix = "Mesh Tools has Split Mesh At Bones."
+        counted = "1 bone seam" if len(seams) == 1 else f"{len(seams)} bone seams"
+        raise PluginError(
+            f"'{mesh_obj.name}' is still joined across {counted}, at {where}. The game draws each "
+            f"piece under one bone, so the mesh has to be cut where the bones meet. {fix}"
+        )
 
     parts = {}
     for bone_name, face_indices in faces_by_bone.items():
@@ -1010,8 +1014,8 @@ def _vertex_bone_entries(vertices, bone_tags, warnings, space_matrix):
             for position in sorted(loose)[:3]
         )
         warnings.append(
-            f"{len(loose)} vertex positions carry no weight to a bone's vertex group, at {listed} "
-            "in world space. Bind Vertices leaves those at rest while the rest of the model animates."
+            f"{len(loose)} vertex positions are in no bone's vertex group, at {listed} in world "
+            "space. They stand still while the rest of the model animates, so weight them to a bone."
         )
 
     entries = []
@@ -1578,8 +1582,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
 
         for name in sorted(rigid_seams):
             settings.warnings.append(
-                f"The seam at bone '{name}' lost its skinning and can tear in game. It needs its "
-                "faces on one material and draw layer, with up to 24 vertices weighted to the parent bone."
+                f"The seam at bone '{name}' came out rigid, so it can split open when the joint "
+                "bends. A seam holds together when its faces share one material and draw layer, with "
+                "up to 24 vertices weighted to the parent bone."
             )
         collision = collision_from_display_list(dl_words, vertex_owners, material_surfaces(fModel))
         if shapes:
