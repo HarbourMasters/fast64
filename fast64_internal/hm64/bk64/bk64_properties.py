@@ -184,6 +184,7 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_scroll_speed",
     "hm64_bk64_mesh_effect",
     "hm64_bk64_sort_index",
+    "hm64_bk64_appendage",
 )
 
 _BK64_OBJECT_PROPS = (
@@ -226,6 +227,34 @@ _BK64_MATERIAL_PROPS = (
 )
 
 
+_appendage_items = []
+
+
+def _appendage_enum(self, context):
+    """The appendages the selected model's layout has"""
+    from .bk64_geo import layout_selectors, stored_layout
+    from .bk64_operators import resolve_root
+
+    try:
+        root = resolve_root(context)
+    except Exception:
+        root = None
+    found = layout_selectors(stored_layout(root) or []) if root is not None else []
+    # Blender drops enum strings it doesn't own, so the items outlive the call here
+    _appendage_items.clear()
+    _appendage_items.extend(
+        (
+            str(appendage),
+            f"Appendage {appendage}",
+            "Game code draws this one or nothing" if count == 1 else f"Game code picks between {count} states here",
+        )
+        for appendage, count in found
+    )
+    if not _appendage_items:
+        _appendage_items.append(("0", "None", "This model has no selectors"))
+    return _appendage_items
+
+
 def _spread_detail_levels(self, context):
     """Stand each level aside, or put it back"""
     from .bk64_geo import geo_node_of_group
@@ -233,12 +262,11 @@ def _spread_detail_levels(self, context):
     meshes = [self] if self.type == "MESH" else [obj for obj in self.children_recursive if obj.type == "MESH"]
     levels = []
     for mesh_obj in meshes:
-        node = next(
-            (geo_node_of_group(group.name) for group in mesh_obj.vertex_groups if geo_node_of_group(group.name)),
-            None,
-        )
-        if node is not None:
-            levels.append((node, mesh_obj))
+        nodes = [geo_node_of_group(group.name) for group in mesh_obj.vertex_groups]
+        nodes = [node for node in nodes if node is not None]
+        # a piece can hold a state as well as a level, and "lod" sorts ahead of the other kinds
+        if nodes:
+            levels.append((min(nodes), mesh_obj))
 
     step = max((max(mesh_obj.dimensions) for _node, mesh_obj in levels), default=0.0) * 1.2
     for index, (_node, mesh_obj) in enumerate(sorted(levels, key=lambda pair: pair[0])):
@@ -343,6 +371,11 @@ def bk64_properties_register():
         default=1,
         min=1,
         description="Which sort the buttons below fill. A model can hold several",
+    )
+    bpy.types.Scene.hm64_bk64_appendage = EnumProperty(
+        name="Appendage",
+        items=_appendage_enum,
+        description="Which appendage the state buttons below fill",
     )
     bpy.types.Object.hm64_bk64_view_offset = FloatVectorProperty(
         name="Spread",

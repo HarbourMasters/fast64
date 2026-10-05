@@ -150,7 +150,9 @@ As well as carrying geometry, a bone can act as a node in the geo layout, set by
 
 The value isn't set automatically. An actor has to call `modelRender_setAppendageVisibility`. Until one does, a selector on a replacement model reads whatever was left in the slot unless the actor is changed to drive it. That requires a port change and can't be done by the exporter.
 
-Each option's geometry imports into a vertex group named for the appendage and the state that draws it, `bk64_selector_1_2` being appendage 1 drawing when the game sets state 2, so Banjo's eight hand states come in eight groups rather than on top of each other. A nested selector owns its own geometry, which is how Banjo's appendage 2 keeps its hands out of the arm's group.
+Each option's geometry imports into a vertex group named for the appendage and the state that draws it, `bk64_selector_1_2` being appendage 1 drawing when the game sets state 2, so Banjo's eight hand states come in eight groups rather than on top of each other. Geo Nodes lists the appendages a model has with a button per state, and Split Selector States leaves each one as its own object to work on. A nested selector owns its own geometry, which is how Banjo's appendage 2 keeps its hands out of the arm's group.
+
+A state sits inside a detail level in vanilla, so a face can be in one of each and the buttons only move it out of the kind you clicked.
 
 **Level Of Detail** draws what's under it only while the camera is between Near Distance and Far Distance of the joint, both in BK units. Far Distance has to be set or it never draws.
 

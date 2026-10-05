@@ -6,7 +6,7 @@ from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
 from .bk64_constants import BK_COLLISION_FLAG_BITS, SORT_SIDES
-from .bk64_geo import geo_node_of_group, layout_detail_levels, stored_layout
+from .bk64_geo import geo_node_of_group, layout_detail_levels, layout_selectors, stored_layout
 from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
     BK64_AddMeshEffect,
@@ -21,9 +21,10 @@ from .bk64_operators import (
     BK64_PromoteMaterials,
     BK64_MarkCollisionOnly,
     BK64_PutInDetailLevel,
+    BK64_PutInSelectorState,
     BK64_PutInSort,
     BK64_SelectLooseVertices,
-    BK64_SplitDetailLevels,
+    BK64_SplitNodes,
     BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
     resolve_root,
@@ -249,7 +250,7 @@ class BK64_GeoNodesPanel(BK64_Panel):
                 button.near, button.far = near, far
             detail.operator(BK64_PutInDetailLevel.bl_idname, text="Take Out Of Every Level").far = 0
             detail.separator()
-            detail.operator(BK64_SplitDetailLevels.bl_idname)
+            detail.operator(BK64_SplitNodes.bl_idname, text="Split Detail Levels").kind = "lod"
             detail.prop(root, "hm64_bk64_spread_levels")
             aside = [obj for obj in _model_meshes(root) if any(obj.hm64_bk64_view_offset)]
             if aside:
@@ -281,6 +282,37 @@ class BK64_GeoNodesPanel(BK64_Panel):
         sorts.label(text="wrong order. Put each side in one half and the game keeps")
         sorts.label(text="the nearer half in front. Opaque geometry doesn't need it.")
         sorts.label(text="Fill both halves.")
+
+        selectors = layout_selectors(stored_layout(root) or []) if root is not None else []
+        if selectors:
+            states = col.box().column()
+            states.label(text="Selector States")
+            prop_split(states, scene, "hm64_bk64_appendage", "Appendage")
+            # the stored pick can outlive the model it came from
+            chosen = int(scene.hm64_bk64_appendage) if scene.hm64_bk64_appendage.isdigit() else 0
+            row = states.row(align=True)
+            for state in range(1, dict(selectors).get(chosen, 0) + 1):
+                button = row.operator(BK64_PutInSelectorState.bl_idname, text=f"State {state}")
+                button.appendage, button.state = chosen, state
+            states.operator(BK64_PutInSelectorState.bl_idname, text="Take Out Of Every State").state = 0
+            states.operator(BK64_SplitNodes.bl_idname, text="Split Selector States").kind = "selector"
+
+            kept = {}
+            for mesh_obj in _model_meshes(root):
+                for group in mesh_obj.vertex_groups:
+                    node = geo_node_of_group(group.name)
+                    if node is not None and node[0] == "selector":
+                        kept.setdefault(node[1], set()).add(node[2])
+            if chosen in kept:
+                shown = ", ".join(str(state) for state in sorted(kept[chosen]))
+                states.label(text=f"Appendage {chosen} holds state {shown}")
+            elsewhere = sorted(appendage for appendage in kept if appendage != chosen)
+            if elsewhere:
+                states.label(text="Also filled: " + ", ".join(str(appendage) for appendage in elsewhere))
+
+            states.label(text="Game code picks which state draws, so a hand can hold")
+            states.label(text="something or a face can swap. Geometry in no state draws")
+            states.label(text="whatever it picks.")
 
 
 class BK64_BonePanel(BK64_Panel):
