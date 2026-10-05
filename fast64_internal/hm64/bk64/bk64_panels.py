@@ -314,8 +314,7 @@ class BK64_GeoNodesPanel(BK64_Panel):
                 states.label(text="Also filled: " + ", ".join(str(appendage) for appendage in elsewhere))
 
             states.label(text="Game code picks which state draws, so a hand can hold")
-            states.label(text="something or a face can swap. Geometry in no state draws")
-            states.label(text="whatever it picks.")
+            states.label(text="something or a face can swap. Geometry in no state always draws.")
 
 
 class BK64_BonePanel(BK64_Panel):

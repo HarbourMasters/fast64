@@ -736,7 +736,7 @@ def _drop_idle_syncs(words):
         elif opcode in (OP_TRI1, OP_TRI2):
             pending[OP_PIPESYNC] = pending[OP_TILESYNC] = True
         elif opcode in _LOAD_OPS:
-            # a load sync waits on the RDP reading texture memory, which no triangle starts
+            # a load sync waits on the RDP reading texture memory, and a triangle never starts one
             pending[OP_LOADSYNC] = True
         out.append(word)
     return out
