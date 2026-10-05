@@ -25,6 +25,8 @@ from .bk64_constants import (
     OP_DL,
     OP_ENDDL,
     OP_LOADBLOCK,
+    OP_LOADTILE,
+    OP_LOADTLUT,
     OP_LOADSYNC,
     OP_MOVEMEM,
     OP_MOVEWORD,
@@ -718,20 +720,24 @@ def _state_slot(w0):
 
 
 _SYNC_OPS = frozenset({OP_LOADSYNC, OP_PIPESYNC, OP_TILESYNC})
+_LOAD_OPS = frozenset({OP_LOADBLOCK, OP_LOADTILE, OP_LOADTLUT})
 
 
 def _drop_idle_syncs(words):
-    """Syncs with no primitive pending to wait on"""
-    # a chunk is jumped into, so the one before it drew
-    out, pending = [], True
+    """Syncs with nothing of their own kind left to wait on"""
+    # a chunk is jumped into, so the one before it both drew and loaded
+    out, pending = [], dict.fromkeys(_SYNC_OPS, True)
     for word in words:
         opcode = (word[0] >> 24) & 0xFF
         if opcode in _SYNC_OPS:
-            if not pending:
+            if not pending[opcode]:
                 continue
-            pending = False
+            pending[opcode] = False
         elif opcode in (OP_TRI1, OP_TRI2):
-            pending = True
+            pending[OP_PIPESYNC] = pending[OP_TILESYNC] = True
+        elif opcode in _LOAD_OPS:
+            # a load sync waits on the RDP reading texture memory, which no triangle starts
+            pending[OP_LOADSYNC] = True
         out.append(word)
     return out
 
