@@ -19,6 +19,7 @@ from .bk64_constants import (
     GEO_TYPE_ENV_MAP,
     GEO_TYPE_MIPMAP_TRILINEAR,
     MAX_APPENDAGE_ID,
+    SCENE_CONTRACT,
     MESH_EFFECT_UID_BASE,
     MESH_GROUP_PREFIX,
     MODEL_STASH_PROPS,
@@ -600,6 +601,69 @@ class BK64_ShowHitSphere(Operator):
             return {"CANCELLED"}
 
 
+class BK64_WeldBoneSeams(Operator):
+    bl_idname = "object.hm64_bk64_weld_bone_seams"
+    bl_label = "Weld Bone Seams"
+    bl_description = (
+        "Put every vertex sitting on one spot onto the same bone, the heaviest weighted one. "
+        "For an older model whose seams pull apart in game"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            root_obj = resolve_root(context)
+            meshes = [root_obj] if root_obj.type == "MESH" else root_obj.children_recursive
+            welded = 0
+            with object_mode(context):
+                for mesh_obj in [obj for obj in meshes if obj.type == "MESH"]:
+                    bones = {group.index: group for group in mesh_obj.vertex_groups if group.name.startswith("bk_")}
+                    at_spot = {}
+                    for vertex in mesh_obj.data.vertices:
+                        held = {entry.group: entry.weight for entry in vertex.groups if entry.group in bones}
+                        if held:
+                            at_spot.setdefault(tuple(round(value, 4) for value in vertex.co), []).append(
+                                (vertex.index, held)
+                            )
+
+                    for spot, sitting in at_spot.items():
+                        groups = {index for _vertex, held in sitting for index in held}
+                        if len(groups) < 2:
+                            continue
+                        weights = {}
+                        for _vertex, held in sitting:
+                            for index, weight in held.items():
+                                weights[index] = weights.get(index, 0.0) + weight
+                        # the heaviest weight wins, the same tie break the export uses
+                        winner = max(weights.items(), key=lambda item: (item[1], -item[0]))[0]
+                        indices = [vertex for vertex, _held in sitting]
+                        for index in groups - {winner}:
+                            bones[index].remove(indices)
+                        bones[winner].add(indices, 1.0, "REPLACE")
+                        welded += 1
+
+                    # a group left holding nothing is noise in the list
+                    for group in list(mesh_obj.vertex_groups):
+                        if group.name.startswith("bk_") and not any(
+                            entry.group == group.index for vert in mesh_obj.data.vertices for entry in vert.groups
+                        ):
+                            mesh_obj.vertex_groups.remove(group)
+
+            root_obj.hm64_bk64_contract = SCENE_CONTRACT
+            counted = "1 spot" if welded == 1 else f"{welded} spots"
+            self.report(
+                {"INFO"},
+                f"{counted} put back on one bone."
+                if welded
+                else "Every spot already followed one bone, so nothing moved.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 class BK64_PutInDetailLevel(Operator):
     bl_idname = "object.hm64_bk64_put_in_detail_level"
     bl_label = "Put In Detail Level"
@@ -1014,6 +1078,7 @@ bk64_operator_classes = (
     BK64_AddMeshEffect,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
+    BK64_WeldBoneSeams,
     BK64_PutInDetailLevel,
     BK64_PutInSelectorState,
     BK64_PutInSort,

@@ -81,6 +81,7 @@ from .bk64_constants import (
     TEX_FLAG_LOAD_AS_RAW,
     RENDERMODE_ENTRY_STRIDE,
     RT_BK_MODEL,
+    SCENE_CONTRACT,
     RT_BT_MODEL,
     SEG_BT_BONE_MTX,
     SEG_RENDERMODE,
@@ -1798,6 +1799,8 @@ def import_bk64_model(context, path: str, settings):
     context.scene.collection.objects.link(mesh_obj)
     # on whichever object the export is handed, the armature when there's one
     (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
+    # so the export knows this scene was read with the rules it writes by
+    (armature_obj or mesh_obj).hm64_bk64_contract = SCENE_CONTRACT
     (armature_obj or mesh_obj).hm64_bk64_geo_type_raw = model["geo_type"]
     if model.get("camera_areas"):
         _build_camera_areas(context, base, model["camera_areas"], armature_obj or mesh_obj, to_blender)

@@ -154,6 +154,8 @@ Each option's geometry imports into a vertex group named for the appendage and t
 
 A state sits inside a detail level in vanilla, so a face can be in one of each and the buttons only move it out of the kind you clicked.
 
+A model made before the export read those groups can carry bone assignments nothing ever checked, since two vertices on one spot used to follow whichever bone came first. The export says so when it sees them, and Weld Bone Seams in Mesh Tools puts each spot back on one bone without touching the geometry. A model imported since then is marked, so it never asks.
+
 **Level Of Detail** draws what's under it only while the camera is between Near Distance and Far Distance of the joint, both in BK units. Far Distance has to be set or it never draws.
 
 A vanilla model that already has levels of detail hangs them all off the same bones, so they import on top of each other. Each level's geometry goes into a vertex group named for the distances it covers, `bk64_lod_0_350` and so on, which is how you tell the copies apart: select a group in edit mode and hide it to work on the rest.

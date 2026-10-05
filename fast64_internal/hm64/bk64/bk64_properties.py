@@ -196,6 +196,7 @@ _BK64_OBJECT_PROPS = (
     "hm64_bk64_view_offset",
     "hm64_bk64_spread_levels",
     "hm64_bk64_sort_one_half",
+    "hm64_bk64_contract",
 )
 
 _BK64_BONE_PROPS = (
@@ -385,6 +386,12 @@ def bk64_properties_register():
         size=3,
         default=(0.0, 0.0, 0.0),
         description="How far this object stands aside for viewing. The export takes it back out",
+    )
+    bpy.types.Object.hm64_bk64_contract = IntProperty(
+        name="Made By",
+        default=0,
+        description="Which import wrote this model. 0 is a scene from before Weld Bone Seams, and "
+        "those can hold bone assignments nothing ever checked",
     )
     bpy.types.Object.hm64_bk64_sort_one_half = BoolVectorProperty(
         name="Only The Nearer Half",

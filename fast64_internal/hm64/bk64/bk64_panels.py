@@ -27,6 +27,7 @@ from .bk64_operators import (
     BK64_SplitNodes,
     BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
+    BK64_WeldBoneSeams,
     resolve_root,
 )
 
@@ -172,6 +173,7 @@ class BK64_MeshToolsPanel(BK64_Panel):
 
         col.operator(BK64_PromoteMaterials.bl_idname)
         col.operator(BK64_SplitMeshAtBones.bl_idname)
+        col.operator(BK64_WeldBoneSeams.bl_idname)
         col.operator(BK64_SelectLooseVertices.bl_idname)
         col.operator(BK64_MarkCollisionOnly.bl_idname)
 

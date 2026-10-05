@@ -45,6 +45,7 @@ from .bk64_constants import (
     MAX_VERTEX_COUNT,
     MESH_GROUP_PREFIX,
     MESH_TAG_ATTRIBUTE,
+    SCENE_CONTRACT,
     MIP_SPTEXTURE_LEVEL,
     MIP_SPTEXTURE_TILE,
     MIP_TEXTURE_DIM,
@@ -992,6 +993,21 @@ def _vertex_bones(context, mesh_objects, bones, space_matrix, scale_matrix):
     return bound
 
 
+def _warn_legacy_binding(bound_vertices, warnings):
+    """Say so when a scene predates the export reading a vertex's own bone group"""
+    bones_at = {}
+    for entry in bound_vertices:
+        bones_at.setdefault(entry["coord"], set()).add(entry["bone"])
+    shared = sum(1 for bones in bones_at.values() if len(bones) > 1)
+    if not shared:
+        return
+    counted = "1 coordinate holds" if shared == 1 else f"{shared} coordinates hold"
+    warnings.append(
+        f"{counted} vertices following different bones. An older addon put every vertex at one "
+        "spot on the same bone, so those seams pull apart in game. Mesh Tools has Weld Bone Seams."
+    )
+
+
 def _vertex_bone_entries(vertices, bone_tags, warnings, space_matrix):
     """One entry per bound coordinate and bone, listing every vertex written there"""
     at_position = {}
@@ -1617,6 +1633,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         bound_vertices = (
             _vertex_bone_entries(vertices, bone_tags, settings.warnings, transform_matrix @ to_bk_space) if bind else []
         )
+        if bound_vertices and root_obj.hm64_bk64_contract < SCENE_CONTRACT:
+            _warn_legacy_binding(bound_vertices, settings.warnings)
         if bind and not bound_vertices:
             raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
 
