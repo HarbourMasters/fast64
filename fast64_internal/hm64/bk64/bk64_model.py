@@ -783,7 +783,18 @@ def _tag_geo_nodes(bm, mesh_obj):
         corners = set()
         for vert in face.verts:
             corners |= {nodes[index] for index in vert[deform].keys() if index in nodes}
-        face[layer] = geo_node_value(corners.pop() if len(corners) == 1 else None)
+        face[layer] = geo_node_value(_innermost(corners))
+
+
+def _innermost(corners):
+    # vanilla hangs a state inside a level and a sort inside either, so the innermost wins
+    for kind in ("sort", "selector", "lod"):
+        of_kind = {node for node in corners if node[0] == kind}
+        if len(of_kind) == 1:
+            return of_kind.pop()
+        if of_kind:
+            return None  # a face spanning two of one kind draws under neither
+    return None
 
 
 def _face_nodes(obj):

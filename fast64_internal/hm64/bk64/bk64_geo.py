@@ -89,6 +89,9 @@ def geo_node_of_group(name: str):
             return ("lod", int(parts[0]), int(parts[1]))
         if kind == "sort" and len(parts) == 2 and parts[0].isdigit() and parts[1] in SORT_SIDES:
             return ("sort", int(parts[0]), SORT_SIDES.index(parts[1]))
+        # the state is what game code sets in its visibility table, not a list index
+        if kind == "selector" and len(parts) == 2 and all(part.isdigit() for part in parts):
+            return ("selector", int(parts[0]), int(parts[1]))
     return None
 
 
@@ -106,6 +109,8 @@ def geo_node_value(node) -> int:
         return (1 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0x3FFF) << 14) | min(node[2], 0x3FFF)
     if node[0] == "sort":
         return (2 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0x3FFF) << 1) | node[2]
+    if node[0] == "selector":
+        return (3 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0xFF) << 8) | min(node[2], 0xFF)
     raise PluginError(f"{node[0]} nodes have no face tag yet.")
 
 
@@ -117,6 +122,8 @@ def geo_node_of_value(value: int):
         return ("lod", (value >> 14) & 0x3FFF, value & 0x3FFF)
     if (value >> GEO_NODE_KIND_SHIFT) == 2:
         return ("sort", (value >> 1) & 0x3FFF, value & 1)
+    if (value >> GEO_NODE_KIND_SHIFT) == 3:
+        return ("selector", (value >> 8) & 0xFF, value & 0xFF)
     return None
 
 
@@ -209,12 +216,35 @@ def layout_detail_levels(records, found=None):
     return sorted(found)
 
 
+def layout_selectors(records, found=None):
+    """(appendage id, how many states it picks between) per selector, in table order"""
+    found = {} if found is None else found
+    for record in records:
+        kind = record[0]
+        if kind == "selector":
+            found[record[1]] = max(found.get(record[1], 0), len(record[2]))
+            for option in record[2]:
+                layout_selectors(option, found)
+        elif kind == "bonebranch":
+            layout_selectors(record[2], found)
+        elif kind == "sort":
+            layout_selectors(record[3], found)
+            layout_selectors(record[4], found)
+        elif kind in ("lod", "drawdist", "camera"):
+            layout_selectors(record[-1], found)
+    return sorted(found.items())
+
+
 def place_in_node(records, node, added):
     """Put a record under the node a group named, if the layout has one"""
     for record in records:
         kind = record[0]
         if kind == "lod" and node[0] == "lod" and (round(record[2]), round(record[1])) == (node[1], node[2]):
             record[4].append(added)
+            return True
+        if kind == "selector" and node[0] == "selector" and record[1] == node[1] and node[2] <= len(record[2]):
+            # the game reads option N for state N, so state 1 is the branch at 0
+            record[2][node[2] - 1].append(added)
             return True
         if kind == "selector":
             branches = record[2]

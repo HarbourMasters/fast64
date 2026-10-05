@@ -150,11 +150,13 @@ As well as carrying geometry, a bone can act as a node in the geo layout, set by
 
 The value isn't set automatically. An actor has to call `modelRender_setAppendageVisibility`. Until one does, a selector on a replacement model reads whatever was left in the slot unless the actor is changed to drive it. That requires a port change and can't be done by the exporter.
 
+Each option's geometry imports into a vertex group named for the appendage and the state that draws it, `bk64_selector_1_2` being appendage 1 drawing when the game sets state 2, so Banjo's eight hand states come in eight groups rather than on top of each other. A nested selector owns its own geometry, which is how Banjo's appendage 2 keeps its hands out of the arm's group.
+
 **Level Of Detail** draws what's under it only while the camera is between Near Distance and Far Distance of the joint, both in BK units. Far Distance has to be set or it never draws.
 
 A vanilla model that already has levels of detail hangs them all off the same bones, so they import on top of each other. Each level's geometry goes into a vertex group named for the distances it covers, `bk64_lod_0_350` and so on, which is how you tell the copies apart: select a group in edit mode and hide it to work on the rest.
 
-Those names decide where new geometry goes. Put a hat in `bk64_lod_0_350` and it draws only while the camera is inside 350 units, so a model wanting a hat at every level needs one per group. Leave it in no group at all and it goes out beside the levels rather than inside one, drawing at every distance, which is usually what a single hat wants. A group naming distances the model doesn't have is a warning, and that geometry draws always. Mesh Tools lists the levels a model has, with a button per level that puts the selection in it, so the names don't have to be typed.
+Those names decide where new geometry goes. Put a hat in `bk64_lod_0_350` and it draws only while the camera is inside 350 units, so a model wanting a hat at every level needs one per group. Leave it in no group at all and it goes out beside the levels rather than inside one, drawing at every distance, which is usually what a single hat wants. A group naming distances the model doesn't have is a warning, and that geometry draws always. Geo Nodes lists the levels a model has, with a button per level that puts the selection in it, so the names don't have to be typed.
 
 Working on a model whose levels sit inside each other is the awkward part. Split Detail Levels leaves each level as its own object, which changes nothing about the export, and Spread Detail Levels stands those objects side by side while you work. The export takes the spread back out, so a spread model and a stacked one write the same file. Moving a level from where it stands still moves it in the file, since only the spread itself is subtracted: push the near level 5 units across and 5 units is what ships, spread or not.
 

@@ -1471,6 +1471,26 @@ def _lod_levels(records, levels=None):
     return levels
 
 
+def _selector_options(records, options=None):
+    """(appendage, state, display lists) per selector option, innermost selector first"""
+    options = [] if options is None else options
+    for record in records:
+        kind = record[0]
+        if kind == "selector":
+            for slot, option in enumerate(record[2]):
+                # a nested selector owns its geometry, so it has to claim it first
+                _selector_options(option, options)
+                options.append((record[1], slot + 1, _branch_chunks(option)))
+        elif kind == "bonebranch":
+            _selector_options(record[2], options)
+        elif kind == "sort":
+            _selector_options(record[3], options)
+            _selector_options(record[4], options)
+        elif kind in ("lod", "drawdist", "camera"):
+            _selector_options(record[-1], options)
+    return options
+
+
 def _build_faces(geometry, surfaces, vertices, materials, to_blender):
     """(corners, material slot, bone index, source vertices) per face, and the positions"""
     positions, face_data, remap = [], [], {}
@@ -1859,6 +1879,23 @@ def import_bk64_model(context, path: str, settings):
             group.add(sorted(members), 1.0, "REPLACE")
             made.add(name)
     model["lod_levels"] = len(made)
+
+    # the states game code picks between, so a hand holding a jiggy is its own group
+    claimed, state_groups = set(), set()
+    for appendage, which, chunk_indices in _selector_options(layout):
+        members = {
+            corner
+            for corners, _material, _matrix, _source_vertices, _orig, source in face_data
+            if source in chunk_indices
+            for corner in corners
+        } - claimed
+        if members:
+            name = geo_node_group(("selector", appendage, which))
+            group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
+            group.add(sorted(members), 1.0, "REPLACE")
+            claimed |= members
+            state_groups.add(name)
+    model["selector_states"] = len(state_groups)
 
     # the export reads these back by name. A renamed group stops being a mesh.
     dropped = 0
