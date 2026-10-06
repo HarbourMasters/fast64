@@ -373,13 +373,15 @@ class BK64_MaterialPanel(BK64_Panel):
 
         prop_split(col, material, "hm64_bk64_anim_tex", "Animated Texture")
         if material.hm64_bk64_anim_tex != "NONE":
-            prop_split(col, material, "hm64_bk64_anim_slot", "Slot")
+            prop_split(col, material, "hm64_bk64_anim_slot", "Model Slot")
             prop_split(col, material, "hm64_bk64_anim_rate", "Frames Per Second")
             # anything but Individual, which adds a name field only OoT reads
             drawTextureArray(col.box().column(), material.flipbookGroup.flipbook0.textures, 0, "Array")
             box = col.box().column()
             box.label(text="List every frame, starting with the one the material samples.")
             box.label(text="Frames share one size and format, and can't be CI4 or CI8.")
+            box.label(text="The four model slots are shared out between materials, so two")
+            box.label(text="of them take the same slot only when they animate the same frames.")
 
         if material.hm64_bk64_collision_raw:
             prop_split(col, material, "hm64_bk64_collision_raw", "Raw Flags")

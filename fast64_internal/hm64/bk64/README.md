@@ -93,7 +93,7 @@ Large Texture Mode is not supported. It splits a mesh into pieces that each load
 Tile settings default to wrap. A model imported from a format with no equivalent loses whatever it was authored with. Any face whose UVs reach past the tile edge then samples from the far side of the texture instead of stopping at it. That shows up as streaks and smears across otherwise flat surfaces. Set Clamp on S and T for those materials.
 
 ### Animated Textures
-A material's texture can cycle through a set of frames, which is how the Beauty Machine's screen flickers and how lightning flashes. Set Animated Texture on the material, then list every frame under it starting with the one the material already samples. Frames Per Second is what it sounds like, and vanilla runs between 4 and 15.
+A material's texture can cycle through a set of frames, which is how the Beauty Machine's screen flickers and how lightning flashes. Set Animated Texture on the material, then list every frame under it starting with the one the material already samples. That drop down picks which of the material's own two textures cycles, where Model Slot below it picks which of the model's four channels drives it. Frames Per Second is what it sounds like, and vanilla runs between 4 and 15.
 
 Every frame shares one size and one format, and that format is RGBA16, RGBA32 or IA8. A CI4 or CI8 frame would have to animate its palette alongside the image, and the exporter refuses rather than writing something the game reads past the end of.
 

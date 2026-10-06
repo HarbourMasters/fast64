@@ -552,12 +552,12 @@ def bk64_properties_register():
         description="Cycle this material's texture through the frames listed below",
     )
     bpy.types.Material.hm64_bk64_anim_slot = IntProperty(
-        name="Slot",
+        name="Model Slot",
         default=0,
         min=0,
         max=ANIM_TEX_SLOT_COUNT - 1,
-        description="Which of the model's four animation slots drives this texture. Leave it at 0 "
-        "unless the model animates more than one texture at once",
+        description="Which of the model's four animation slots drives this material. Leave it at "
+        "0 unless the model animates more than one texture at once",
     )
     bpy.types.Material.hm64_bk64_anim_rate = FloatProperty(
         name="Frames Per Second",
