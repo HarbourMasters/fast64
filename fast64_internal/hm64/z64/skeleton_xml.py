@@ -44,13 +44,21 @@ def _use_hm64_skeleton_material_writer():
 
     old_get_info_dict = shared_skeleton_functions.getInfoDict
     old_process_vertex_group = shared_skeleton_functions.ootProcessVertexGroup
+    old_get_group_indices = shared_skeleton_functions.getGroupIndices
+
+    def hm64_get_group_indices(armature_obj, mesh_obj, root_group_index):
+        mesh_obj.data.calc_loop_triangles()
+        return old_get_group_indices(armature_obj, mesh_obj, root_group_index)
+
     shared_skeleton_functions.getInfoDict = hm64_getInfoDict
     shared_skeleton_functions.ootProcessVertexGroup = hm64_z64_f3d_writer.ootProcessVertexGroup
+    shared_skeleton_functions.getGroupIndices = hm64_get_group_indices
     try:
         yield shared_skeleton_functions
     finally:
         shared_skeleton_functions.getInfoDict = old_get_info_dict
         shared_skeleton_functions.ootProcessVertexGroup = old_process_vertex_group
+        shared_skeleton_functions.getGroupIndices = old_get_group_indices
 
 
 def ootConvertArmatureToXML(
