@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from contextlib import contextmanager
 
@@ -16,6 +17,7 @@ from .bk64_constants import (
     CAMERA_AREA_KIND,
     COLLISION_ONLY_PROP,
     HIT_SPHERE_PROP,
+    GEO_LAYOUT_PROP,
     GEO_TYPE_ENV_MAP,
     GEO_TYPE_MIPMAP_TRILINEAR,
     MAX_APPENDAGE_ID,
@@ -27,7 +29,13 @@ from .bk64_constants import (
     SORT_SIDES,
 )
 from .bk64_import import import_bk64_model
-from .bk64_geo import geo_node_group, geo_node_of_group
+from .bk64_geo import (
+    geo_node_group,
+    geo_node_of_group,
+    layout_detail_levels,
+    set_detail_level,
+    stored_layout,
+)
 from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
 from .bk64_model import (
     armature_of,
@@ -664,6 +672,60 @@ class BK64_WeldBoneSeams(Operator):
             return {"CANCELLED"}
 
 
+class BK64_SetDetailLevelRange(Operator):
+    bl_idname = "object.hm64_bk64_set_detail_level_range"
+    bl_label = "Edit Range"
+    bl_description = "Change the distances this detail level covers. Its vertex group is renamed to match"
+    bl_options = {"REGISTER", "UNDO"}
+
+    near: IntProperty(default=0)
+    far: IntProperty(default=0)
+    new_near: IntProperty(name="Near Distance", default=0, min=0, max=0x3FFF)
+    new_far: IntProperty(name="Far Distance", default=0, min=0, max=0x3FFF)
+
+    def invoke(self, context, event):
+        self.new_near, self.new_far = self.near, self.far
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.prop(self, "new_near")
+        col.prop(self, "new_far")
+        col.label(text="In BK units, from the joint this level hangs off.")
+
+    def execute(self, context):
+        try:
+            root_obj = resolve_root(context)
+            records = stored_layout(root_obj)
+            if records is None:
+                raise PluginError("This model came with no geo layout, so it has no levels to move.")
+            if self.new_far <= self.new_near:
+                raise PluginError("Far Distance has to be past Near Distance, or the level never draws.")
+            was, now = (self.near, self.far), (self.new_near, self.new_far)
+            if now != was and now in layout_detail_levels(records):
+                raise PluginError(
+                    f"A level between {now[0]} and {now[1]} is already here, and both would want "
+                    f"the group {geo_node_group(('lod',) + now)}."
+                )
+            if not set_detail_level(records, was, now):
+                raise PluginError(f"This model has no level between {was[0]} and {was[1]} any more.")
+            root_obj[GEO_LAYOUT_PROP] = json.dumps(records)
+
+            # the name carries the distances, so it moves with them or the export stops finding it
+            old_name, new_name = geo_node_group(("lod",) + was), geo_node_group(("lod",) + now)
+            meshes = [root_obj] if root_obj.type == "MESH" else root_obj.children_recursive
+            for mesh_obj in [obj for obj in meshes if obj.type == "MESH"]:
+                group = mesh_obj.vertex_groups.get(old_name)
+                if group is not None:
+                    group.name = new_name
+            self.report({"INFO"}, f"That level now draws between {now[0]} and {now[1]}.")
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 class BK64_PutInDetailLevel(Operator):
     bl_idname = "object.hm64_bk64_put_in_detail_level"
     bl_label = "Put In Detail Level"
@@ -1080,6 +1142,7 @@ bk64_operator_classes = (
     BK64_MarkCollisionOnly,
     BK64_WeldBoneSeams,
     BK64_PutInDetailLevel,
+    BK64_SetDetailLevelRange,
     BK64_PutInSelectorState,
     BK64_PutInSort,
     BK64_SplitNodes,

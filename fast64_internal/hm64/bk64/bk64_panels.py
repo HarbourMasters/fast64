@@ -24,6 +24,7 @@ from .bk64_operators import (
     BK64_PutInSelectorState,
     BK64_PutInSort,
     BK64_SelectLooseVertices,
+    BK64_SetDetailLevelRange,
     BK64_SplitNodes,
     BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
@@ -248,8 +249,11 @@ class BK64_GeoNodesPanel(BK64_Panel):
             detail = col.box().column()
             detail.label(text="Detail Levels")
             for near, far in levels:
-                button = detail.operator(BK64_PutInDetailLevel.bl_idname, text=f"Put In {near}-{far}")
+                row = detail.row(align=True)
+                button = row.operator(BK64_PutInDetailLevel.bl_idname, text=f"Put In {near}-{far}")
                 button.near, button.far = near, far
+                edit = row.operator(BK64_SetDetailLevelRange.bl_idname, text="Edit Range")
+                edit.near, edit.far = near, far
             detail.operator(BK64_PutInDetailLevel.bl_idname, text="Take Out Of Every Level").far = 0
             detail.separator()
             detail.operator(BK64_SplitNodes.bl_idname, text="Split Detail Levels").kind = "lod"

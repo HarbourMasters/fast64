@@ -253,6 +253,30 @@ def layout_selectors(records, found=None):
     return sorted(found.items())
 
 
+def set_detail_level(records, was, now) -> int:
+    """How many levels moved from the range was to the range now"""
+    changed = 0
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            if (round(record[2]), round(record[1])) == tuple(was):
+                # the command holds far ahead of near
+                record[1], record[2] = float(now[1]), float(now[0])
+                changed += 1
+            changed += set_detail_level(record[4], was, now)
+        elif kind == "bonebranch":
+            changed += set_detail_level(record[2], was, now)
+        elif kind == "selector":
+            for option in record[2]:
+                changed += set_detail_level(option, was, now)
+        elif kind == "sort":
+            changed += set_detail_level(record[3], was, now)
+            changed += set_detail_level(record[4], was, now)
+        elif kind in ("drawdist", "camera"):
+            changed += set_detail_level(record[-1], was, now)
+    return changed
+
+
 def place_in_node(records, node, added):
     """Put a record under the node a group named, if the layout has one"""
     for record in records:
