@@ -33,6 +33,7 @@ from .bk64_geo import (
     geo_node_group,
     geo_node_of_group,
     layout_detail_levels,
+    layout_level_gaps,
     set_detail_level,
     stored_layout,
 )
@@ -719,6 +720,12 @@ class BK64_SetDetailLevelRange(Operator):
                 if group is not None:
                     group.name = new_name
             self.report({"INFO"}, f"That level now draws between {now[0]} and {now[1]}.")
+            for low, high in layout_level_gaps(records):
+                self.report(
+                    {"WARNING"},
+                    f"Nothing draws between {low} and {high} now. Move the next level's "
+                    f"Near Distance to {low} to close it.",
+                )
             return {"FINISHED"}
 
         except Exception as exc:

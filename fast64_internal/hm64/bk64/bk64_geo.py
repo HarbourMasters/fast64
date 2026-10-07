@@ -234,6 +234,18 @@ def layout_detail_levels(records, found=None):
     return sorted(found)
 
 
+def chunk_levels(records):
+    """{chunk index: (near, far)} for every chunk drawn inside a level of detail"""
+    found = {}
+    # outer levels come first, so a nested one overwrites them
+    for kind, _chunks, _matrix, _parent, record in layout_records(records):
+        if kind == "lod":
+            level = (round(record[2]), round(record[1]))
+            for _kind, chunks, _matrix, _parent, _record in layout_records(record[4]):
+                found.update(dict.fromkeys(chunks, level))
+    return found
+
+
 def layout_selectors(records, found=None):
     """(appendage id, how many states it picks between) per selector, in table order"""
     found = {} if found is None else found
@@ -251,6 +263,40 @@ def layout_selectors(records, found=None):
         elif kind in ("lod", "drawdist", "camera"):
             layout_selectors(record[-1], found)
     return sorted(found.items())
+
+
+def _level_siblings(records, found=None):
+    """The level ranges of each branch that holds more than one, nearest first"""
+    found = [] if found is None else found
+    here = sorted({(round(r[2]), round(r[1])) for r in records if r[0] == "lod"})
+    if len(here) > 1:
+        found.append(here)
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            _level_siblings(record[4], found)
+        elif kind == "bonebranch":
+            _level_siblings(record[2], found)
+        elif kind == "selector":
+            for option in record[2]:
+                _level_siblings(option, found)
+        elif kind == "sort":
+            _level_siblings(record[3], found)
+            _level_siblings(record[4], found)
+        elif kind in ("drawdist", "camera"):
+            _level_siblings(record[-1], found)
+    return found
+
+
+def layout_level_gaps(records):
+    """(from, to) per distance band no level covers"""
+    # a level draws on (near, far], so siblings sharing an endpoint cover it all
+    bands = set()
+    for levels in _level_siblings(records):
+        for (_near, far), (next_near, _next_far) in zip(levels, levels[1:]):
+            if next_near > far:
+                bands.add((far, next_near))
+    return sorted(bands)
 
 
 def set_detail_level(records, was, now) -> int:

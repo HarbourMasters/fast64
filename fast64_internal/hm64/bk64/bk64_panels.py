@@ -263,7 +263,8 @@ class BK64_GeoNodesPanel(BK64_Panel):
                 step = max(max(abs(value) for value in obj.hm64_bk64_view_offset) for obj in aside)
                 detail.label(text=f"Standing aside up to {step:.2f} for viewing. The export puts them back.")
             detail.label(text="The model draws one level at a time, by how far away the")
-            detail.label(text="camera is. Geometry in no level draws at every distance.")
+            detail.label(text="camera is. New geometry in no level draws at every distance.")
+            detail.label(text="Imported geometry keeps its level. Edit Range moves that.")
 
         sorts = col.box().column()
         sorts.label(text="Sorts")

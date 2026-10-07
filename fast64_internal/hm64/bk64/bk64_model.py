@@ -74,6 +74,8 @@ from .bk64_texture import (
     reads_texel1,
 )
 from .bk64_geo import (
+    chunk_levels,
+    layout_detail_levels,
     count_triangles,
     geo_node_group,
     geo_node_of_group,
@@ -754,6 +756,35 @@ def _check_large_textures(mesh_objects):
         )
 
 
+def _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings):
+    """Warn for imported faces whose Detail Level group isn't the level they draw in"""
+    layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
+    deform = bm.verts.layers.deform.active
+    if warnings is None or layer is None or deform is None or not levels_of_chunk:
+        return
+    level_of_group = {index: node[1:] for index, node in geo_node_groups(mesh_obj).items() if node[0] == "lod"}
+
+    moved = 0
+    for face in bm.faces:
+        level = levels_of_chunk.get(face[layer])
+        if level is None:
+            continue
+        held = [{level_of_group[i] for i in vert[deform].keys() if i in level_of_group} for vert in face.verts]
+        common = set.intersection(*held)
+        if level in common:
+            continue
+        # corners that disagree are vanilla sharing a vertex
+        if (level in taken_out_of and not set.union(*held)) or len(common) == 1:
+            moved += 1
+
+    if moved:
+        counted = "1 face" if moved == 1 else f"{moved} faces"
+        warnings.append(
+            f"{counted} on '{mesh_obj.name}' moved Detail Level, but imported faces draw in the level they came "
+            "from. Use Edit Range on that level instead."
+        )
+
+
 def _face_sources(mesh):
     """The chunk each face was drawn in, off the mesh or an older blend's materials"""
     layer = mesh.attributes.get(SOURCE_CHUNK_ATTR)
@@ -1180,9 +1211,18 @@ def _gather_parts(
     bind: bool = False,
     source_bones=None,
     warnings=None,
+    stored=None,
 ):
     """(bone table, parts by bone name, the uid sets the vertex tags index into)"""
     mesh_uids = {frozenset(): 0}
+    levels_of_chunk = chunk_levels(stored or [])
+    ranges = layout_detail_levels(stored or [])
+    # imports since the contract put every level's faces in its group, so a face in none
+    # was taken out of its level, unless that level already spans them all
+    taken_out_of = set()
+    if ranges and root_obj.hm64_bk64_contract >= SCENE_CONTRACT:
+        nearest, furthest = min(near for near, _far in ranges), max(far for _near, far in ranges)
+        taken_out_of = {(near, far) for near, far in ranges if near > nearest or far < furthest}
     # bind rigging skips the grouping, its vertices carry the rig instead
     if armature_obj is None or bind:
         # one implicit bone, same code path builds the chunks
@@ -1198,6 +1238,7 @@ def _gather_parts(
             try:
                 _tag_mesh_groups(bm, mesh_obj, mesh_uids)
                 _tag_geo_nodes(bm, mesh_obj)
+                _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings)
                 if bind:
                     _tag_bone_binding(bm, mesh_obj, index_of_bone)
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
@@ -1222,6 +1263,7 @@ def _gather_parts(
                     temp_objects.append(part)
                     meshes_by_bone.setdefault(mesh_obj.parent_bone, []).append(part)
                 continue
+            _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings)
             split = _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, root_bone_name, source_bones, warnings)
             for bone_name, parts in split.items():
                 temp_objects += parts
@@ -1401,6 +1443,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             bind,
             source_bones,
             settings.warnings,
+            stored,
         )
 
         # bone table order, keeping chunk order and bone order in step
