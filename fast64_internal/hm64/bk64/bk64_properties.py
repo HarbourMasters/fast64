@@ -259,7 +259,7 @@ def _appendage_enum(self, context):
     return _appendage_items
 
 
-def _spread_detail_levels(self, context):
+def spread_detail_levels(self, context):
     """Stand each level aside, or put it back"""
     from .bk64_geo import geo_node_of_group
 
@@ -401,7 +401,7 @@ def bk64_properties_register():
     bpy.types.Object.hm64_bk64_spread_levels = BoolProperty(
         name="Spread Detail Levels",
         default=False,
-        update=_spread_detail_levels,
+        update=spread_detail_levels,
         description="Stand the model's detail levels side by side while you work. They export stacked either way",
     )
     bpy.types.Object.hm64_bk64_level_half = EnumProperty(

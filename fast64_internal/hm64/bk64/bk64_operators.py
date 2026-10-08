@@ -38,6 +38,7 @@ from .bk64_geo import (
     stored_layout,
 )
 from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
+from .bk64_properties import spread_detail_levels
 from .bk64_model import (
     armature_of,
     blank_half_object,
@@ -834,6 +835,10 @@ class BK64_SplitNodes(Operator):
                     bpy.ops.mesh.separate(type="SELECTED")
                     bpy.ops.object.mode_set(mode="OBJECT")
                     made += 1
+
+            # the box was ticked while this was one object, so the update had nothing to move
+            if root_obj.hm64_bk64_spread_levels:
+                spread_detail_levels(root_obj, context)
 
             named = "level" if self.kind == "lod" else "state" if self.kind == "selector" else "half"
             counted = f"1 {named}" if made == 1 else f"{made} {named}s"
