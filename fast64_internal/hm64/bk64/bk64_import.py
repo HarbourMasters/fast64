@@ -476,13 +476,20 @@ def _read_model_bin(data: bytes):
     if header["texture"]:
         blob_size, count, tex_flags = struct.unpack_from(">iHH", data, header["texture"])
         # Tooie drops the padding words: 8 bytes, and the locator comes first
-        stride, fields = (8, ">IhBB") if tooie else (16, ">ihxxBB")
+        strides = [(8, ">IhBB"), (16, ">ihxxBB")] if tooie else [(16, ">ihxxBB"), (8, ">IhBB")]
         if tooie and tex_flags & 0x100:
             external = count  # the pixels are in a bank the whole game shares, and the locator indexes it
         else:
-            for index in range(count):
-                offset, kind, width, height = struct.unpack_from(fields, data, header["texture"] + 8 + index * stride)
-                tex_infos.append(dict(offset=offset, type=kind & 0x7FFF, width=width, height=height))
+            # a converted model can carry one game's header and the other's stride
+            for stride, fields in strides:
+                tex_infos = []
+                for index in range(count):
+                    offset, kind, width, height = struct.unpack_from(
+                        fields, data, header["texture"] + 8 + index * stride
+                    )
+                    tex_infos.append(dict(offset=offset, type=kind & 0x7FFF, width=width, height=height))
+                if all(info["width"] and info["height"] and info["type"] in BK_TEX_FORMAT for info in tex_infos):
+                    break
             blob_at = header["texture"] + 8 + count * stride
             blob = data[blob_at : blob_at + blob_size]
 
