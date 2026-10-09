@@ -385,16 +385,26 @@ def source_bones_of(mesh_obj, armature_obj):
     return _layout_bone_of_source(stored, bones)[0] or None
 
 
+def _bm_face_sources(bm, mesh_obj):
+    """The chunk each face was drawn in, keyed by face rather than by index"""
+    # triangulating renumbers the faces, and copies this layer onto the ones it makes
+    layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
+    if layer is not None:
+        return {face: face[layer] for face in bm.faces}
+    of_slot = _source_of_slot(mesh_obj.data)
+    return {face: of_slot[face.material_index] if face.material_index < len(of_slot) else -1 for face in bm.faces}
+
+
 def bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name=None, source_bones=None):
     """({face: bone name}, how many faces had nothing to vote on)"""
-    source_of_face = _face_sources(mesh_obj.data) if source_bones else []
+    source_of_face = _bm_face_sources(bm, mesh_obj) if source_bones else {}
     deform_layer = bm.verts.layers.deform.active
 
     bone_of_face, unweighted = {}, 0
     for face in bm.faces:
         bone_name = None
-        if source_bones and face.index < len(source_of_face):
-            bone_name = source_bones.get(source_of_face[face.index])
+        if source_bones:
+            bone_name = source_bones.get(source_of_face.get(face, -1))
         if bone_name is None:
             group_index = _face_bone_group(face, deform_layer, group_index_to_bone)
             if group_index is None:
@@ -785,14 +795,17 @@ def _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings):
         )
 
 
+def _source_of_slot(mesh):
+    """The chunk each material slot was drawn in, for a blend from before the face attribute"""
+    return [getattr(material, "hm64_bk64_source_chunk", -1) if material else -1 for material in mesh.materials] or [-1]
+
+
 def _face_sources(mesh):
     """The chunk each face was drawn in, off the mesh or an older blend's materials"""
     layer = mesh.attributes.get(SOURCE_CHUNK_ATTR)
     if layer is not None and layer.domain == "FACE":
         return [item.value for item in layer.data]
-    of_slot = [getattr(material, "hm64_bk64_source_chunk", -1) if material else -1 for material in mesh.materials] or [
-        -1
-    ]
+    of_slot = _source_of_slot(mesh)
     return [
         of_slot[polygon.material_index] if polygon.material_index < len(of_slot) else -1 for polygon in mesh.polygons
     ]
