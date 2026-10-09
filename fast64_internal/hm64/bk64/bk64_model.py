@@ -414,16 +414,31 @@ def bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name=None, so
     return bone_of_face, unweighted
 
 
-def bone_seam_edges(bm, bone_of_face, armature_obj, source_bones):
-    """Edges whose two faces sit on bones a single chunk cannot span"""
+def _seam_family(armature_obj):
+    """A test for two bones being a bone and the parent its SKINNING seam blends to"""
     parent_of = {bone.name: bone.parent.name if bone.parent else None for bone in armature_obj.data.bones}
+    # paired bones put that parent two steps up the armature, where the layout nests it one
+    nested_in = {}
+    stored = stored_layout(armature_obj)
+    if stored is not None:
+        bones = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
+        for kind, _chunks, matrix, parent, _record in layout_records(stored):
+            if kind == "bonebranch" and parent is not None and 0 <= matrix < len(bones) and 0 <= parent < len(bones):
+                nested_in[bones[matrix].name] = bones[parent].name
 
-    # a chunk carries one bone. A weld across a joint gets torn, except at
-    # a bone and its parent, the one seam skinning blends.
     def family(name_a, name_b):
         if name_a is None or name_b is None:
             return False
-        return parent_of[name_a] == name_b or parent_of[name_b] == name_a
+        return any(of.get(name_a) == name_b or of.get(name_b) == name_a for of in (parent_of, nested_in))
+
+    return family
+
+
+def bone_seam_edges(bm, bone_of_face, armature_obj, source_bones):
+    """Edges whose two faces sit on bones a single chunk cannot span"""
+    # a chunk carries one bone. A weld across a joint gets torn, except at
+    # a bone and its parent, the one seam skinning blends.
+    family = _seam_family(armature_obj)
 
     seams = []
     for edge in bm.edges:
@@ -449,11 +464,22 @@ def split_mesh_at_bones(mesh_obj):
     # every weight boundary. The export reads which bone a vertex follows off the
     # weights, and only one bone per vertex lets it find the parent's vertices.
     owners = {face: _face_bone_group(face, deform, groups) for face in bm.faces}
-    seams = [edge for edge in bm.edges if len({owners[f] for f in edge.link_faces}) > 1]
+    source_bones = source_bones_of(mesh_obj, armature_obj)
+    family = _seam_family(armature_obj)
+
+    def blended(face_a, face_b):
+        # a bone and its parent are the seam SKINNING blends, and cutting there loses it
+        return bool(source_bones) and family(groups.get(owners[face_a]), groups.get(owners[face_b]))
+
+    seams = [
+        edge
+        for edge in bm.edges
+        if len({owners[f] for f in edge.link_faces}) > 1
+        and not (len(edge.link_faces) == 2 and blended(*edge.link_faces))
+    ]
 
     # then the boundaries only the layout knows about. The weights alone can
     # disagree with it, and the export counts a weld they called clean.
-    source_bones = source_bones_of(mesh_obj, armature_obj)
     if source_bones:
         by_layout = bone_of_faces(bm, mesh_obj, groups, None, source_bones)[0]
         already = {edge.index for edge in seams}
