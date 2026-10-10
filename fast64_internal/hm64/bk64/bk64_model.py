@@ -284,6 +284,10 @@ def _bmesh_to_object(context, bm, name: str, material_source, face_indices=None)
     mesh = bpy.data.meshes.new(name)
     part.to_mesh(mesh)
     part.free()
+    if bpy.app.version < (4, 1, 0):
+        # before 4.1 a mesh ignores its custom normals unless this is on
+        mesh.use_auto_smooth = True
+        mesh.auto_smooth_angle = math.pi  # 4.1 sharpens no edge by angle
     for slot in material_source.material_slots:
         mesh.materials.append(slot.material)
 
