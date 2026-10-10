@@ -709,17 +709,17 @@ def split_skinning(words, vertices, owner_of_pos, parent_bone):
 
 
 def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, mip_textures=frozenset()):
-    # a reflective chunk keeps its lighting bit. That bit transforms the normal
+    # a reflective material keeps its lighting bit. That bit transforms the normal
     # texture gen reads, and modelRender hands it a LookAt and no lights, the
-    # same as vanilla.
-    reflective = any(((w0 >> 24) & 0xFF) == OP_SETGEOMETRYMODE and (w1 & G_TEXTURE_GEN) for w0, w1 in words)
+    # same as vanilla. Only its own command keeps it: the rest of the chunk holds
+    # baked color where lighting would read a normal.
     hoist_index, hoist_bits = None, 0
     for index, (w0, w1) in enumerate(words):
         opcode = (w0 >> 24) & 0xFF
         if opcode in {OP_VTX, OP_TRI1, OP_TRI2, OP_CLEARGEOMETRYMODE}:
             break
         if opcode == OP_SETGEOMETRYMODE:
-            bits = w1 & ~G_LIGHTING if (w1 & G_LIGHTING) and not reflective else w1
+            bits = w1 & ~G_LIGHTING if (w1 & G_LIGHTING) and not (w1 & G_TEXTURE_GEN) else w1
             if bits:
                 hoist_index, hoist_bits = index, bits
             break
@@ -742,7 +742,7 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
             # SPSetLights and its count. The structs never got addresses, so
             # the RSP would read vertices as lights.
             continue
-        if opcode == OP_SETGEOMETRYMODE and (w1 & G_LIGHTING) and not reflective:
+        if opcode == OP_SETGEOMETRYMODE and (w1 & G_LIGHTING) and not (w1 & G_TEXTURE_GEN):
             w1 &= ~G_LIGHTING
             if w1 == 0:
                 continue
