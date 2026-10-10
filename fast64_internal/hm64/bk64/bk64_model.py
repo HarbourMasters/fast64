@@ -91,6 +91,7 @@ from .bk64_geo import (
     geo_records,
     guard_layout,
     layout_refpoints,
+    lift_out_of_bones,
     relink_layout,
     split_skinning,
     stored_layout,
@@ -1856,6 +1857,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 standing = set()
                 records = without_chunks(records, took, sorts, standing)
                 records += [sort for which, sort in enumerate(sorts) if which not in standing]
+                if not rigged:
+                    records = lift_out_of_bones(records)
                 for node in sorted(missed):
                     settings.warnings.append(
                         f"This model has nothing matching {geo_node_group(node)}, so what you put in "

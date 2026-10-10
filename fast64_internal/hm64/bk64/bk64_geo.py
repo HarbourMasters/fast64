@@ -397,6 +397,43 @@ def relink_layout(records, from_source):
     return relinked if kept else None
 
 
+def lift_out_of_bones(records):
+    """The layout with every display list a BONE command holds moved out from under it"""
+    # a bound vertex is posed before the draw, and a BONE would move it again.
+    # A copy of its node outside the bone draws the same, and the original keeps its refpoints.
+
+    def lift(nodes, under):
+        out, lifted = [], []
+        for record in nodes:
+            kind = record[0]
+            if kind == "loaddl" and under:
+                lifted.append(record)
+                continue
+            moved = []
+            if kind == "bonebranch":
+                kept, moved = lift(record[2], True)
+                out.append(("bonebranch", record[1], kept))
+            elif kind == "selector":
+                parts = [lift(option, under) for option in record[2]]
+                out.append(("selector", record[1], [kept for kept, _moved in parts]))
+                if any(inner for _kept, inner in parts):
+                    moved = [("selector", record[1], [inner for _kept, inner in parts])]
+            elif kind in ("lod", "drawdist", "camera"):
+                kept, inner = lift(record[-1], under)
+                out.append(tuple(record[:-1]) + (kept,))
+                if inner:
+                    moved = [tuple(record[:-1]) + (inner,)]
+            else:
+                out.append(record)
+            if under:
+                lifted += moved
+            else:
+                out += moved
+        return out, lifted
+
+    return lift(records, False)[0]
+
+
 def _nesting_depth(records, at=0):
     """How many bone commands deep the layout goes"""
     worst = at
