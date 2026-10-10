@@ -414,6 +414,36 @@ def bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name=None, so
     return bone_of_face, unweighted
 
 
+def _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings=None):
+    """Clears the chunk tag off faces weighted to a bone that chunk never drew on"""
+    # joining a mesh in fills its faces with 0, and duplicating copies the tag
+    layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
+    if not source_bones or layer is None:
+        return
+    groups = checked_bone_groups(mesh_obj, armature_obj)
+    deform = bm.verts.layers.deform.active
+    family = _seam_family(armature_obj)
+
+    strays = 0
+    for face in bm.faces:
+        tagged = source_bones.get(face[layer])
+        if tagged is None:
+            continue
+        weighted = groups.get(_face_bone_group(face, deform, groups))
+        # vanilla weights some of a seam's faces wholly to the parent
+        if weighted is None or weighted == tagged or family(weighted, tagged):
+            continue
+        face[layer] = -1
+        strays += 1
+
+    if strays and warnings is not None:
+        counted = "1 face" if strays == 1 else f"{strays} faces"
+        warnings.append(
+            f"{counted} on '{mesh_obj.name}' still belonged to an imported part on another bone, from a join "
+            "or a duplicate. They went out on the bones they're weighted to."
+        )
+
+
 def _seam_family(armature_obj):
     """A test for two bones being a bone and the parent its SKINNING seam blends to"""
     parent_of = {bone.name: bone.parent.name if bone.parent else None for bone in armature_obj.data.bones}
@@ -1302,6 +1332,7 @@ def _gather_parts(
                     temp_objects.append(part)
                     meshes_by_bone.setdefault(mesh_obj.parent_bone, []).append(part)
                 continue
+            _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings)
             _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings)
             split = _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, root_bone_name, source_bones, warnings)
             for bone_name, parts in split.items():
