@@ -663,6 +663,14 @@ def split_skinning(words, vertices, owner_of_pos, parent_bone):
             for record in rest[0]:
                 if record not in parent_records and owner(record) == parent_bone:
                     parent_records.append(record)
+    # a vertex two materials share is written once per material, and each copy
+    # would take a parent slot of its own
+    first_of, copy_of = {}, {}
+    for record in parent_records:
+        first = first_of.setdefault(vertices[record], record)
+        if first != record:
+            copy_of[record] = first
+    parent_records = [record for record in parent_records if record not in copy_of]
     if not parent_records or len(parent_records) > 24:
         return None
 
@@ -673,6 +681,7 @@ def split_skinning(words, vertices, owner_of_pos, parent_bone):
     list_a = [(OP_POPMTX << 24, 0)]
     list_a += _vtx_loads(sorted(((record, slot) for record, slot in reserved.items()), key=lambda pair: pair[1]))
     list_a.append((OP_ENDDL << 24, 0))
+    reserved.update((record, reserved[first]) for record, first in copy_of.items())
 
     list_b = []
     loaded = {}
