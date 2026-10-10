@@ -791,12 +791,20 @@ def read_collision_only(context, root_obj, scale: float):
     return vertices, triangles, bones
 
 
+def _material_names(mesh_objects, test):
+    """The F3D materials on these objects that pass test(material, f3d_mat), each named once"""
+    names = []
+    for material, f3d_mat in f3d_materials(mesh_objects):
+        if material.name not in names and test(material, f3d_mat):
+            names.append(material.name)
+    return names
+
+
 def _check_cycle_type(mesh_objects):
     """BK draws models in 2 cycle, and a 1 cycle material never reaches the blending"""
-    offenders = []
-    for material, f3d_mat in f3d_materials(mesh_objects):
-        if f3d_mat.rdp_settings.g_mdsft_cycletype != CYCLE_TYPE_2CYCLE and material.name not in offenders:
-            offenders.append(material.name)
+    offenders = _material_names(
+        mesh_objects, lambda _material, f3d_mat: f3d_mat.rdp_settings.g_mdsft_cycletype != CYCLE_TYPE_2CYCLE
+    )
     if offenders:
         listed = "\n  ".join(offenders)
         raise PluginError(
@@ -807,14 +815,9 @@ def _check_cycle_type(mesh_objects):
 
 def _check_large_textures(mesh_objects):
     """BK binds a texture whole and a mesh tiled across one can't say which tile"""
-    offenders = []
-    for mesh_obj in mesh_objects:
-        for slot in mesh_obj.material_slots:
-            material = slot.material
-            if material is None or not getattr(material, "is_f3d", False) or material.mat_ver <= 3:
-                continue
-            if material.f3d_mat.use_large_textures and material.name not in offenders:
-                offenders.append(material.name)
+    offenders = _material_names(
+        mesh_objects, lambda material, f3d_mat: material.mat_ver > 3 and f3d_mat.use_large_textures
+    )
     if offenders:
         listed = "\n  ".join(offenders)
         raise PluginError(
