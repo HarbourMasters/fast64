@@ -13,10 +13,15 @@ from ...f3d.f3d_gbi import (
     FPaletteKey,
     VTX_SIZE,
     DLFormat,
+    DPPipeSync,
     FModel,
     GfxMatWriteMethod,
+    SPClearGeometryMode,
     SPDisplayList,
     SPEndDisplayList,
+    SPGeometryMode,
+    SPLoadGeometryMode,
+    SPSetGeometryMode,
     SPTexture,
 )
 from ...f3d.f3d_material import all_combiner_uses, combiner_uses
@@ -1630,8 +1635,22 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     for command in gfx_list.commands:
                         if isinstance(command, SPTexture):
                             command.on = 0
-        # the next chunk's prologue clears what this revert clears, so it is dead
-        reverts = {id(value[0].revert) for value in fModel.materials.values() if getattr(value[0], "revert", None)}
+        # the next chunk's prologue resets the geometry mode and nothing else, so a
+        # revert of only that is dead. One undoing alpha compare or TLUT has to stay.
+        geometry_only = (
+            SPGeometryMode,
+            SPSetGeometryMode,
+            SPClearGeometryMode,
+            SPLoadGeometryMode,
+            DPPipeSync,
+            SPEndDisplayList,
+        )
+        reverts = {
+            id(value[0].revert)
+            for value in fModel.materials.values()
+            if getattr(value[0], "revert", None)
+            and all(isinstance(command, geometry_only) for command in value[0].revert.commands)
+        }
         for fMesh in ordered_fMeshes:
             commands = fMesh.draw.commands
             # by index: these are dataclasses, so remove() can take the wrong one
