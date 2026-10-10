@@ -19,7 +19,7 @@ from ...f3d.f3d_gbi import (
     SPEndDisplayList,
     SPTexture,
 )
-from ...f3d.f3d_material import combiner_uses
+from ...f3d.f3d_material import all_combiner_uses, combiner_uses
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ...utility import (
     PluginError,
@@ -827,6 +827,25 @@ def _check_large_textures(mesh_objects):
         )
 
 
+def _warn_tint_colors(mesh_objects, warnings):
+    """Warn for materials setting the colors the game tints and fades a model with"""
+
+    # vanilla never sets either
+    def sets_tint(_material, f3d_mat):
+        if not (f3d_mat.set_env or f3d_mat.set_prim):
+            return False
+        uses = all_combiner_uses(f3d_mat)
+        return (uses["Environment"] and f3d_mat.set_env) or (uses["Primitive"] and f3d_mat.set_prim)
+
+    offenders = _material_names(mesh_objects, sets_tint)
+    if offenders:
+        listed = "\n  ".join(offenders)
+        warnings.append(
+            "These set Primitive or Environment Color, and everything drawn after them takes the color on. "
+            f"Apply a BK preset again, or paint the color into the vertices or texture:\n  {listed}"
+        )
+
+
 def _warn_reflective(mesh_objects, geo_type: int, warnings):
     """Warn for reflective materials the game draws differently from the viewport"""
     reflective = _material_names(mesh_objects, lambda _material, f3d_mat: f3d_mat.rdp_settings.g_tex_gen)
@@ -1498,6 +1517,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
     _check_world_defaults(context.scene)
     _check_cycle_type(mesh_objects)
     check_camera_water_reads(mesh_objects, settings.warnings)
+    _warn_tint_colors(mesh_objects, settings.warnings)
     _check_large_textures(mesh_objects)
     # nothing in BK reads a cull list, and the import and the splitter already clear it
     culling = [obj for obj in mesh_objects if obj.use_f3d_culling]

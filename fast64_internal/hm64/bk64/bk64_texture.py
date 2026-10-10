@@ -332,6 +332,11 @@ def _combiner_fold(f3d_mat):
         return "LERP"
     if signature == ("TEXEL0", "0", "SHADE", "0"):
         return "MULTIPLY"
+    # vanilla's and the presets': the game's tint, then shade
+    if signature == ("TEXEL0", "PRIMITIVE", "ENVIRONMENT", "PRIMITIVE"):
+        second = f3d_mat.combiner2
+        if (second.A, second.B, second.C, second.D) == ("COMBINED", "0", "SHADE", "0"):
+            return "MULTIPLY"
     return None
 
 
