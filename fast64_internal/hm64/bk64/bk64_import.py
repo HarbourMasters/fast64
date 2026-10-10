@@ -79,7 +79,9 @@ from .bk64_constants import (
     OTR_TEXTURE_V1,
     PALETTED_FORMATS,
     TEX_FLAG_LOAD_AS_RAW,
+    RENDERMODE_AA_TRANSLUCENT,
     RENDERMODE_ENTRY_STRIDE,
+    RENDERMODE_TRANSLUCENT,
     RT_BK_MODEL,
     SCENE_CONTRACT,
     RT_BT_MODEL,
@@ -117,6 +119,9 @@ BK_TEX_FORMAT = {value: key for key, value in BK_TEX_TYPE.items()}
 
 # the entry a chunk jumps into, back to the draw layer that writes it again
 DRAW_LAYER_OF_ENTRY = {entry: layer for layer, entry in BK64_DRAW_LAYER_ENTRY.items() if entry is not None}
+# every one of modelRender's tables repeats entries 2 and 3 as 4 and 5
+DRAW_LAYER_OF_ENTRY[4] = DRAW_LAYER_OF_ENTRY[RENDERMODE_TRANSLUCENT]
+DRAW_LAYER_OF_ENTRY[5] = DRAW_LAYER_OF_ENTRY[RENDERMODE_AA_TRANSLUCENT]
 ALPHA_COMPARE_OF_BITS = {0: "G_AC_NONE", 1: "G_AC_THRESHOLD", 3: "G_AC_DITHER"}
 
 SHAPE_CODE = "hm64_bk64_hit_code"  # the hit code the export reads back off a volume
