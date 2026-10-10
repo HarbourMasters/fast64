@@ -1088,7 +1088,8 @@ def _shade_from_normal(packed, ambient, sources):
             continue
         for channel in range(3):
             shade[channel] += color[channel] * facing
-    return tuple(min(255, int(round(channel))) for channel in shade) + (255,)
+    # the RSP lights the color and passes the alpha through
+    return tuple(min(255, int(round(channel))) for channel in shade) + (packed[3] if len(packed) > 3 else 255,)
 
 
 def _grouped_vertices(context, mesh_objects, space_matrix, scale_matrix, value_of):
