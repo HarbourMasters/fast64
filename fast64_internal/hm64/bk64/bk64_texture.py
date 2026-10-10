@@ -148,14 +148,16 @@ def collect_textures(
         if otex_format is None:
             raise PluginError(
                 f"Texture '{fImage.name}' uses {fImage.fmt}/{fImage.bitSize}, which has no BK "
-                "equivalent. Use RGBA16, RGBA32, CI4, CI8, I4, I8, IA4, IA8 or IA16."
+                "equivalent. Use RGBA16, RGBA32, IA8, CI4 or CI8."
             )
         if isinstance(key, FPaletteKey):
             continue
-        if embed_images and otex_format not in BIN_TEX_FORMATS:
+        if otex_format not in BIN_TEX_FORMATS:
+            # the texture header carries the game's own type in either container,
+            # and an o2r that writes one it has no bit for draws the surface black
             raise PluginError(
-                f"Texture '{fImage.name}' is {otex_format}, which a .bin has no room to describe. "
-                "Use RGBA16, RGBA32, IA8, CI4 or CI8, or export o2r."
+                f"Texture '{fImage.name}' is {otex_format}, which the game has no texture type "
+                "for. Use RGBA16, RGBA32, IA8, CI4 or CI8."
             )
         if embed_images and _hd_scale_of(fImage) is not None:
             raise PluginError(
@@ -330,6 +332,11 @@ def _combiner_fold(f3d_mat):
         return "LERP"
     if signature == ("TEXEL0", "0", "SHADE", "0"):
         return "MULTIPLY"
+    # vanilla's and the presets': the game's tint, then shade
+    if signature == ("TEXEL0", "PRIMITIVE", "ENVIRONMENT", "PRIMITIVE"):
+        second = f3d_mat.combiner2
+        if (second.A, second.B, second.C, second.D) == ("COMBINED", "0", "SHADE", "0"):
+            return "MULTIPLY"
     return None
 
 

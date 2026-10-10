@@ -5,7 +5,8 @@ from bpy.utils import register_class, unregister_class
 from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
-from .bk64_constants import BK_COLLISION_FLAG_BITS
+from .bk64_constants import BK_COLLISION_FLAG_BITS, MAX_SORTS, SORT_SIDES
+from .bk64_geo import geo_node_of_group, layout_detail_levels, layout_selectors, stored_layout
 from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
     BK64_AddMeshEffect,
@@ -19,9 +20,15 @@ from .bk64_operators import (
     BK64_ImportSkeleton,
     BK64_PromoteMaterials,
     BK64_MarkCollisionOnly,
+    BK64_PutInDetailLevel,
+    BK64_PutInSelectorState,
+    BK64_PutInSort,
     BK64_SelectLooseVertices,
+    BK64_SetDetailLevelRange,
+    BK64_SplitNodes,
     BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
+    BK64_WeldBoneSeams,
     resolve_root,
 )
 
@@ -167,6 +174,7 @@ class BK64_MeshToolsPanel(BK64_Panel):
 
         col.operator(BK64_PromoteMaterials.bl_idname)
         col.operator(BK64_SplitMeshAtBones.bl_idname)
+        col.operator(BK64_WeldBoneSeams.bl_idname)
         col.operator(BK64_SelectLooseVertices.bl_idname)
         col.operator(BK64_MarkCollisionOnly.bl_idname)
 
@@ -212,6 +220,108 @@ class BK64_MeshToolsPanel(BK64_Panel):
         radii.label(text="center of the model's box, so one far vertex widens it.")
         radii.label(text="Cull radius runs from the origin and decides when it leaves")
         radii.label(text="the screen. Collision only meshes count toward both.")
+
+
+def _model_meshes(root):
+    """Every mesh of the model, the root included when it is one"""
+    if root is None:
+        return []
+    return [obj for obj in ([root] + list(root.children_recursive)) if obj.type == "MESH"]
+
+
+class BK64_GeoNodesPanel(BK64_Panel):
+    bl_idname = "BK64_PT_geo_nodes"
+    bl_label = "Geo Nodes"
+    bl_order = 4
+
+    def draw(self, context):
+        col = self.layout.column()
+        scene = context.scene
+        try:
+            root = resolve_root(context)
+        except Exception:  # a draw callback must never raise
+            root = None
+        if root is None:
+            col.box().label(text="Select the model to see the nodes it has.")
+
+        levels = layout_detail_levels(stored_layout(root) or []) if root is not None else []
+        if levels:
+            detail = col.box().column()
+            detail.label(text="Detail Levels")
+            for near, far in levels:
+                row = detail.row(align=True)
+                button = row.operator(BK64_PutInDetailLevel.bl_idname, text=f"Put In {near}-{far}")
+                button.near, button.far = near, far
+                edit = row.operator(BK64_SetDetailLevelRange.bl_idname, text="Edit Range")
+                edit.near, edit.far = near, far
+            detail.operator(BK64_PutInDetailLevel.bl_idname, text="Take Out Of Every Level").far = 0
+            detail.separator()
+            detail.operator(BK64_SplitNodes.bl_idname, text="Split Detail Levels").kind = "lod"
+            detail.prop(root, "hm64_bk64_spread_levels")
+            aside = [obj for obj in _model_meshes(root) if any(obj.hm64_bk64_view_offset)]
+            if aside:
+                step = max(max(abs(value) for value in obj.hm64_bk64_view_offset) for obj in aside)
+                detail.label(text=f"Standing aside up to {step:.2f} for viewing. The export puts them back.")
+            detail.label(text="The model draws one level at a time, by how far away the")
+            detail.label(text="camera is. New geometry in no level draws at every distance.")
+            detail.label(text="Imported geometry keeps its level. Edit Range moves that.")
+
+        sorts = col.box().column()
+        sorts.label(text="Sorts")
+        prop_split(sorts, scene, "hm64_bk64_sort_index", "Sort")
+        row = sorts.row(align=True)
+        for side, name in enumerate(SORT_SIDES):
+            button = row.operator(BK64_PutInSort.bl_idname, text=f"Put In Half {name.upper()}")
+            button.index, button.side = scene.hm64_bk64_sort_index, side
+        sorts.operator(BK64_PutInSort.bl_idname, text="Take Out Of Every Sort").side = -1
+
+        held = {}
+        for mesh_obj in _model_meshes(root):
+            for group in mesh_obj.vertex_groups:
+                node = geo_node_of_group(group.name)
+                if node is not None and node[0] == "sort":
+                    held.setdefault(node[1], set()).add(SORT_SIDES[node[2]])
+        for index in sorted(held):
+            sides = ", ".join(sorted(held[index]))
+            row = sorts.row()
+            row.label(text=f"Sort {index} holds half {sides}")
+            if index <= MAX_SORTS:
+                row.prop(root, "hm64_bk64_sort_one_half", index=index - 1, text="Only The Nearer Half")
+
+        sorts.label(text="Fixes translucent faces that draw over each other in the")
+        sorts.label(text="wrong order. Put each side in one half and the game keeps")
+        sorts.label(text="the nearer half in front. Opaque geometry doesn't need it.")
+        sorts.label(text="Fill both halves.")
+
+        selectors = layout_selectors(stored_layout(root) or []) if root is not None else []
+        if selectors:
+            states = col.box().column()
+            states.label(text="Selector States")
+            prop_split(states, scene, "hm64_bk64_appendage", "Appendage")
+            # the stored pick can outlive the model it came from
+            chosen = int(scene.hm64_bk64_appendage) if scene.hm64_bk64_appendage.isdigit() else 0
+            row = states.row(align=True)
+            for state in range(1, dict(selectors).get(chosen, 0) + 1):
+                button = row.operator(BK64_PutInSelectorState.bl_idname, text=f"State {state}")
+                button.appendage, button.state = chosen, state
+            states.operator(BK64_PutInSelectorState.bl_idname, text="Take Out Of Every State").state = 0
+            states.operator(BK64_SplitNodes.bl_idname, text="Split Selector States").kind = "selector"
+
+            kept = {}
+            for mesh_obj in _model_meshes(root):
+                for group in mesh_obj.vertex_groups:
+                    node = geo_node_of_group(group.name)
+                    if node is not None and node[0] == "selector":
+                        kept.setdefault(node[1], set()).add(node[2])
+            if chosen in kept:
+                shown = ", ".join(str(state) for state in sorted(kept[chosen]))
+                states.label(text=f"Appendage {chosen} holds state {shown}")
+            elsewhere = sorted(appendage for appendage in kept if appendage != chosen)
+            if elsewhere:
+                states.label(text="Also filled: " + ", ".join(str(appendage) for appendage in elsewhere))
+
+            states.label(text="Game code picks which state draws, so a hand can hold")
+            states.label(text="something or a face can swap. Geometry in no state always draws.")
 
 
 class BK64_BonePanel(BK64_Panel):
@@ -268,13 +378,15 @@ class BK64_MaterialPanel(BK64_Panel):
 
         prop_split(col, material, "hm64_bk64_anim_tex", "Animated Texture")
         if material.hm64_bk64_anim_tex != "NONE":
-            prop_split(col, material, "hm64_bk64_anim_slot", "Slot")
+            prop_split(col, material, "hm64_bk64_anim_slot", "Model Slot")
             prop_split(col, material, "hm64_bk64_anim_rate", "Frames Per Second")
             # anything but Individual, which adds a name field only OoT reads
             drawTextureArray(col.box().column(), material.flipbookGroup.flipbook0.textures, 0, "Array")
             box = col.box().column()
             box.label(text="List every frame, starting with the one the material samples.")
             box.label(text="Frames share one size and format, and can't be CI4 or CI8.")
+            box.label(text="The four model slots are shared out between materials, so two")
+            box.label(text="of them take the same slot only when they animate the same frames.")
 
         if material.hm64_bk64_collision_raw:
             prop_split(col, material, "hm64_bk64_collision_raw", "Raw Flags")
@@ -297,6 +409,7 @@ bk64_panel_classes = (
     BK64_ExportAnimationPanel,
     BK64_ImportModelPanel,
     BK64_MeshToolsPanel,
+    BK64_GeoNodesPanel,
     BK64_BonePanel,
     BK64_MaterialPanel,
 )

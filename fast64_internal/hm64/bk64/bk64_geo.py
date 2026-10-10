@@ -6,6 +6,8 @@ import struct
 from ...f3d.f3d_gbi import VTX_SIZE, SPDisplayList, SPEndDisplayList
 from ...utility import PluginError
 from .bk64_constants import (
+    GEO_NODE_PREFIXES,
+    SORT_SIDES,
     ANIM_TEX_SLOT_COUNT,
     G_LIGHTING,
     G_SHADE,
@@ -23,6 +25,8 @@ from .bk64_constants import (
     OP_DL,
     OP_ENDDL,
     OP_LOADBLOCK,
+    OP_LOADTILE,
+    OP_LOADTLUT,
     OP_LOADSYNC,
     OP_MOVEMEM,
     OP_MOVEWORD,
@@ -74,6 +78,278 @@ def stored_layout(root_obj):
         return None
 
 
+GEO_NODE_KIND_SHIFT = 28
+
+
+def geo_node_of_group(name: str):
+    """The layout node a group name means, or None where it names none"""
+    for kind, prefix in GEO_NODE_PREFIXES.items():
+        if not name.startswith(prefix):
+            continue
+        parts = name[len(prefix) :].split("_")
+        if kind == "lod" and len(parts) == 2 and all(part.isdigit() for part in parts):
+            return ("lod", int(parts[0]), int(parts[1]))
+        if kind == "sort" and len(parts) == 2 and parts[0].isdigit() and parts[1] in SORT_SIDES:
+            return ("sort", int(parts[0]), SORT_SIDES.index(parts[1]))
+        # the state is what game code sets in its visibility table, not a list index
+        if kind == "selector" and len(parts) == 2 and all(part.isdigit() for part in parts):
+            return ("selector", int(parts[0]), int(parts[1]))
+    return None
+
+
+def geo_node_group(node) -> str:
+    if node[0] == "sort":
+        return f"{GEO_NODE_PREFIXES['sort']}{node[1]}_{SORT_SIDES[node[2]]}"
+    return GEO_NODE_PREFIXES[node[0]] + "_".join(str(number) for number in node[1:])
+
+
+def geo_node_value(node) -> int:
+    """The node packed into one int for a face to carry, 0 for None"""
+    if node is None:
+        return 0
+    if node[0] == "lod":
+        return (1 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0x3FFF) << 14) | min(node[2], 0x3FFF)
+    if node[0] == "sort":
+        return (2 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0x3FFF) << 1) | node[2]
+    if node[0] == "selector":
+        return (3 << GEO_NODE_KIND_SHIFT) | (min(node[1], 0xFF) << 8) | min(node[2], 0xFF)
+    raise PluginError(f"{node[0]} nodes have no face tag yet.")
+
+
+def geo_node_of_value(value: int):
+    """The node a face tag names, or None where it carries no tag"""
+    if not value:
+        return None
+    if (value >> GEO_NODE_KIND_SHIFT) == 1:
+        return ("lod", (value >> 14) & 0x3FFF, value & 0x3FFF)
+    if (value >> GEO_NODE_KIND_SHIFT) == 2:
+        return ("sort", (value >> 1) & 0x3FFF, value & 1)
+    if (value >> GEO_NODE_KIND_SHIFT) == 3:
+        return ("selector", (value >> 8) & 0xFF, value & 0xFF)
+    return None
+
+
+def sort_records(halves, records_of, warnings=None, one_half=()):
+    """(a sort node per filled pair of halves, {chunk it took: which sort took it})"""
+    built, taken = [], {}
+    for index, sides in sorted(halves.items()):
+        if len(sides) != len(SORT_SIDES):
+            if warnings is not None:
+                name = geo_node_group(("sort", index, 0 if 1 in sides else 1))
+                warnings.append(
+                    f"Sort {index} only has one half, so its geometry draws in the order it was "
+                    f"built. Put the other half in {name}."
+                )
+            continue
+        # the game reads a point per half to tell which one is nearer the camera
+        middles = []
+        for side in range(len(SORT_SIDES)):
+            points = [point for _chunk, chunk_points in sides[side] for point in chunk_points]
+            middles.append(
+                tuple(sum(point[axis] for point in points) / len(points) for axis in range(3))
+                if points
+                else (0.0, 0.0, 0.0)
+            )
+        branches = [[records_of(chunk) for chunk, _points in sides[side]] for side in range(len(SORT_SIDES))]
+        # bit 0 draws the near half on its own instead of both, nearest last
+        flags = 1 if index <= len(one_half) and one_half[index - 1] else 0
+        built.append(("sort", middles[0], middles[1], branches[0], branches[1], flags))
+        for chunk in {chunk for side in sides.values() for chunk, _points in side}:
+            taken[chunk] = len(built) - 1
+    return built, taken
+
+
+def without_chunks(records, taken, sorts=(), placed=None):
+    """The layout with each sort standing where the chunks it took over stood"""
+    out = []
+    placed = set() if placed is None else placed
+
+    def hand_over(chunk):
+        which = taken.get(chunk)
+        if which is not None and which not in placed:
+            placed.add(which)
+            out.append(sorts[which])
+
+    for record in records:
+        kind = record[0]
+        if kind == "loaddl" and record[1] in taken:
+            hand_over(record[1])
+            continue
+        if kind == "bone" and record[2] in taken:
+            hand_over(record[2])
+            continue
+        if kind == "skinning":
+            kept = [index for index in record[1] if index not in taken]
+            for index in record[1]:
+                if index in taken:
+                    hand_over(index)
+            if not kept:
+                continue
+            out.append(("skinning", kept))
+            continue
+        if kind == "bonebranch":
+            out.append(("bonebranch", record[1], without_chunks(record[2], taken, sorts, placed)))
+        elif kind == "selector":
+            out.append(("selector", record[1], [without_chunks(option, taken, sorts, placed) for option in record[2]]))
+        elif kind == "sort":
+            out.append(
+                (
+                    "sort",
+                    record[1],
+                    record[2],
+                    without_chunks(record[3], taken, sorts, placed),
+                    without_chunks(record[4], taken, sorts, placed),
+                    record[5],
+                )
+            )
+        elif kind == "lod":
+            out.append(("lod", record[1], record[2], record[3], without_chunks(record[4], taken, sorts, placed)))
+        elif kind in ("drawdist", "camera"):
+            out.append(tuple(record[:-1]) + (without_chunks(record[-1], taken, sorts, placed),))
+        else:
+            out.append(record)
+    return out
+
+
+def layout_detail_levels(records, found=None):
+    """(near, far) per level of detail, nearest first"""
+    found = [] if found is None else found
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            level = (round(record[2]), round(record[1]))
+            if level not in found:
+                found.append(level)
+            layout_detail_levels(record[4], found)
+        elif kind == "bonebranch":
+            layout_detail_levels(record[2], found)
+        elif kind == "selector":
+            for option in record[2]:
+                layout_detail_levels(option, found)
+        elif kind == "sort":
+            layout_detail_levels(record[3], found)
+            layout_detail_levels(record[4], found)
+        elif kind in ("drawdist", "camera"):
+            layout_detail_levels(record[-1], found)
+    return sorted(found)
+
+
+def chunk_levels(records):
+    """{chunk index: (near, far)} for every chunk drawn inside a level of detail"""
+    found = {}
+    # outer levels come first, so a nested one overwrites them
+    for kind, _chunks, _matrix, _parent, record in layout_records(records):
+        if kind == "lod":
+            level = (round(record[2]), round(record[1]))
+            for _kind, chunks, _matrix, _parent, _record in layout_records(record[4]):
+                found.update(dict.fromkeys(chunks, level))
+    return found
+
+
+def layout_selectors(records, found=None):
+    """(appendage id, how many states it picks between) per selector, in table order"""
+    found = {} if found is None else found
+    for record in records:
+        kind = record[0]
+        if kind == "selector":
+            found[record[1]] = max(found.get(record[1], 0), len(record[2]))
+            for option in record[2]:
+                layout_selectors(option, found)
+        elif kind == "bonebranch":
+            layout_selectors(record[2], found)
+        elif kind == "sort":
+            layout_selectors(record[3], found)
+            layout_selectors(record[4], found)
+        elif kind in ("lod", "drawdist", "camera"):
+            layout_selectors(record[-1], found)
+    return sorted(found.items())
+
+
+def _level_siblings(records, found=None):
+    """The level ranges of each branch that holds more than one, nearest first"""
+    found = [] if found is None else found
+    here = sorted({(round(r[2]), round(r[1])) for r in records if r[0] == "lod"})
+    if len(here) > 1:
+        found.append(here)
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            _level_siblings(record[4], found)
+        elif kind == "bonebranch":
+            _level_siblings(record[2], found)
+        elif kind == "selector":
+            for option in record[2]:
+                _level_siblings(option, found)
+        elif kind == "sort":
+            _level_siblings(record[3], found)
+            _level_siblings(record[4], found)
+        elif kind in ("drawdist", "camera"):
+            _level_siblings(record[-1], found)
+    return found
+
+
+def layout_level_gaps(records):
+    """(from, to) per distance band no level covers"""
+    # a level draws on (near, far], so siblings sharing an endpoint cover it all
+    bands = set()
+    for levels in _level_siblings(records):
+        for (_near, far), (next_near, _next_far) in zip(levels, levels[1:]):
+            if next_near > far:
+                bands.add((far, next_near))
+    return sorted(bands)
+
+
+def set_detail_level(records, was, now) -> int:
+    """How many levels moved from the range was to the range now"""
+    changed = 0
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            if (round(record[2]), round(record[1])) == tuple(was):
+                # the command holds far ahead of near
+                record[1], record[2] = float(now[1]), float(now[0])
+                changed += 1
+            changed += set_detail_level(record[4], was, now)
+        elif kind == "bonebranch":
+            changed += set_detail_level(record[2], was, now)
+        elif kind == "selector":
+            for option in record[2]:
+                changed += set_detail_level(option, was, now)
+        elif kind == "sort":
+            changed += set_detail_level(record[3], was, now)
+            changed += set_detail_level(record[4], was, now)
+        elif kind in ("drawdist", "camera"):
+            changed += set_detail_level(record[-1], was, now)
+    return changed
+
+
+def place_in_node(records, node, added):
+    """Put a record under the node a group named, if the layout has one"""
+    for record in records:
+        kind = record[0]
+        if kind == "lod" and node[0] == "lod" and (round(record[2]), round(record[1])) == (node[1], node[2]):
+            record[4].append(added)
+            return True
+        if kind == "selector" and node[0] == "selector" and record[1] == node[1] and node[2] <= len(record[2]):
+            # the game reads option N for state N, so state 1 is the branch at 0
+            record[2][node[2] - 1].append(added)
+            return True
+        if kind == "selector":
+            branches = record[2]
+        elif kind == "sort":
+            branches = [record[3], record[4]]
+        elif kind == "bonebranch":
+            branches = [record[2]]
+        elif kind in ("lod", "drawdist", "camera"):
+            branches = [record[-1]]
+        else:
+            continue
+        for branch in branches:
+            if place_in_node(branch, node, added):
+                return True
+    return False
+
+
 def relink_layout(records, from_source):
     """The stored layout with every original chunk index swapped for the new ones, or None"""
     kept = 0
@@ -119,6 +395,43 @@ def relink_layout(records, from_source):
 
     relinked = relink(records)
     return relinked if kept else None
+
+
+def lift_out_of_bones(records):
+    """The layout with every display list a BONE command holds moved out from under it"""
+    # a bound vertex is posed before the draw, and a BONE would move it again.
+    # A copy of its node outside the bone draws the same, and the original keeps its refpoints.
+
+    def lift(nodes, under):
+        out, lifted = [], []
+        for record in nodes:
+            kind = record[0]
+            if kind == "loaddl" and under:
+                lifted.append(record)
+                continue
+            moved = []
+            if kind == "bonebranch":
+                kept, moved = lift(record[2], True)
+                out.append(("bonebranch", record[1], kept))
+            elif kind == "selector":
+                parts = [lift(option, under) for option in record[2]]
+                out.append(("selector", record[1], [kept for kept, _moved in parts]))
+                if any(inner for _kept, inner in parts):
+                    moved = [("selector", record[1], [inner for _kept, inner in parts])]
+            elif kind in ("lod", "drawdist", "camera"):
+                kept, inner = lift(record[-1], under)
+                out.append(tuple(record[:-1]) + (kept,))
+                if inner:
+                    moved = [tuple(record[:-1]) + (inner,)]
+            else:
+                out.append(record)
+            if under:
+                lifted += moved
+            else:
+                out += moved
+        return out, lifted
+
+    return lift(records, False)[0]
 
 
 def _nesting_depth(records, at=0):
@@ -387,6 +700,14 @@ def split_skinning(words, vertices, owner_of_pos, parent_bone):
             for record in rest[0]:
                 if record not in parent_records and owner(record) == parent_bone:
                     parent_records.append(record)
+    # a vertex two materials share is written once per material, and each copy
+    # would take a parent slot of its own
+    first_of, copy_of = {}, {}
+    for record in parent_records:
+        first = first_of.setdefault(vertices[record], record)
+        if first != record:
+            copy_of[record] = first
+    parent_records = [record for record in parent_records if record not in copy_of]
     if not parent_records or len(parent_records) > 24:
         return None
 
@@ -397,6 +718,7 @@ def split_skinning(words, vertices, owner_of_pos, parent_bone):
     list_a = [(OP_POPMTX << 24, 0)]
     list_a += _vtx_loads(sorted(((record, slot) for record, slot in reserved.items()), key=lambda pair: pair[1]))
     list_a.append((OP_ENDDL << 24, 0))
+    reserved.update((record, reserved[first]) for record, first in copy_of.items())
 
     list_b = []
     loaded = {}
@@ -433,17 +755,17 @@ def split_skinning(words, vertices, owner_of_pos, parent_bone):
 
 
 def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, mip_textures=frozenset()):
-    # a reflective chunk keeps its lighting bit. That bit transforms the normal
+    # a reflective material keeps its lighting bit. That bit transforms the normal
     # texture gen reads, and modelRender hands it a LookAt and no lights, the
-    # same as vanilla.
-    reflective = any(((w0 >> 24) & 0xFF) == OP_SETGEOMETRYMODE and (w1 & G_TEXTURE_GEN) for w0, w1 in words)
+    # same as vanilla. Only its own command keeps it: the rest of the chunk holds
+    # baked color where lighting would read a normal.
     hoist_index, hoist_bits = None, 0
     for index, (w0, w1) in enumerate(words):
         opcode = (w0 >> 24) & 0xFF
         if opcode in {OP_VTX, OP_TRI1, OP_TRI2, OP_CLEARGEOMETRYMODE}:
             break
         if opcode == OP_SETGEOMETRYMODE:
-            bits = w1 & ~G_LIGHTING if (w1 & G_LIGHTING) and not reflective else w1
+            bits = w1 & ~G_LIGHTING if (w1 & G_LIGHTING) and not (w1 & G_TEXTURE_GEN) else w1
             if bits:
                 hoist_index, hoist_bits = index, bits
             break
@@ -466,7 +788,7 @@ def fixup_chunk(words, texture_count: int, rendermode_entry, white_offset=None, 
             # SPSetLights and its count. The structs never got addresses, so
             # the RSP would read vertices as lights.
             continue
-        if opcode == OP_SETGEOMETRYMODE and (w1 & G_LIGHTING) and not reflective:
+        if opcode == OP_SETGEOMETRYMODE and (w1 & G_LIGHTING) and not (w1 & G_TEXTURE_GEN):
             w1 &= ~G_LIGHTING
             if w1 == 0:
                 continue
@@ -514,20 +836,24 @@ def _state_slot(w0):
 
 
 _SYNC_OPS = frozenset({OP_LOADSYNC, OP_PIPESYNC, OP_TILESYNC})
+_LOAD_OPS = frozenset({OP_LOADBLOCK, OP_LOADTILE, OP_LOADTLUT})
 
 
 def _drop_idle_syncs(words):
-    """Syncs with no primitive pending to wait on"""
-    # a chunk is jumped into, so the one before it drew
-    out, pending = [], True
+    """Syncs with nothing of their own kind left to wait on"""
+    # a chunk is jumped into, so the one before it both drew and loaded
+    out, pending = [], dict.fromkeys(_SYNC_OPS, True)
     for word in words:
         opcode = (word[0] >> 24) & 0xFF
         if opcode in _SYNC_OPS:
-            if not pending:
+            if not pending[opcode]:
                 continue
-            pending = False
+            pending[opcode] = False
         elif opcode in (OP_TRI1, OP_TRI2):
-            pending = True
+            pending[OP_PIPESYNC] = pending[OP_TILESYNC] = True
+        elif opcode in _LOAD_OPS:
+            # a load sync waits on the RDP reading texture memory, and a triangle never starts one
+            pending[OP_LOADSYNC] = True
         out.append(word)
     return out
 
