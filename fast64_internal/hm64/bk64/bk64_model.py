@@ -19,6 +19,7 @@ from ...f3d.f3d_gbi import (
     SPEndDisplayList,
     SPTexture,
 )
+from ...f3d.f3d_material import combiner_uses
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ...utility import (
     PluginError,
@@ -36,6 +37,7 @@ from .bk64_constants import (
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
     GEO_NODE_ATTR,
+    GEO_TYPE_ENV_MAP,
     CAMERA_AREA_KIND,
     SOURCE_CHUNK_ATTR,
     CYCLE_TYPE_2CYCLE,
@@ -825,6 +827,25 @@ def _check_large_textures(mesh_objects):
         )
 
 
+def _warn_reflective(mesh_objects, geo_type: int, warnings):
+    """Warn for reflective materials the game draws differently from the viewport"""
+    reflective = _material_names(mesh_objects, lambda _material, f3d_mat: f3d_mat.rdp_settings.g_tex_gen)
+    shaded = _material_names(
+        mesh_objects,
+        lambda _material, f3d_mat: f3d_mat.rdp_settings.g_tex_gen
+        and combiner_uses(f3d_mat, ["SHADE", "SHADE_ALPHA"], checkAlpha=False),
+    )
+    if reflective and not geo_type & GEO_TYPE_ENV_MAP:
+        listed = "\n  ".join(reflective)
+        warnings.append(f"Reflective (Env Map) is off, so the game sets up no reflection for these:\n  {listed}")
+    if shaded:
+        listed = "\n  ".join(shaded)
+        warnings.append(
+            "These reflect and read Shade Color, which comes out black with no lights loaded. Combine "
+            f"Texture 0 alone instead:\n  {listed}"
+        )
+
+
 def _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings):
     """Warn for imported faces whose Detail Level group isn't the level they draw in"""
     layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
@@ -1595,6 +1616,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 del commands[last]
         # an import stores geo type on the object, since a level's halves disagree
         geo_type = root_obj.hm64_bk64_geo_type_raw or settings.geo_type_bits()
+        _warn_reflective(mesh_objects, geo_type, settings.warnings)
         # the bits shipped, not the scene setting: a level's second half clears that
         if (geo_type & GEO_TYPE_MIPMAP_TRILINEAR) and not rom_format:
             for key, value in fModel.materials.items():
