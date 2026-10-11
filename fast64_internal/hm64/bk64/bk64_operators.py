@@ -411,7 +411,7 @@ class BK64_SplitMeshAtBones(Operator):
                 self.report(
                     {"INFO"},
                     (
-                        f"Cut {cuts} edges. Every triangle belongs to one bone now, so what you see is what exports."
+                        f"Made {cuts} cuts. Every triangle belongs to one bone now, so what you see is what exports."
                         if cuts
                         else "Nothing to cut, every triangle already belongs to one bone."
                     ),

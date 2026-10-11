@@ -509,15 +509,15 @@ def split_mesh_at_bones(mesh_obj):
     source_bones = source_bones_of(mesh_obj, armature_obj)
     family = _seam_family(armature_obj)
 
-    def blended(face_a, face_b):
+    def blended(owner_a, owner_b):
         # a bone and its parent are the seam SKINNING blends, and cutting there loses it
-        return bool(source_bones) and family(groups.get(owners[face_a]), groups.get(owners[face_b]))
+        return bool(source_bones) and family(groups.get(owner_a), groups.get(owner_b))
 
     seams = [
         edge
         for edge in bm.edges
         if len({owners[f] for f in edge.link_faces}) > 1
-        and not (len(edge.link_faces) == 2 and blended(*edge.link_faces))
+        and not (len(edge.link_faces) == 2 and blended(*(owners[f] for f in edge.link_faces)))
     ]
 
     # then the boundaries only the layout knows about. The weights alone can
@@ -533,11 +533,12 @@ def split_mesh_at_bones(mesh_obj):
 
     # a vertex the seams did not separate can still hold faces from two bones. The
     # rewrite below would give it to whichever comes last, so cut those apart first.
-    conflicted = set()
+    conflicted, corners = set(), 0
     for vert in bm.verts:
         holding = {owners.get(face) for face in vert.link_faces}
-        if len(holding) > 1:
+        if len(holding) > 1 and not (len(holding) == 2 and blended(*holding)):
             conflicted |= holding
+            corners += 1
     # in face order: reordering these splits cost one vanilla model its skinning,
     # so which copy of a shared vertex each chunk keeps is load bearing
     faces_by_owner = {}
@@ -547,20 +548,31 @@ def split_mesh_at_bones(mesh_obj):
     for faces in faces_by_owner.values():
         bmesh.ops.split(bm, geom=faces, use_only_faces=False)
 
+    def fits(vert, bone):
+        return all(owners.get(face) in (None, bone) or blended(owners[face], bone) for face in vert.link_faces)
+
+    # ties go to the earlier table entry, matching _tag_bone_binding
+    table = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
+    rank = {bone.name: index for index, bone in enumerate(table)}
     for face in bm.faces:
         owner = owners.get(face)
         if owner is None:
             continue
         for vert in face.verts:
+            # a vertex on a bone its faces sit on or blend to keeps it, or the seam tears
+            weighted = [
+                (w, -rank[groups[i]], i) for i, w in vert[deform].items() if i in groups and w > 0 and fits(vert, i)
+            ]
+            keep = max(weighted)[2] if weighted else owner
             # only the bone groups. Clearing the lot takes the mesh groups with it.
             for index in [i for i in vert[deform].keys() if i in groups]:
                 del vert[deform][index]
-            vert[deform][owner] = 1.0
+            vert[deform][keep] = 1.0
 
     bm.to_mesh(mesh_obj.data)
     bm.free()
     mesh_obj.data.update()
-    return len(seams)
+    return len(seams) + corners
 
 
 def _face_bone_group(face, deform_layer, group_index_to_bone):
