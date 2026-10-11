@@ -13,12 +13,18 @@ from ...f3d.f3d_gbi import (
     FPaletteKey,
     VTX_SIZE,
     DLFormat,
+    DPPipeSync,
     FModel,
     GfxMatWriteMethod,
+    SPClearGeometryMode,
     SPDisplayList,
     SPEndDisplayList,
+    SPGeometryMode,
+    SPLoadGeometryMode,
+    SPSetGeometryMode,
     SPTexture,
 )
+from ...f3d.f3d_material import all_combiner_uses, combiner_uses
 from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ...utility import (
     PluginError,
@@ -35,6 +41,8 @@ from .bk64_constants import (
     COLLISION_GRID_PROP,
     COLLISION_ONLY_PROP,
     COLLISION_UV_ATTR,
+    GEO_NODE_ATTR,
+    GEO_TYPE_ENV_MAP,
     CAMERA_AREA_KIND,
     SOURCE_CHUNK_ATTR,
     CYCLE_TYPE_2CYCLE,
@@ -44,6 +52,7 @@ from .bk64_constants import (
     MAX_VERTEX_COUNT,
     MESH_GROUP_PREFIX,
     MESH_TAG_ATTRIBUTE,
+    SCENE_CONTRACT,
     MIP_SPTEXTURE_LEVEL,
     MIP_SPTEXTURE_TILE,
     MIP_TEXTURE_DIM,
@@ -72,12 +81,22 @@ from .bk64_texture import (
     reads_texel1,
 )
 from .bk64_geo import (
+    chunk_levels,
+    layout_detail_levels,
     count_triangles,
+    geo_node_group,
+    geo_node_of_group,
+    geo_node_of_value,
+    geo_node_value,
+    place_in_node,
+    sort_records,
+    without_chunks,
     fixup_chunk,
     flatten_gfx_list,
     geo_records,
     guard_layout,
     layout_refpoints,
+    lift_out_of_bones,
     relink_layout,
     split_skinning,
     stored_layout,
@@ -220,6 +239,14 @@ def _write_model_resource(
     return data
 
 
+def drawn_matrix(obj):
+    """The object's matrix with any viewing spread taken back out"""
+    spread = mathutils.Vector(obj.hm64_bk64_view_offset)
+    if spread.length_squared == 0.0:
+        return obj.matrix_world
+    return mathutils.Matrix.Translation(-spread) @ obj.matrix_world
+
+
 def _evaluated_bmesh(context, mesh_obj, space_matrix, ignore_armature: bool):
     # the triangle converter applies the export transform but not the object's
     # world matrix. Bake that in here.
@@ -242,7 +269,7 @@ def _evaluated_bmesh(context, mesh_obj, space_matrix, ignore_armature: bool):
         for modifier in disabled:
             modifier.show_viewport = True
 
-    bm.transform(space_matrix @ mesh_obj.matrix_world)
+    bm.transform(space_matrix @ drawn_matrix(mesh_obj))
     bmesh.ops.triangulate(bm, faces=bm.faces[:])
     bm.faces.index_update()
     bm.faces.ensure_lookup_table()
@@ -262,6 +289,10 @@ def _bmesh_to_object(context, bm, name: str, material_source, face_indices=None)
     mesh = bpy.data.meshes.new(name)
     part.to_mesh(mesh)
     part.free()
+    if bpy.app.version < (4, 1, 0):
+        # before 4.1 a mesh ignores its custom normals unless this is on
+        mesh.use_auto_smooth = True
+        mesh.auto_smooth_angle = math.pi  # 4.1 sharpens no edge by angle
     for slot in material_source.material_slots:
         mesh.materials.append(slot.material)
 
@@ -366,16 +397,26 @@ def source_bones_of(mesh_obj, armature_obj):
     return _layout_bone_of_source(stored, bones)[0] or None
 
 
+def _bm_face_sources(bm, mesh_obj):
+    """The chunk each face was drawn in, keyed by face rather than by index"""
+    # triangulating renumbers the faces, and copies this layer onto the ones it makes
+    layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
+    if layer is not None:
+        return {face: face[layer] for face in bm.faces}
+    of_slot = _source_of_slot(mesh_obj.data)
+    return {face: of_slot[face.material_index] if face.material_index < len(of_slot) else -1 for face in bm.faces}
+
+
 def bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name=None, source_bones=None):
     """({face: bone name}, how many faces had nothing to vote on)"""
-    source_of_face = _face_sources(mesh_obj.data) if source_bones else []
+    source_of_face = _bm_face_sources(bm, mesh_obj) if source_bones else {}
     deform_layer = bm.verts.layers.deform.active
 
     bone_of_face, unweighted = {}, 0
     for face in bm.faces:
         bone_name = None
-        if source_bones and face.index < len(source_of_face):
-            bone_name = source_bones.get(source_of_face[face.index])
+        if source_bones:
+            bone_name = source_bones.get(source_of_face.get(face, -1))
         if bone_name is None:
             group_index = _face_bone_group(face, deform_layer, group_index_to_bone)
             if group_index is None:
@@ -385,16 +426,61 @@ def bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name=None, so
     return bone_of_face, unweighted
 
 
-def bone_seam_edges(bm, bone_of_face, armature_obj, source_bones):
-    """Edges whose two faces sit on bones a single chunk cannot span"""
-    parent_of = {bone.name: bone.parent.name if bone.parent else None for bone in armature_obj.data.bones}
+def _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings=None):
+    """Clears the chunk tag off faces weighted to a bone that chunk never drew on"""
+    # joining a mesh in fills its faces with 0, and duplicating copies the tag
+    layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
+    if not source_bones or layer is None:
+        return
+    groups = checked_bone_groups(mesh_obj, armature_obj)
+    deform = bm.verts.layers.deform.active
+    family = _seam_family(armature_obj)
 
-    # a chunk carries one bone. A weld across a joint gets torn, except at
-    # a bone and its parent, the one seam skinning blends.
+    strays = 0
+    for face in bm.faces:
+        tagged = source_bones.get(face[layer])
+        if tagged is None:
+            continue
+        weighted = groups.get(_face_bone_group(face, deform, groups))
+        # vanilla weights some of a seam's faces wholly to the parent
+        if weighted is None or weighted == tagged or family(weighted, tagged):
+            continue
+        face[layer] = -1
+        strays += 1
+
+    if strays and warnings is not None:
+        counted = "1 face" if strays == 1 else f"{strays} faces"
+        warnings.append(
+            f"{counted} on '{mesh_obj.name}' still belonged to an imported part on another bone, from a join "
+            "or a duplicate. They went out on the bones they're weighted to."
+        )
+
+
+def _seam_family(armature_obj):
+    """A test for two bones being a bone and the parent its SKINNING seam blends to"""
+    parent_of = {bone.name: bone.parent.name if bone.parent else None for bone in armature_obj.data.bones}
+    # paired bones put that parent two steps up the armature, where the layout nests it one
+    nested_in = {}
+    stored = stored_layout(armature_obj)
+    if stored is not None:
+        bones = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
+        for kind, _chunks, matrix, parent, _record in layout_records(stored):
+            if kind == "bonebranch" and parent is not None and 0 <= matrix < len(bones) and 0 <= parent < len(bones):
+                nested_in[bones[matrix].name] = bones[parent].name
+
     def family(name_a, name_b):
         if name_a is None or name_b is None:
             return False
-        return parent_of[name_a] == name_b or parent_of[name_b] == name_a
+        return any(of.get(name_a) == name_b or of.get(name_b) == name_a for of in (parent_of, nested_in))
+
+    return family
+
+
+def bone_seam_edges(bm, bone_of_face, armature_obj, source_bones):
+    """Edges whose two faces sit on bones a single chunk cannot span"""
+    # a chunk carries one bone. A weld across a joint gets torn, except at
+    # a bone and its parent, the one seam skinning blends.
+    family = _seam_family(armature_obj)
 
     seams = []
     for edge in bm.edges:
@@ -420,11 +506,22 @@ def split_mesh_at_bones(mesh_obj):
     # every weight boundary. The export reads which bone a vertex follows off the
     # weights, and only one bone per vertex lets it find the parent's vertices.
     owners = {face: _face_bone_group(face, deform, groups) for face in bm.faces}
-    seams = [edge for edge in bm.edges if len({owners[f] for f in edge.link_faces}) > 1]
+    source_bones = source_bones_of(mesh_obj, armature_obj)
+    family = _seam_family(armature_obj)
+
+    def blended(face_a, face_b):
+        # a bone and its parent are the seam SKINNING blends, and cutting there loses it
+        return bool(source_bones) and family(groups.get(owners[face_a]), groups.get(owners[face_b]))
+
+    seams = [
+        edge
+        for edge in bm.edges
+        if len({owners[f] for f in edge.link_faces}) > 1
+        and not (len(edge.link_faces) == 2 and blended(*edge.link_faces))
+    ]
 
     # then the boundaries only the layout knows about. The weights alone can
     # disagree with it, and the export counts a weld they called clean.
-    source_bones = source_bones_of(mesh_obj, armature_obj)
     if source_bones:
         by_layout = bone_of_faces(bm, mesh_obj, groups, None, source_bones)[0]
         already = {edge.index for edge in seams}
@@ -490,8 +587,8 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
     # a face with nothing to vote on lands on the root, right for scenery and wrong for a limb
     if unweighted and warnings is not None:
         warnings.append(
-            f"{unweighted} faces on '{mesh_obj.name}' carry no weight to a bone's vertex group "
-            f"and went onto '{fallback_bone_name}'."
+            f"{unweighted} faces on '{mesh_obj.name}' are in no bone's vertex group, so they went "
+            f"onto '{fallback_bone_name}' and move with it. Weight them to the bone they belong to."
         )
 
     seams = bone_seam_edges(bm, bone_of_face, armature_obj, source_bones)
@@ -503,8 +600,12 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
         if len(bm.verts) != len(mesh_obj.data.vertices):
             fix = "Apply its modifiers first, they make geometry Split Mesh At Bones never saw."
         else:
-            fix = "Run Split Mesh At Bones."
-        raise PluginError(f"'{mesh_obj.name}' is welded across {len(seams)} bone boundaries, at {where}. {fix}")
+            fix = "Mesh Tools has Split Mesh At Bones."
+        counted = "1 bone seam" if len(seams) == 1 else f"{len(seams)} bone seams"
+        raise PluginError(
+            f"'{mesh_obj.name}' is still joined across {counted}, at {where}. The game draws each "
+            f"piece under one bone, so the mesh has to be cut where the bones meet. {fix}"
+        )
 
     parts = {}
     for bone_name, face_indices in faces_by_bone.items():
@@ -545,7 +646,7 @@ def read_vertex_bounds(depsgraph, root_obj, scale: float):
         if count:
             flat = numpy.empty(count * 3, dtype=numpy.float64)
             mesh.vertices.foreach_get("co", flat)
-            matrix = numpy.array(to_bk @ obj.matrix_world)
+            matrix = numpy.array(to_bk @ drawn_matrix(obj))
             blocks.append(flat.reshape(count, 3) @ matrix[:3, :3].T + matrix[:3, 3])
         evaluated.to_mesh_clear()
     return _position_bounds(numpy.concatenate(blocks) if blocks else [])
@@ -702,12 +803,20 @@ def read_collision_only(context, root_obj, scale: float):
     return vertices, triangles, bones
 
 
+def _material_names(mesh_objects, test):
+    """The F3D materials on these objects that pass test(material, f3d_mat), each named once"""
+    names = []
+    for material, f3d_mat in f3d_materials(mesh_objects):
+        if material.name not in names and test(material, f3d_mat):
+            names.append(material.name)
+    return names
+
+
 def _check_cycle_type(mesh_objects):
     """BK draws models in 2 cycle, and a 1 cycle material never reaches the blending"""
-    offenders = []
-    for material, f3d_mat in f3d_materials(mesh_objects):
-        if f3d_mat.rdp_settings.g_mdsft_cycletype != CYCLE_TYPE_2CYCLE and material.name not in offenders:
-            offenders.append(material.name)
+    offenders = _material_names(
+        mesh_objects, lambda _material, f3d_mat: f3d_mat.rdp_settings.g_mdsft_cycletype != CYCLE_TYPE_2CYCLE
+    )
     if offenders:
         listed = "\n  ".join(offenders)
         raise PluginError(
@@ -718,14 +827,9 @@ def _check_cycle_type(mesh_objects):
 
 def _check_large_textures(mesh_objects):
     """BK binds a texture whole and a mesh tiled across one can't say which tile"""
-    offenders = []
-    for mesh_obj in mesh_objects:
-        for slot in mesh_obj.material_slots:
-            material = slot.material
-            if material is None or not getattr(material, "is_f3d", False) or material.mat_ver <= 3:
-                continue
-            if material.f3d_mat.use_large_textures and material.name not in offenders:
-                offenders.append(material.name)
+    offenders = _material_names(
+        mesh_objects, lambda material, f3d_mat: material.mat_ver > 3 and f3d_mat.use_large_textures
+    )
     if offenders:
         listed = "\n  ".join(offenders)
         raise PluginError(
@@ -733,38 +837,167 @@ def _check_large_textures(mesh_objects):
         )
 
 
+def _warn_tint_colors(mesh_objects, warnings):
+    """Warn for materials setting the colors the game tints and fades a model with"""
+
+    # vanilla never sets either
+    def sets_tint(_material, f3d_mat):
+        if not (f3d_mat.set_env or f3d_mat.set_prim):
+            return False
+        uses = all_combiner_uses(f3d_mat)
+        return (uses["Environment"] and f3d_mat.set_env) or (uses["Primitive"] and f3d_mat.set_prim)
+
+    offenders = _material_names(mesh_objects, sets_tint)
+    if offenders:
+        listed = "\n  ".join(offenders)
+        warnings.append(
+            "These set Primitive or Environment Color, and everything drawn after them takes the color on. "
+            f"Apply a BK preset again, or paint the color into the vertices or texture:\n  {listed}"
+        )
+
+
+def _warn_reflective(mesh_objects, geo_type: int, warnings):
+    """Warn for reflective materials the game draws differently from the viewport"""
+    reflective = _material_names(mesh_objects, lambda _material, f3d_mat: f3d_mat.rdp_settings.g_tex_gen)
+    shaded = _material_names(
+        mesh_objects,
+        lambda _material, f3d_mat: f3d_mat.rdp_settings.g_tex_gen
+        and combiner_uses(f3d_mat, ["SHADE", "SHADE_ALPHA"], checkAlpha=False),
+    )
+    if reflective and not geo_type & GEO_TYPE_ENV_MAP:
+        listed = "\n  ".join(reflective)
+        warnings.append(f"Reflective (Env Map) is off, so the game sets up no reflection for these:\n  {listed}")
+    if shaded:
+        listed = "\n  ".join(shaded)
+        warnings.append(
+            "These reflect and read Shade Color, which comes out black with no lights loaded. Combine "
+            f"Texture 0 alone instead:\n  {listed}"
+        )
+
+
+def _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings):
+    """Warn for imported faces whose Detail Level group isn't the level they draw in"""
+    layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
+    deform = bm.verts.layers.deform.active
+    if warnings is None or layer is None or deform is None or not levels_of_chunk:
+        return
+    level_of_group = {index: node[1:] for index, node in geo_node_groups(mesh_obj).items() if node[0] == "lod"}
+
+    moved = 0
+    for face in bm.faces:
+        level = levels_of_chunk.get(face[layer])
+        if level is None:
+            continue
+        held = [{level_of_group[i] for i in vert[deform].keys() if i in level_of_group} for vert in face.verts]
+        common = set.intersection(*held)
+        if level in common:
+            continue
+        # corners that disagree are vanilla sharing a vertex
+        if (level in taken_out_of and not set.union(*held)) or len(common) == 1:
+            moved += 1
+
+    if moved:
+        counted = "1 face" if moved == 1 else f"{moved} faces"
+        warnings.append(
+            f"{counted} on '{mesh_obj.name}' moved Detail Level, but imported faces draw in the level they came "
+            "from. Use Edit Range on that level instead."
+        )
+
+
+def _source_of_slot(mesh):
+    """The chunk each material slot was drawn in, for a blend from before the face attribute"""
+    return [getattr(material, "hm64_bk64_source_chunk", -1) if material else -1 for material in mesh.materials] or [-1]
+
+
 def _face_sources(mesh):
     """The chunk each face was drawn in, off the mesh or an older blend's materials"""
     layer = mesh.attributes.get(SOURCE_CHUNK_ATTR)
     if layer is not None and layer.domain == "FACE":
         return [item.value for item in layer.data]
-    of_slot = [getattr(material, "hm64_bk64_source_chunk", -1) if material else -1 for material in mesh.materials] or [
-        -1
-    ]
+    of_slot = _source_of_slot(mesh)
     return [
         of_slot[polygon.material_index] if polygon.material_index < len(of_slot) else -1 for polygon in mesh.polygons
     ]
 
 
+def geo_node_groups(obj):
+    """The node each of the object's groups names, by group index"""
+    found = {}
+    for group in obj.vertex_groups:
+        node = geo_node_of_group(group.name)
+        if node is not None:
+            found[group.index] = node
+    return found
+
+
+def _tag_geo_nodes(bm, mesh_obj):
+    # a part is rebuilt from scratch and arrives with no vertex groups
+    nodes = geo_node_groups(mesh_obj)
+    deform = bm.verts.layers.deform.active
+    if not nodes or deform is None:
+        return
+    layer = bm.faces.layers.int.get(GEO_NODE_ATTR) or bm.faces.layers.int.new(GEO_NODE_ATTR)
+    for face in bm.faces:
+        corners = set()
+        for vert in face.verts:
+            corners |= {nodes[index] for index in vert[deform].keys() if index in nodes}
+        face[layer] = geo_node_value(_innermost(corners))
+
+
+def _innermost(corners):
+    # vanilla hangs a state inside a level and a sort inside either, so the innermost wins
+    for kind in ("sort", "selector", "lod"):
+        of_kind = {node for node in corners if node[0] == kind}
+        if len(of_kind) == 1:
+            return of_kind.pop()
+        if of_kind:
+            return None  # a face spanning two of one kind draws under neither
+    return None
+
+
+def _face_nodes(obj):
+    """The layout node each face draws under, or None where its corners disagree"""
+    layer = obj.data.attributes.get(GEO_NODE_ATTR)
+    if layer is not None and layer.domain == "FACE":
+        return [geo_node_of_value(item.value) for item in layer.data]
+
+    nodes = geo_node_groups(obj)
+    if not nodes:
+        return [None] * len(obj.data.polygons)
+
+    of_vertex = {}
+    for vertex in obj.data.vertices:
+        found = {nodes[group.group] for group in vertex.groups if group.group in nodes}
+        of_vertex[vertex.index] = found.pop() if len(found) == 1 else None
+    out = []
+    for polygon in obj.data.polygons:
+        corners = {of_vertex.get(index) for index in polygon.vertices}
+        out.append(corners.pop() if len(corners) == 1 else None)
+    return out
+
+
 def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
     """The part as (key, object) pairs, cut where its faces disagree"""
     # a chunk jumps into one render mode entry. Other faces need their own.
+    # TODO: vanilla jumps again mid chunk, so a chunk mixing layers costs an extra one here
     layer_of_slot = {
         index: draw_layer_of(slot.material, scene_layer) for index, slot in enumerate(part_obj.material_slots)
     }
     sources = _face_sources(part_obj.data)
+    nodes = _face_nodes(part_obj)
     part_obj.data.calc_loop_triangles()
     key_of_face = [
-        (layer_of_slot.get(polygon.material_index, scene_layer), sources[index])
+        (layer_of_slot.get(polygon.material_index, scene_layer), sources[index], nodes[index])
         for index, polygon in enumerate(part_obj.data.polygons)
     ]
-    default = (scene_layer, -1)
+    default = (scene_layer, -1, None)
     wanted = set(key_of_face) or {default}
     if len(wanted) <= 1:
         return [(wanted.pop(), part_obj)]
 
     pieces = []
-    for key in sorted(wanted):
+    # a mesh with faces in a node and faces in none holds a tuple beside a None
+    for key in sorted(wanted, key=lambda key: (key[0], key[1], key[2] or ())):
         bm = bmesh.new()
         bm.from_mesh(part_obj.data)
         bm.faces.ensure_lookup_table()
@@ -773,7 +1006,9 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
             geom=[face for face in bm.faces if key_of_face[face.index] != key],
             context="FACES",
         )
-        piece = _bmesh_to_object(context, bm, f"{part_obj.name}_{key[0].lower()}_{key[1]}", part_obj)
+        # the whole key rides in the name, or two pieces of one mesh collide
+        named = "_".join(str(part) for part in (key[2] or ()))
+        piece = _bmesh_to_object(context, bm, f"{part_obj.name}_{key[0].lower()}_{key[1]}_{named}", part_obj)
         bm.free()
         if piece is not None:
             temp_objects.append(piece)
@@ -863,7 +1098,8 @@ def _shade_from_normal(packed, ambient, sources):
             continue
         for channel in range(3):
             shade[channel] += color[channel] * facing
-    return tuple(min(255, int(round(channel))) for channel in shade) + (255,)
+    # the RSP lights the color and passes the alpha through
+    return tuple(min(255, int(round(channel))) for channel in shade) + (packed[3] if len(packed) > 3 else 255,)
 
 
 def _grouped_vertices(context, mesh_objects, space_matrix, scale_matrix, value_of):
@@ -911,6 +1147,21 @@ def _vertex_bones(context, mesh_objects, bones, space_matrix, scale_matrix):
     return bound
 
 
+def _warn_legacy_binding(bound_vertices, warnings):
+    """Say so when a scene predates the export reading a vertex's own bone group"""
+    bones_at = {}
+    for entry in bound_vertices:
+        bones_at.setdefault(entry["coord"], set()).add(entry["bone"])
+    shared = sum(1 for bones in bones_at.values() if len(bones) > 1)
+    if not shared:
+        return
+    counted = "1 coordinate holds" if shared == 1 else f"{shared} coordinates hold"
+    warnings.append(
+        f"{counted} vertices following different bones. An older addon put every vertex at one "
+        "spot on the same bone, so those seams pull apart in game. Mesh Tools has Weld Bone Seams."
+    )
+
+
 def _vertex_bone_entries(vertices, bone_tags, warnings, space_matrix):
     """One entry per bound coordinate and bone, listing every vertex written there"""
     at_position = {}
@@ -933,8 +1184,8 @@ def _vertex_bone_entries(vertices, bone_tags, warnings, space_matrix):
             for position in sorted(loose)[:3]
         )
         warnings.append(
-            f"{len(loose)} vertex positions carry no weight to a bone's vertex group, at {listed} "
-            "in world space. Bind Vertices leaves those at rest while the rest of the model animates."
+            f"{len(loose)} vertex positions are in no bone's vertex group, at {listed} in world "
+            "space. They stand still while the rest of the model animates, so weight them to a bone."
         )
 
     entries = []
@@ -1083,9 +1334,18 @@ def _gather_parts(
     bind: bool = False,
     source_bones=None,
     warnings=None,
+    stored=None,
 ):
     """(bone table, parts by bone name, the uid sets the vertex tags index into)"""
     mesh_uids = {frozenset(): 0}
+    levels_of_chunk = chunk_levels(stored or [])
+    ranges = layout_detail_levels(stored or [])
+    # imports since the contract put every level's faces in its group, so a face in none
+    # was taken out of its level, unless that level already spans them all
+    taken_out_of = set()
+    if ranges and root_obj.hm64_bk64_contract >= SCENE_CONTRACT:
+        nearest, furthest = min(near for near, _far in ranges), max(far for _near, far in ranges)
+        taken_out_of = {(near, far) for near, far in ranges if near > nearest or far < furthest}
     # bind rigging skips the grouping, its vertices carry the rig instead
     if armature_obj is None or bind:
         # one implicit bone, same code path builds the chunks
@@ -1100,6 +1360,8 @@ def _gather_parts(
             bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, bind)
             try:
                 _tag_mesh_groups(bm, mesh_obj, mesh_uids)
+                _tag_geo_nodes(bm, mesh_obj)
+                _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings)
                 if bind:
                     _tag_bone_binding(bm, mesh_obj, index_of_bone)
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
@@ -1117,12 +1379,15 @@ def _gather_parts(
         bm = _evaluated_bmesh(context, mesh_obj, to_bk_space, True)
         try:
             _tag_mesh_groups(bm, mesh_obj, mesh_uids)
+            _tag_geo_nodes(bm, mesh_obj)
             if mesh_obj.parent_type == "BONE" and mesh_obj.parent_bone:
                 part = _bmesh_to_object(context, bm, f"bk64_{mesh_obj.name}", mesh_obj)
                 if part is not None:
                     temp_objects.append(part)
                     meshes_by_bone.setdefault(mesh_obj.parent_bone, []).append(part)
                 continue
+            _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings)
+            _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings)
             split = _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, root_bone_name, source_bones, warnings)
             for bone_name, parts in split.items():
                 temp_objects += parts
@@ -1263,6 +1528,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
     _check_world_defaults(context.scene)
     _check_cycle_type(mesh_objects)
     check_camera_water_reads(mesh_objects, settings.warnings)
+    _warn_tint_colors(mesh_objects, settings.warnings)
     _check_large_textures(mesh_objects)
     # nothing in BK reads a cull list, and the import and the splitter already clear it
     culling = [obj for obj in mesh_objects if obj.use_f3d_culling]
@@ -1302,6 +1568,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             bind,
             source_bones,
             settings.warnings,
+            stored,
         )
 
         # bone table order, keeping chunk order and bone order in step
@@ -1335,7 +1602,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     )
                     if fMeshes:
                         by_layer.setdefault(layer, []).extend(fMeshes.values())
-            for layer in sorted(by_layer):
+            for layer in sorted(by_layer, key=lambda key: (key[0], key[1], key[2] or ())):
                 chunk_fMeshes.append((bone_index, layer, by_layer[layer]))
                 ordered_fMeshes += by_layer[layer]
 
@@ -1368,8 +1635,22 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     for command in gfx_list.commands:
                         if isinstance(command, SPTexture):
                             command.on = 0
-        # the next chunk's prologue clears what this revert clears, so it is dead
-        reverts = {id(value[0].revert) for value in fModel.materials.values() if getattr(value[0], "revert", None)}
+        # the next chunk's prologue resets the geometry mode and nothing else, so a
+        # revert of only that is dead. One undoing alpha compare or TLUT has to stay.
+        geometry_only = (
+            SPGeometryMode,
+            SPSetGeometryMode,
+            SPClearGeometryMode,
+            SPLoadGeometryMode,
+            DPPipeSync,
+            SPEndDisplayList,
+        )
+        reverts = {
+            id(value[0].revert)
+            for value in fModel.materials.values()
+            if getattr(value[0], "revert", None)
+            and all(isinstance(command, geometry_only) for command in value[0].revert.commands)
+        }
         for fMesh in ordered_fMeshes:
             commands = fMesh.draw.commands
             # by index: these are dataclasses, so remove() can take the wrong one
@@ -1380,6 +1661,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 del commands[last]
         # an import stores geo type on the object, since a level's halves disagree
         geo_type = root_obj.hm64_bk64_geo_type_raw or settings.geo_type_bits()
+        _warn_reflective(mesh_objects, geo_type, settings.warnings)
         # the bits shipped, not the scene setting: a level's second half clears that
         if (geo_type & GEO_TYPE_MIPMAP_TRILINEAR) and not rom_format:
             for key, value in fModel.materials.items():
@@ -1459,7 +1741,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 if kind == "skinning":
                     skinning_sources.update(indices)
         source_counts = {}
-        for _bone_index, (_layer, chunk_source), _fMeshes in chunk_fMeshes:
+        for _bone_index, (_layer, chunk_source, _node), _fMeshes in chunk_fMeshes:
             source_counts[chunk_source] = source_counts.get(chunk_source, 0) + 1
         owner_of_pos = (
             _vertex_bones(context, mesh_objects, bones, to_bk_space, transform_matrix)
@@ -1472,7 +1754,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         chunk_bounds = []
         rigid_seams = set()
         from_source = {}  # original chunk -> the indices its faces went out as
-        for bone_index, (layer, source), bone_fMeshes in chunk_fMeshes:
+        node_of_chunk = {}
+        for bone_index, (layer, source, node), bone_fMeshes in chunk_fMeshes:
             raw = []
             for fMesh in bone_fMeshes:
                 raw += flatten_gfx_list(fMesh.draw, fModel.f3d, segments)
@@ -1489,6 +1772,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 if pair is None:
                     rigid_seams.add((source_bones or {}).get(source, f"chunk {source}"))
             for part in pair if pair is not None else (chunk_words,):
+                node_of_chunk[len(dl_words)] = node
                 chunks.append((bone_index, len(dl_words)))
                 chunk_bounds.append(points if part is not (pair[0] if pair else None) else [])
                 if source >= 0:
@@ -1497,8 +1781,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
 
         for name in sorted(rigid_seams):
             settings.warnings.append(
-                f"The seam at bone '{name}' lost its skinning and can tear in game. It needs its "
-                "faces on one material and draw layer, with up to 24 vertices weighted to the parent bone."
+                f"The seam at bone '{name}' came out rigid, so it can split open when the joint "
+                "bends. A seam holds together when its faces share one material and draw layer, with "
+                "up to 24 vertices weighted to the parent bone."
             )
         collision = collision_from_display_list(dl_words, vertex_owners, material_surfaces(fModel))
         if shapes:
@@ -1531,6 +1816,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         bound_vertices = (
             _vertex_bone_entries(vertices, bone_tags, settings.warnings, transform_matrix @ to_bk_space) if bind else []
         )
+        if bound_vertices and root_obj.hm64_bk64_contract < SCENE_CONTRACT:
+            _warn_legacy_binding(bound_vertices, settings.warnings)
         if bind and not bound_vertices:
             raise PluginError(f"Bind Vertices found nothing to bind. Weight the mesh to '{root_obj.name}'.")
 
@@ -1539,6 +1826,11 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 f"{len(vertices)} vertices is past the {MAX_VERTEX_COUNT} the game can index. "
                 "Simplify the mesh, or split it across more than one model."
             )
+
+        aside = [obj for obj in mesh_objects if any(obj.hm64_bk64_view_offset)]
+        if aside:
+            counted = "1 object stands" if len(aside) == 1 else f"{len(aside)} objects stand"
+            settings.warnings.append(f"{counted} aside for viewing, and went out stacked.")
 
         # after the append, the way vanilla does it. global_norm is the radius
         # collision gets tested against at all
@@ -1554,20 +1846,55 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # only split rigging draws under BONE commands, but both need the table:
         # the game builds no matrix list without one
         bone_table = bones if armature_obj is not None else []
+
+        def record_of(chunk):
+            bone_index, gfx_index = chunk
+            return ("bone", bone_index, gfx_index) if rigged else ("loaddl", gfx_index)
+
+        halves = {}
+        for position, chunk in enumerate(chunks):
+            node = node_of_chunk.get(chunk[1])
+            if node is not None and node[0] == "sort":
+                halves.setdefault(node[1], {}).setdefault(node[2], []).append((chunk, chunk_bounds[position]))
+        sorts, in_a_sort = sort_records(halves, record_of, settings.warnings, list(root_obj.hm64_bk64_sort_one_half))
+
         if stored is not None:
             records = relink_layout(stored, from_source)
             if records is not None:
                 records = guard_layout(records, settings.warnings)
-                # anything the modeller added is outside the layout, hung off its
-                # bone at the end. Anything else draws plainly, off no matrix.
+                # what the modeller added goes in the node they put it in, or beside them all at the end
                 drawn = {index for _k, indices, _m, _p, _r in layout_records(records) for index in indices}
+                missed = set()
                 for chunk_bone, gfx_index in chunks:
-                    if gfx_index not in drawn:
-                        records.append(("bone", chunk_bone, gfx_index) if rigged else ("loaddl", gfx_index))
+                    if gfx_index in drawn or (chunk_bone, gfx_index) in in_a_sort:
+                        continue
+                    added = ("bone", chunk_bone, gfx_index) if rigged else ("loaddl", gfx_index)
+                    node = node_of_chunk.get(gfx_index)
+                    if node is not None and place_in_node(records, node, added):
+                        continue
+                    if node is not None:
+                        missed.add(node)
+                    records.append(added)
+                # a sort stands where its geometry stood, inside whatever level or state held it
+                took = {gfx: which for (_bone, gfx), which in in_a_sort.items()}
+                standing = set()
+                records = without_chunks(records, took, sorts, standing)
+                records += [sort for which, sort in enumerate(sorts) if which not in standing]
+                if not rigged:
+                    records = lift_out_of_bones(records)
+                for node in sorted(missed):
+                    settings.warnings.append(
+                        f"This model has nothing matching {geo_node_group(node)}, so what you put in "
+                        "that group goes out drawing plainly instead."
+                    )
             if records is None:
                 stored = None
         if stored is None:
-            records = geo_records(bones, chunks, armature_obj, rigged, chunk_bounds)
+            plain = [(chunk, bounds) for chunk, bounds in zip(chunks, chunk_bounds) if chunk not in in_a_sort]
+            records = geo_records(
+                bones, [chunk for chunk, _b in plain], armature_obj, rigged, [bounds for _c, bounds in plain]
+            )
+            records += sorts
             # a refpoint names no display list and outlives a relink that gave up
             emitted = {record[1] for record in records if record[0] == "refpoint"}
             for point in layout_refpoints(stored_layout(root_obj) or []):

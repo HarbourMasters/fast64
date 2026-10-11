@@ -79,8 +79,11 @@ from .bk64_constants import (
     OTR_TEXTURE_V1,
     PALETTED_FORMATS,
     TEX_FLAG_LOAD_AS_RAW,
+    RENDERMODE_AA_TRANSLUCENT,
     RENDERMODE_ENTRY_STRIDE,
+    RENDERMODE_TRANSLUCENT,
     RT_BK_MODEL,
+    SCENE_CONTRACT,
     RT_BT_MODEL,
     SEG_BT_BONE_MTX,
     SEG_RENDERMODE,
@@ -99,6 +102,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
+from .bk64_geo import geo_node_group
 from .bk64_model import read_vertex_bounds
 from .bk64_rom import (
     BKMODEL_SECTIONS,
@@ -115,6 +119,9 @@ BK_TEX_FORMAT = {value: key for key, value in BK_TEX_TYPE.items()}
 
 # the entry a chunk jumps into, back to the draw layer that writes it again
 DRAW_LAYER_OF_ENTRY = {entry: layer for layer, entry in BK64_DRAW_LAYER_ENTRY.items() if entry is not None}
+# every one of modelRender's tables repeats entries 2 and 3 as 4 and 5
+DRAW_LAYER_OF_ENTRY[4] = DRAW_LAYER_OF_ENTRY[RENDERMODE_TRANSLUCENT]
+DRAW_LAYER_OF_ENTRY[5] = DRAW_LAYER_OF_ENTRY[RENDERMODE_AA_TRANSLUCENT]
 ALPHA_COMPARE_OF_BITS = {0: "G_AC_NONE", 1: "G_AC_THRESHOLD", 3: "G_AC_DITHER"}
 
 SHAPE_CODE = "hm64_bk64_hit_code"  # the hit code the export reads back off a volume
@@ -474,13 +481,20 @@ def _read_model_bin(data: bytes):
     if header["texture"]:
         blob_size, count, tex_flags = struct.unpack_from(">iHH", data, header["texture"])
         # Tooie drops the padding words: 8 bytes, and the locator comes first
-        stride, fields = (8, ">IhBB") if tooie else (16, ">ihxxBB")
+        strides = [(8, ">IhBB"), (16, ">ihxxBB")] if tooie else [(16, ">ihxxBB"), (8, ">IhBB")]
         if tooie and tex_flags & 0x100:
             external = count  # the pixels are in a bank the whole game shares, and the locator indexes it
         else:
-            for index in range(count):
-                offset, kind, width, height = struct.unpack_from(fields, data, header["texture"] + 8 + index * stride)
-                tex_infos.append(dict(offset=offset, type=kind & 0x7FFF, width=width, height=height))
+            # a converted model can carry one game's header and the other's stride
+            for stride, fields in strides:
+                tex_infos = []
+                for index in range(count):
+                    offset, kind, width, height = struct.unpack_from(
+                        fields, data, header["texture"] + 8 + index * stride
+                    )
+                    tex_infos.append(dict(offset=offset, type=kind & 0x7FFF, width=width, height=height))
+                if all(info["width"] and info["height"] and info["type"] in BK_TEX_FORMAT for info in tex_infos):
+                    break
             blob_at = header["texture"] + 8 + count * stride
             blob = data[blob_at : blob_at + blob_size]
 
@@ -1428,6 +1442,68 @@ def _corner_positions(indices, vertices):
     return tuple(sorted(tuple(vertices[index][0]) for index in indices if index < len(vertices)))
 
 
+def _branch_chunks(records):
+    """Every display list a branch of the layout draws"""
+    found = set()
+    for record in records:
+        kind = record[0]
+        if kind == "loaddl":
+            found.add(record[1])
+        elif kind == "skinning":
+            found.update(record[1])
+        elif kind == "bonebranch":
+            found |= _branch_chunks(record[2])
+        elif kind == "selector":
+            for option in record[2]:
+                found |= _branch_chunks(option)
+        elif kind == "sort":
+            found |= _branch_chunks(record[3]) | _branch_chunks(record[4])
+        elif kind in ("lod", "drawdist", "camera"):
+            found |= _branch_chunks(record[-1])
+    return found
+
+
+def _lod_levels(records, levels=None):
+    """(near, far, display lists) per level of detail"""
+    levels = [] if levels is None else levels
+    for record in records:
+        kind = record[0]
+        if kind == "lod":
+            levels.append((record[2], record[1], _branch_chunks(record[4])))
+            _lod_levels(record[4], levels)
+        elif kind == "bonebranch":
+            _lod_levels(record[2], levels)
+        elif kind == "selector":
+            for option in record[2]:
+                _lod_levels(option, levels)
+        elif kind == "sort":
+            _lod_levels(record[3], levels)
+            _lod_levels(record[4], levels)
+        elif kind in ("drawdist", "camera"):
+            _lod_levels(record[-1], levels)
+    return levels
+
+
+def _selector_options(records, options=None):
+    """(appendage, state, display lists) per selector option, innermost selector first"""
+    options = [] if options is None else options
+    for record in records:
+        kind = record[0]
+        if kind == "selector":
+            for slot, option in enumerate(record[2]):
+                # a nested selector owns its geometry, so it has to claim it first
+                _selector_options(option, options)
+                options.append((record[1], slot + 1, _branch_chunks(option)))
+        elif kind == "bonebranch":
+            _selector_options(record[2], options)
+        elif kind == "sort":
+            _selector_options(record[3], options)
+            _selector_options(record[4], options)
+        elif kind in ("lod", "drawdist", "camera"):
+            _selector_options(record[-1], options)
+    return options
+
+
 def _build_faces(geometry, surfaces, vertices, materials, to_blender):
     """(corners, material slot, bone index, source vertices) per face, and the positions"""
     positions, face_data, remap = [], [], {}
@@ -1735,6 +1811,8 @@ def import_bk64_model(context, path: str, settings):
     context.scene.collection.objects.link(mesh_obj)
     # on whichever object the export is handed, the armature when there's one
     (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
+    # so the export knows this scene was read with the rules it writes by
+    (armature_obj or mesh_obj).hm64_bk64_contract = SCENE_CONTRACT
     (armature_obj or mesh_obj).hm64_bk64_geo_type_raw = model["geo_type"]
     if model.get("camera_areas"):
         _build_camera_areas(context, base, model["camera_areas"], armature_obj or mesh_obj, to_blender)
@@ -1798,6 +1876,41 @@ def import_bk64_model(context, path: str, settings):
         if leftover
         else None
     )
+
+    # vanilla's levels share their bones, so only a group can tell the copies apart
+    levels = _lod_levels(layout)
+    made = set()
+    for near, far, chunk_indices in levels:
+        members = {
+            corner
+            for corners, _material, _matrix, _source_vertices, _orig, source in face_data
+            if source in chunk_indices
+            for corner in corners
+        }
+        if members:
+            name = geo_node_group(("lod", int(near), int(far)))
+            # two levels can cover the same distances, and a second group would be renamed
+            group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
+            group.add(sorted(members), 1.0, "REPLACE")
+            made.add(name)
+    model["lod_levels"] = len(made)
+
+    # the states game code picks between, so a hand holding a jiggy is its own group
+    claimed, state_groups = set(), set()
+    for appendage, which, chunk_indices in _selector_options(layout):
+        members = {
+            corner
+            for corners, _material, _matrix, _source_vertices, _orig, source in face_data
+            if source in chunk_indices
+            for corner in corners
+        } - claimed
+        if members:
+            name = geo_node_group(("selector", appendage, which))
+            group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
+            group.add(sorted(members), 1.0, "REPLACE")
+            claimed |= members
+            state_groups.add(name)
+    model["selector_states"] = len(state_groups)
 
     # the export reads these back by name. A renamed group stops being a mesh.
     dropped = 0

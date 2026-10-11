@@ -49,9 +49,11 @@ Meshes must use F3D materials, as they do everywhere else in Fast64. If you have
 
 Shading comes from vertex color. The game loads no lights for a model. A vanilla model carries its shading baked into its vertices instead.
 
-The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha in the first cycle and scales it by the primitive color's alpha in the second, giving one fade control over the whole material. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded. "BK Vertex Colored Texture Cutout Transparent" takes both, for a cutout that also fades at its vertices.
+Primitive and Environment Color belong to the game. It loads both before it draws a model: Environment as a tint and the alpha the model fades with, Primitive as an offset that's usually black. The player's tint follows the floor under them. Every vanilla material takes them in the first cycle, (TEXEL0 - PRIMITIVE) * ENVIRONMENT + PRIMITIVE, and multiplies by SHADE in the second. The presets do the same and set neither color. A material that sets one changes it for everything drawn after it in the model.
 
-Alpha Compare, in the material tab beside Draw Layer, is what makes a cutout clip instead of blend. Threshold tests each pixel's alpha and throws the failing ones away; None lets them blend. Vanilla turns it on around the chunks that need it, foliage and railings among them, and an imported material arrives with whatever it shipped with. The presets leave it at None, so a cutout you build yourself needs it set.
+The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded. "BK Vertex Colored Texture Cutout Transparent" takes both, for a cutout that also fades at its vertices. "BK Shaded Texture Transparent" takes both too.
+
+Alpha Compare, in the material tab beside Draw Layer, is what makes a cutout clip instead of blend. Threshold tests each pixel's alpha and throws the failing ones away; None lets them blend. Vanilla turns it on around the chunks that need it, foliage and railings among them, and an imported material arrives with whatever it shipped with. The two cutout presets set Threshold for you. Cutout Transparent doesn't, since its alpha carries the vertex fade too and a threshold would drop the surface instead of fading it.
 
 No preset sets a render mode, and none should. A chunk jumps into the render mode table the game builds instead, picked by its Draw Layer. Ticking Set Render Mode writes a mode into the display list after that jump, which overrides it and takes the actor's depth behavior away from the game.
 
@@ -93,7 +95,7 @@ Large Texture Mode is not supported. It splits a mesh into pieces that each load
 Tile settings default to wrap. A model imported from a format with no equivalent loses whatever it was authored with. Any face whose UVs reach past the tile edge then samples from the far side of the texture instead of stopping at it. That shows up as streaks and smears across otherwise flat surfaces. Set Clamp on S and T for those materials.
 
 ### Animated Textures
-A material's texture can cycle through a set of frames, which is how the Beauty Machine's screen flickers and how lightning flashes. Set Animated Texture on the material, then list every frame under it starting with the one the material already samples. Frames Per Second is what it sounds like, and vanilla runs between 4 and 15.
+A material's texture can cycle through a set of frames, which is how the Beauty Machine's screen flickers and how lightning flashes. Set Animated Texture on the material, then list every frame under it starting with the one the material already samples. That drop down picks which of the material's own two textures cycles, and Model Slot below it picks which of the model's four slots drives it. Frames Per Second is what it sounds like, and vanilla runs between 4 and 15.
 
 Every frame shares one size and one format, and that format is RGBA16, RGBA32 or IA8. A CI4 or CI8 frame would have to animate its palette alongside the image, and the exporter refuses rather than writing something the game reads past the end of.
 
@@ -150,9 +152,21 @@ As well as carrying geometry, a bone can act as a node in the geo layout, set by
 
 The value isn't set automatically. An actor has to call `modelRender_setAppendageVisibility`. Until one does, a selector on a replacement model reads whatever was left in the slot unless the actor is changed to drive it. That requires a port change and can't be done by the exporter.
 
+Each option's geometry imports into a vertex group named for the appendage and the state that draws it, `bk64_selector_1_2` being appendage 1 drawing when the game sets state 2, so Banjo's eight hand states come in eight groups rather than on top of each other. Geo Nodes lists the appendages a model has with a button per state, and Split Selector States leaves each one as its own object to work on. A nested selector owns its own geometry, so Banjo's appendage 2 keeps its hands out of the arm's group. A state sits inside a detail level in vanilla, so a face can be in one of each and the buttons only move it out of the kind you clicked.
+
+A model imported before Weld Bone Seams existed can carry bone assignments nothing ever checked, since two vertices on one spot used to follow whichever bone came first. The export says so when it sees them. A model imported since then is marked, so it never asks.
+
 **Level Of Detail** draws what's under it only while the camera is between Near Distance and Far Distance of the joint, both in BK units. Far Distance has to be set or it never draws.
 
+A vanilla model that already has levels of detail hangs them all off the same bones, so they import on top of each other. Each level's geometry goes into a vertex group named for the distances it covers, `bk64_lod_0_350` and so on. That tells the copies apart: select a group in edit mode and hide it to work on the rest.
+
+Those names decide where new geometry goes. Put a hat in `bk64_lod_0_350` and it draws only while the camera is inside 350 units, so a model wanting a hat at every level needs one per group. Leave it in no group at all and it goes out beside the levels rather than inside one, drawing at every distance. A group naming distances the model doesn't have is a warning, and that geometry draws always. Geo Nodes lists the levels a model has, with a button per level that puts the selection in it, so the names don't have to be typed. Edit Range beside a level changes the distances it covers and renames its group to match, since the layout and the name have to agree. A level draws while the camera is past its near distance and no further than its far one, so `0-350` beside `350-800` covers everything between them with no seam. Leave a distance no level covers and the geometry inside them stops drawing there. Edit Range warns about that rather than refusing it, since no vanilla model has a gap. A bone marked Level Of Detail takes its distances from Near Distance and Far Distance instead, for a model built from scratch.
+
+Split Detail Levels leaves each level as its own object without changing the export, and Spread Detail Levels stands those objects side by side while you work. The export takes the spread back out, so a spread model and a stacked one write the same file. Moving a level from where it stands still moves it in the file, since only the spread itself is subtracted.
+
 **Sort** orders its two child bones by which one is nearer the camera, for translucent halves that have to draw back to front. It takes exactly two.
+
+Put each half in `bk64_sort_1_a` and `bk64_sort_1_b` with the buttons in Geo Nodes, and the export builds the node from them, taking the geometry over from wherever it drew before. The node stands where that geometry stood, so a fence inside a detail level stays inside it. Only The Nearer Half beside a sort in Geo Nodes drops the far half instead of drawing both, as Rusty Bucket Bay does on every sort in its opaque half. A model can hold more than one sort, numbered as you like. A half on its own is a warning and draws plainly, since the game needs both to order them.
 
 **Draw Distance** skips everything under it when its box is off screen. The box is calculated from the geometry it guards, leaving nothing to set.
 

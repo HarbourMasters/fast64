@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 from contextlib import contextmanager
 
 import bpy
 import mathutils
 from bpy.app.handlers import persistent
+from bpy.props import IntProperty, StringProperty
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
@@ -15,15 +17,28 @@ from .bk64_constants import (
     CAMERA_AREA_KIND,
     COLLISION_ONLY_PROP,
     HIT_SPHERE_PROP,
+    GEO_LAYOUT_PROP,
     GEO_TYPE_ENV_MAP,
     GEO_TYPE_MIPMAP_TRILINEAR,
+    MAX_APPENDAGE_ID,
+    SCENE_CONTRACT,
     MESH_EFFECT_UID_BASE,
     MESH_GROUP_PREFIX,
     MODEL_STASH_PROPS,
     SHAPE_KIND,
+    SORT_SIDES,
 )
 from .bk64_import import import_bk64_model
+from .bk64_geo import (
+    geo_node_group,
+    geo_node_of_group,
+    layout_detail_levels,
+    layout_level_gaps,
+    set_detail_level,
+    stored_layout,
+)
 from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
+from .bk64_properties import spread_detail_levels
 from .bk64_model import (
     armature_of,
     blank_half_object,
@@ -596,6 +611,306 @@ class BK64_ShowHitSphere(Operator):
             return {"CANCELLED"}
 
 
+class BK64_WeldBoneSeams(Operator):
+    bl_idname = "object.hm64_bk64_weld_bone_seams"
+    bl_label = "Weld Bone Seams"
+    bl_description = (
+        "Put every vertex sitting on one spot onto the same bone, the heaviest weighted one. "
+        "For an older model whose seams pull apart in game"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            root_obj = resolve_root(context)
+            meshes = [root_obj] if root_obj.type == "MESH" else root_obj.children_recursive
+            welded = 0
+            with object_mode(context):
+                for mesh_obj in [obj for obj in meshes if obj.type == "MESH"]:
+                    bones = {group.index: group for group in mesh_obj.vertex_groups if group.name.startswith("bk_")}
+                    at_spot = {}
+                    for vertex in mesh_obj.data.vertices:
+                        held = {entry.group: entry.weight for entry in vertex.groups if entry.group in bones}
+                        if held:
+                            at_spot.setdefault(tuple(round(value, 4) for value in vertex.co), []).append(
+                                (vertex.index, held)
+                            )
+
+                    for spot, sitting in at_spot.items():
+                        groups = {index for _vertex, held in sitting for index in held}
+                        if len(groups) < 2:
+                            continue
+                        weights = {}
+                        for _vertex, held in sitting:
+                            for index, weight in held.items():
+                                weights[index] = weights.get(index, 0.0) + weight
+                        # the heaviest weight wins, the same tie break the export uses
+                        winner = max(weights.items(), key=lambda item: (item[1], -item[0]))[0]
+                        indices = [vertex for vertex, _held in sitting]
+                        for index in groups - {winner}:
+                            bones[index].remove(indices)
+                        bones[winner].add(indices, 1.0, "REPLACE")
+                        welded += 1
+
+                    # a group left holding nothing is noise in the list
+                    for group in list(mesh_obj.vertex_groups):
+                        if group.name.startswith("bk_") and not any(
+                            entry.group == group.index for vert in mesh_obj.data.vertices for entry in vert.groups
+                        ):
+                            mesh_obj.vertex_groups.remove(group)
+
+            root_obj.hm64_bk64_contract = SCENE_CONTRACT
+            counted = "1 spot" if welded == 1 else f"{welded} spots"
+            self.report(
+                {"INFO"},
+                f"{counted} put back on one bone."
+                if welded
+                else "Every spot already followed one bone, so nothing moved.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_SetDetailLevelRange(Operator):
+    bl_idname = "object.hm64_bk64_set_detail_level_range"
+    bl_label = "Edit Range"
+    bl_description = "Change the distances this detail level covers. Its vertex group is renamed to match"
+    bl_options = {"REGISTER", "UNDO"}
+
+    near: IntProperty(default=0)
+    far: IntProperty(default=0)
+    new_near: IntProperty(name="Near Distance", default=0, min=0, max=0x3FFF)
+    new_far: IntProperty(name="Far Distance", default=0, min=0, max=0x3FFF)
+
+    def invoke(self, context, event):
+        self.new_near, self.new_far = self.near, self.far
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.prop(self, "new_near")
+        col.prop(self, "new_far")
+        col.label(text="In BK units, from the joint this level hangs off.")
+
+    def execute(self, context):
+        try:
+            root_obj = resolve_root(context)
+            records = stored_layout(root_obj)
+            if records is None:
+                raise PluginError("This model came with no geo layout, so it has no levels to move.")
+            if self.new_far <= self.new_near:
+                raise PluginError("Far Distance has to be past Near Distance, or the level never draws.")
+            was, now = (self.near, self.far), (self.new_near, self.new_far)
+            if now != was and now in layout_detail_levels(records):
+                raise PluginError(
+                    f"A level between {now[0]} and {now[1]} is already here, and both would want "
+                    f"the group {geo_node_group(('lod',) + now)}."
+                )
+            if not set_detail_level(records, was, now):
+                raise PluginError(f"This model has no level between {was[0]} and {was[1]} any more.")
+            root_obj[GEO_LAYOUT_PROP] = json.dumps(records)
+
+            # the name carries the distances, so it moves with them or the export stops finding it
+            old_name, new_name = geo_node_group(("lod",) + was), geo_node_group(("lod",) + now)
+            meshes = [root_obj] if root_obj.type == "MESH" else root_obj.children_recursive
+            for mesh_obj in [obj for obj in meshes if obj.type == "MESH"]:
+                group = mesh_obj.vertex_groups.get(old_name)
+                if group is not None:
+                    group.name = new_name
+            self.report({"INFO"}, f"That level now draws between {now[0]} and {now[1]}.")
+            for low, high in layout_level_gaps(records):
+                self.report(
+                    {"WARNING"},
+                    f"Nothing draws between {low} and {high} now. Move the next level's "
+                    f"Near Distance to {low} to close it.",
+                )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_PutInDetailLevel(Operator):
+    bl_idname = "object.hm64_bk64_put_in_detail_level"
+    bl_label = "Put In Detail Level"
+    bl_description = "Draw the selected meshes only at this distance, or the selected vertices in edit mode"
+    bl_options = {"REGISTER", "UNDO"}
+
+    near: IntProperty(default=0)
+    far: IntProperty(default=0)
+
+    def execute(self, context):
+        try:
+            wanted = geo_node_group(("lod", self.near, self.far)) if self.far else None
+            moved = _put_in_node(context, wanted, "lod")
+            counted = "1 vertex" if moved == 1 else f"{moved} vertices"
+            self.report(
+                {"INFO"},
+                f"{counted} now draw between {self.near} and {self.far}."
+                if wanted is not None
+                else f"{counted} left their detail level, so they draw at every distance.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+def _put_in_node(context, wanted, kind: str):
+    """Move the selection into that node's group, out of whatever node of the same kind held it"""
+    editing = context.mode == "EDIT_MESH"
+    meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+    if not meshes:
+        raise PluginError("Select the mesh to move.")
+
+    moved = 0
+    # a vertex group can't be touched from edit mode, and leaving it writes the
+    # selection back to the mesh, where this reads it
+    with object_mode(context):
+        for mesh_obj in meshes:
+            indices = [vertex.index for vertex in mesh_obj.data.vertices if vertex.select or not editing]
+            if not indices:
+                continue
+            # vanilla puts hand states inside a detail level, so a face can be in one
+            # of each and only this kind is left behind
+            left = [
+                group
+                for group in mesh_obj.vertex_groups
+                if (geo_node_of_group(group.name) or (None,))[0] == kind and group.name != wanted
+            ]
+            for group in left:
+                group.remove(indices)
+            for group in left:
+                if not any(entry.group == group.index for vert in mesh_obj.data.vertices for entry in vert.groups):
+                    mesh_obj.vertex_groups.remove(group)
+            if wanted is not None:
+                group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
+                group.add(indices, 1.0, "REPLACE")
+            moved += len(indices)
+    return moved
+
+
+class BK64_SplitNodes(Operator):
+    bl_idname = "object.hm64_bk64_split_nodes"
+    bl_label = "Split Layout Nodes"
+    bl_description = "Give each level or state its own object, so one can be hidden or moved without the rest"
+    bl_options = {"REGISTER", "UNDO"}
+
+    kind: StringProperty(default="lod")
+
+    def execute(self, context):
+        try:
+            root_obj = resolve_root(context)
+            meshes = [root_obj] if root_obj.type == "MESH" else root_obj.children_recursive
+            made = 0
+            for mesh_obj in [obj for obj in meshes if obj.type == "MESH"]:
+                levels = [
+                    group.name
+                    for group in mesh_obj.vertex_groups
+                    if (geo_node_of_group(group.name) or (None,))[0] == self.kind and len(mesh_obj.vertex_groups) > 1
+                ]
+                # the first level stays in the object it is in, the rest move out
+                for name in levels[1:]:
+                    with object_mode(context):
+                        for obj in context.view_layer.objects:
+                            obj.select_set(obj is mesh_obj)
+                        context.view_layer.objects.active = mesh_obj
+                        # an earlier split can leave a group behind with nothing in it,
+                        # and edit mode holds its own selection, so count members here
+                        index = mesh_obj.vertex_groups[name].index
+                        empty = not any(
+                            entry.group == index for vert in mesh_obj.data.vertices for entry in vert.groups
+                        )
+                    if empty:
+                        continue
+                    bpy.ops.object.mode_set(mode="EDIT")
+                    bpy.ops.mesh.select_all(action="DESELECT")
+                    mesh_obj.vertex_groups.active_index = mesh_obj.vertex_groups[name].index
+                    bpy.ops.object.vertex_group_select()
+                    bpy.ops.mesh.separate(type="SELECTED")
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                    made += 1
+
+            # the box was ticked while this was one object, so the update had nothing to move
+            if root_obj.hm64_bk64_spread_levels:
+                spread_detail_levels(root_obj, context)
+
+            named = "level" if self.kind == "lod" else "state" if self.kind == "selector" else "half"
+            counted = f"1 {named}" if made == 1 else f"{made} {named}s"
+            self.report({"INFO"}, f"{counted} left as their own object. The export draws them the same.")
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_PutInSort(Operator):
+    bl_idname = "object.hm64_bk64_put_in_sort"
+    bl_label = "Put In Sort"
+    bl_description = "Draw the selected meshes as this half of a sort, or the selected vertices in edit mode"
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: IntProperty(default=1, min=1)
+    side: IntProperty(default=0, min=-1, max=1)
+
+    def execute(self, context):
+        try:
+            wanted = geo_node_group(("sort", self.index, self.side)) if self.side >= 0 else None
+            moved = _put_in_node(context, wanted, "sort")
+            counted = "1 vertex" if moved == 1 else f"{moved} vertices"
+            self.report(
+                {"INFO"},
+                (
+                    f"{counted} now draw as half {SORT_SIDES[self.side]} of sort {self.index}."
+                    if wanted is not None
+                    else f"{counted} left their sort, so they draw in the order they were built."
+                ),
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_PutInSelectorState(Operator):
+    bl_idname = "object.hm64_bk64_put_in_selector_state"
+    bl_label = "Put In Selector State"
+    bl_description = (
+        "Draw the selected meshes only in this state of an appendage, or the selected vertices in "
+        "edit mode. Game code picks the state"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    appendage: IntProperty(default=1, min=1, max=MAX_APPENDAGE_ID)
+    state: IntProperty(default=1, min=0)
+
+    def execute(self, context):
+        try:
+            wanted = geo_node_group(("selector", self.appendage, self.state)) if self.state else None
+            moved = _put_in_node(context, wanted, "selector")
+            counted = "1 vertex" if moved == 1 else f"{moved} vertices"
+            self.report(
+                {"INFO"},
+                (
+                    f"{counted} now draw in state {self.state} of appendage {self.appendage}."
+                    if wanted is not None
+                    else f"{counted} left their state, so they draw whatever the game picks."
+                ),
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 class BK64_ImportAnimation(Operator):
     bl_idname = "scene.hm64_bk64_import_animation"
     bl_label = "Import BK Animation"
@@ -729,6 +1044,16 @@ class BK64_ImportModel(Operator):
                 kept = model.get("geo_commands", ())
                 if kept:
                     notes.append(f"Its geo layout uses {', '.join(kept)}, kept for re-export.")
+                if model.get("lod_levels"):
+                    notes.append(
+                        f"Its {model['lod_levels']} detail levels came in as vertex groups, named "
+                        "for the distances they cover."
+                    )
+                if model.get("selector_states"):
+                    notes.append(
+                        f"Its {model['selector_states']} appendage states came in as vertex groups, "
+                        "for game code to pick between."
+                    )
                 if model["mesh_list"]:
                     notes.append(f"Its mesh list came in as {len(model['mesh_list'])} vertex groups.")
                     if model["mesh_list_dropped"]:
@@ -827,6 +1152,12 @@ bk64_operator_classes = (
     BK64_AddMeshEffect,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
+    BK64_WeldBoneSeams,
+    BK64_PutInDetailLevel,
+    BK64_SetDetailLevelRange,
+    BK64_PutInSelectorState,
+    BK64_PutInSort,
+    BK64_SplitNodes,
     BK64_ShowHitSphere,
     BK64_ImportSkeleton,
     BK64_ImportModel,

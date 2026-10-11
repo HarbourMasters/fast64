@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
+import mathutils
+from bpy.props import (
+    BoolProperty,
+    BoolVectorProperty,
+    EnumProperty,
+    FloatProperty,
+    FloatVectorProperty,
+    IntProperty,
+    StringProperty,
+)
 
 from ...render_settings import on_update_render_settings
 from .bk64_constants import (
@@ -11,6 +20,7 @@ from .bk64_constants import (
     GEO_TYPE_MIPMAP_TRILINEAR,
     MAX_BONE_ID,
     MAX_SCROLL_SPEED,
+    MAX_SORTS,
     RENDERMODE_AA_OPAQUE,
 )
 from .bk64_level_models import bk64_level_layers, bk64_level_names
@@ -175,9 +185,19 @@ _BK64_SCENE_PROPS = (
     "hm64_bk64_anim_import_path",
     "hm64_bk64_scroll_speed",
     "hm64_bk64_mesh_effect",
+    "hm64_bk64_sort_index",
+    "hm64_bk64_appendage",
 )
 
-_BK64_OBJECT_PROPS = ("hm64_bk64_level_half", "hm64_bk64_geo_type_raw", "hm64_bk64_cull_radius_raw")
+_BK64_OBJECT_PROPS = (
+    "hm64_bk64_level_half",
+    "hm64_bk64_geo_type_raw",
+    "hm64_bk64_cull_radius_raw",
+    "hm64_bk64_view_offset",
+    "hm64_bk64_spread_levels",
+    "hm64_bk64_sort_one_half",
+    "hm64_bk64_contract",
+)
 
 _BK64_BONE_PROPS = (
     "hm64_bk64_bone_id",
@@ -209,6 +229,54 @@ _BK64_MATERIAL_PROPS = (
     "hm64_bk64_anim_slot",
     "hm64_bk64_anim_rate",
 )
+
+
+_appendage_items = []
+
+
+def _appendage_enum(self, context):
+    """The appendages the selected model's layout has"""
+    from .bk64_geo import layout_selectors, stored_layout
+    from .bk64_operators import resolve_root
+
+    try:
+        root = resolve_root(context)
+    except Exception:
+        root = None
+    found = layout_selectors(stored_layout(root) or []) if root is not None else []
+    # Blender drops enum strings it doesn't own, so the items outlive the call here
+    _appendage_items.clear()
+    _appendage_items.extend(
+        (
+            str(appendage),
+            f"Appendage {appendage}",
+            "Game code draws this one or nothing" if count == 1 else f"Game code picks between {count} states here",
+        )
+        for appendage, count in found
+    )
+    if not _appendage_items:
+        _appendage_items.append(("0", "None", "This model has no selectors"))
+    return _appendage_items
+
+
+def spread_detail_levels(self, context):
+    """Stand each level aside, or put it back"""
+    from .bk64_geo import geo_node_of_group
+
+    meshes = [self] if self.type == "MESH" else [obj for obj in self.children_recursive if obj.type == "MESH"]
+    levels = []
+    for mesh_obj in meshes:
+        nodes = [geo_node_of_group(group.name) for group in mesh_obj.vertex_groups]
+        nodes = [node for node in nodes if node is not None]
+        # a piece can hold a state as well as a level, and "lod" sorts ahead of the other kinds
+        if nodes:
+            levels.append((min(nodes), mesh_obj))
+
+    step = max((max(mesh_obj.dimensions) for _node, mesh_obj in levels), default=0.0) * 1.2
+    for index, (_node, mesh_obj) in enumerate(sorted(levels, key=lambda pair: pair[0])):
+        aside = mathutils.Vector((step * index, 0.0, 0.0)) if self.hm64_bk64_spread_levels else mathutils.Vector()
+        mesh_obj.location += aside - mathutils.Vector(mesh_obj.hm64_bk64_view_offset)
+        mesh_obj.hm64_bk64_view_offset = aside
 
 
 def bk64_properties_register():
@@ -301,6 +369,40 @@ def bk64_properties_register():
         min=0,
         description="How far an imported model kept drawing past its own geometry. The export "
         "never writes less than this. Set it to 0 to measure the mesh instead",
+    )
+    bpy.types.Scene.hm64_bk64_sort_index = IntProperty(
+        name="Sort",
+        default=1,
+        min=1,
+        description="Which sort the buttons below fill. A model can hold several",
+    )
+    bpy.types.Scene.hm64_bk64_appendage = EnumProperty(
+        name="Appendage",
+        items=_appendage_enum,
+        description="Which appendage the state buttons below fill",
+    )
+    bpy.types.Object.hm64_bk64_view_offset = FloatVectorProperty(
+        name="Spread",
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        description="How far this object stands aside for viewing. The export takes it back out",
+    )
+    bpy.types.Object.hm64_bk64_contract = IntProperty(
+        name="Made By",
+        default=0,
+        description="Which import wrote this model. 0 is a scene from before Weld Bone Seams, and "
+        "those can hold bone assignments nothing ever checked",
+    )
+    bpy.types.Object.hm64_bk64_sort_one_half = BoolVectorProperty(
+        name="Only The Nearer Half",
+        size=MAX_SORTS,
+        description="Draw only the half the camera is on, instead of both with the nearer in front",
+    )
+    bpy.types.Object.hm64_bk64_spread_levels = BoolProperty(
+        name="Spread Detail Levels",
+        default=False,
+        update=spread_detail_levels,
+        description="Stand the model's detail levels side by side while you work. They export stacked either way",
     )
     bpy.types.Object.hm64_bk64_level_half = EnumProperty(
         name="Level Half",
@@ -450,12 +552,12 @@ def bk64_properties_register():
         description="Cycle this material's texture through the frames listed below",
     )
     bpy.types.Material.hm64_bk64_anim_slot = IntProperty(
-        name="Slot",
+        name="Model Slot",
         default=0,
         min=0,
         max=ANIM_TEX_SLOT_COUNT - 1,
-        description="Which of the model's four animation slots drives this texture. Leave it at 0 "
-        "unless the model animates more than one texture at once",
+        description="Which of the model's four animation slots drives this material. Leave it at "
+        "0 unless the model animates more than one texture at once",
     )
     bpy.types.Material.hm64_bk64_anim_rate = FloatProperty(
         name="Frames Per Second",

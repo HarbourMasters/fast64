@@ -112,6 +112,12 @@ MAX_BONE_ID = 0x6C  # the bone transform table is 0x6D entries, indexed by id un
 MAX_LAYOUT_BONE = 127  # the geo layout's BONE command holds its bone index in an s8
 
 MESH_GROUP_PREFIX = "bk64_mesh_"  # the uid rides in the name, it's what the game looks a mesh up by
+GEO_NODE_PREFIXES = {"lod": "bk64_lod_", "sort": "bk64_sort_", "selector": "bk64_selector_"}
+SORT_SIDES = ("a", "b")  # a sort draws its two halves nearest last
+SCENE_CONTRACT = 1  # bump when the export starts reading something off a scene it used to ignore
+
+MAX_SORTS = 32  # Only The Nearer Half is one boolean vector, and 32 is as wide as Blender makes one
+GEO_NODE_ATTR = "bk64_geo_node"  # the node a face draws under, packed into one int
 MESH_TAG_ATTRIBUTE = "bk64_mesh_tag"  # holds mesh membership through the part and piece splits
 BONE_TAG_ATTRIBUTE = "bk64_bone_tag"  # holds a bound vertex's bone through the same splits
 
@@ -160,6 +166,8 @@ OP_TRI1 = 0xBF
 OP_SETTILE = 0xF5
 OP_SETTILESIZE = 0xF2
 OP_LOADBLOCK = 0xF3
+OP_LOADTLUT = 0xF0
+OP_LOADTILE = 0xF4
 OP_LOADSYNC = 0xE6
 OP_PIPESYNC = 0xE7
 OP_TILESYNC = 0xE8
