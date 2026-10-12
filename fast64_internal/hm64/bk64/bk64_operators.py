@@ -27,6 +27,7 @@ from .bk64_constants import (
     MODEL_STASH_PROPS,
     SHAPE_KIND,
     SORT_SIDES,
+    SOURCE_CHUNK_ATTR,
 )
 from .bk64_import import import_bk64_model, restore_stacked_faces
 from .bk64_geo import (
@@ -819,6 +820,13 @@ def _put_in_node(context, wanted, kind: str):
             if wanted is not None:
                 group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
                 group.add(indices, 1.0, "REPLACE")
+            # an imported face draws where its chunk did, so a face moved here lets go of its chunk
+            tags = mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR)
+            if tags is not None:
+                chosen = set(indices)
+                for polygon in mesh_obj.data.polygons:
+                    if chosen.issuperset(polygon.vertices):
+                        tags.data[polygon.index].value = -1
             moved += len(indices)
     return moved
 

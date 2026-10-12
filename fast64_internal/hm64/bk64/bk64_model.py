@@ -918,7 +918,7 @@ def _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings):
         counted = "1 face" if moved == 1 else f"{moved} faces"
         warnings.append(
             f"{counted} on '{mesh_obj.name}' moved Detail Level, but imported faces draw in the level they came "
-            "from. Use Edit Range on that level instead."
+            "from. Move them with the level's Put In button in Geo Nodes, or use Edit Range to change the level."
         )
 
 
