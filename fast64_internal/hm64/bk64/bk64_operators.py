@@ -28,7 +28,7 @@ from .bk64_constants import (
     SHAPE_KIND,
     SORT_SIDES,
 )
-from .bk64_import import import_bk64_model
+from .bk64_import import import_bk64_model, restore_stacked_faces
 from .bk64_geo import (
     geo_node_group,
     geo_node_of_group,
@@ -674,6 +674,34 @@ class BK64_WeldBoneSeams(Operator):
             return {"CANCELLED"}
 
 
+class BK64_RestoreStackedFaces(Operator):
+    bl_idname = "object.hm64_bk64_restore_stacked_faces"
+    bl_label = "Restore Stacked Faces"
+    bl_description = "Put back the stacked copies a Merge by Distance welded away, read from the Model File"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        scene = context.scene
+        try:
+            root_obj = resolve_root(context)
+            path = bpy.path.abspath(scene.hm64_bk64_import_path)
+            if not path or not os.path.isfile(path):
+                raise PluginError("Set Model File in the Model Importer to the model this one was imported from.")
+
+            with object_mode(context):
+                restored = restore_stacked_faces(context, root_obj, path, BK64_Settings(scene))
+            counted = "1 face" if restored == 1 else f"{restored} faces"
+            self.report(
+                {"INFO"},
+                f"Put back {counted}." if restored else "Every stack still has all its copies, so nothing changed.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 class BK64_SetDetailLevelRange(Operator):
     bl_idname = "object.hm64_bk64_set_detail_level_range"
     bl_label = "Edit Range"
@@ -1153,6 +1181,7 @@ bk64_operator_classes = (
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
     BK64_WeldBoneSeams,
+    BK64_RestoreStackedFaces,
     BK64_PutInDetailLevel,
     BK64_SetDetailLevelRange,
     BK64_PutInSelectorState,

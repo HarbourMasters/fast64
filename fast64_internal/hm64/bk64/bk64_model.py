@@ -613,6 +613,8 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
             fix = "Apply its modifiers first, they make geometry Split Mesh At Bones never saw."
         else:
             fix = "Mesh Tools has Split Mesh At Bones."
+        if mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR) is not None:
+            fix += " After a Merge by Distance, Restore Stacked Faces puts back the levels and states it welded away."
         counted = "1 bone seam" if len(seams) == 1 else f"{len(seams)} bone seams"
         raise PluginError(
             f"'{mesh_obj.name}' is still joined across {counted}, at {where}. The game draws each "

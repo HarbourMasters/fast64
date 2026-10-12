@@ -8,7 +8,7 @@ Everything is in the 3D view sidebar under the BK64 tab. Press N if the sidebar 
 - **Model Exporter** writes a model, or a level's two halves together. Format, scale, rigging and the default draw layer are set here.
 - **Animations** exports the actions on an armature, and imports one onto it.
 - **Model Importer** brings in a model, its skeleton alone, or a whole level picked by name.
-- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Select Loose Vertices, Toggle Collision Only and Add Texture Scroll.
+- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only and Add Texture Scroll.
 
 Bone settings are in the properties editor under the bone tab, and material settings under the material tab.
 
@@ -322,6 +322,7 @@ Cull spheres, geo command 0x0E, are the one part of the format read past and not
 - An exported animation moves the model too far or not far enough: Animation Scale doesn't match the model it's playing on.
 - Streaks or smears across flat surfaces: the tiles are set to wrap and some UVs reach past the tile edge. Set Clamp on S and T.
 - The export still calls the mesh welded after you ran Split Mesh At Bones: a modifier is making the welded geometry. The split cuts the mesh itself, the export reads it with its modifiers applied. Apply them first.
+- An eye vanishes on a blink, or a level of detail or appendage state has holes: Merge by Distance welded the copies the model stacks for them into one. Point Model File at the model it was imported from and run Restore Stacked Faces. It leaves out copies for distances another level already draws.
 - A re-weighted limb still follows the bone it had before: its faces kept the chunk they were imported in, which outranks their weights. Delete the mesh's `hm64_bk64_source` attribute.
 - Limbs tear at the joints: the seam faces are cut, or welded across bones that aren't parent and child. Weld the seam to the joint's own bone pair, overlap the limbs, or switch to Bind Vertices.
 - A single vertex stretches away from the model as it animates: it carries no weight to a bone's vertex group, so Bind Vertices leaves it behind at rest. Run Select Loose Vertices and weight what it finds.
