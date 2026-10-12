@@ -443,8 +443,8 @@ def _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings=None):
         if tagged is None:
             continue
         weighted = groups.get(_face_bone_group(face, deform, groups))
-        # vanilla weights some of a seam's faces wholly to the parent
-        if weighted is None or weighted == tagged or family(weighted, tagged):
+        # vanilla weights some of a seam's faces wholly to the parent, never to a child
+        if weighted is None or weighted == tagged or family(tagged, weighted, upward=True):
             continue
         face[layer] = -1
         strays += 1
@@ -469,10 +469,13 @@ def _seam_family(armature_obj):
             if kind == "bonebranch" and parent is not None and 0 <= matrix < len(bones) and 0 <= parent < len(bones):
                 nested_in[bones[matrix].name] = bones[parent].name
 
-    def family(name_a, name_b):
+    def family(name_a, name_b, upward=False):
+        # upward only takes name_b as name_a's parent
         if name_a is None or name_b is None:
             return False
-        return any(of.get(name_a) == name_b or of.get(name_b) == name_a for of in (parent_of, nested_in))
+        return any(
+            of.get(name_a) == name_b or (not upward and of.get(name_b) == name_a) for of in (parent_of, nested_in)
+        )
 
     return family
 
