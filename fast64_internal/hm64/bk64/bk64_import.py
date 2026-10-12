@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import struct
 import zlib
 
@@ -102,7 +103,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
-from .bk64_geo import geo_node_group
+from .bk64_geo import chunk_levels, geo_node_group, geo_node_of_group, stored_layout
 from .bk64_model import read_vertex_bounds
 from .bk64_rom import (
     BKMODEL_SECTIONS,
@@ -1957,3 +1958,229 @@ def import_bk64_model(context, path: str, settings):
         root_obj.hm64_bk64_cull_radius_raw = model["cull_radius"]
 
     return armature_obj, mesh_obj, model
+
+
+def _settings_of(group, depth=0):
+    """Every value under a property group, an image by its name"""
+    out = []
+    for prop in group.bl_rna.properties:
+        if prop.identifier in ("rna_type", "name") or prop.type == "COLLECTION":
+            continue
+        value = getattr(group, prop.identifier)
+        if prop.type == "POINTER":
+            if isinstance(value, bpy.types.ID):
+                # a second import names its copies base.001
+                out.append(re.sub(r"\.\d{3}$", "", value.name))
+            elif value is not None and depth < 3:
+                out.extend(_settings_of(value, depth + 1))
+            continue
+        if isinstance(value, float):
+            value = round(value, 4)
+        elif hasattr(value, "__len__") and not isinstance(value, str):
+            value = tuple(round(item, 4) if isinstance(item, float) else item for item in value)
+        out.append(value)
+    return out
+
+
+def _material_key(material):
+    # not the name, Blender versions number a second import's copies differently
+    bk64 = [
+        getattr(material, prop.identifier)
+        for prop in material.bl_rna.properties
+        if prop.identifier.startswith("hm64_bk64_")
+    ]
+    return tuple(_settings_of(material.f3d_mat)) + tuple(bk64)
+
+
+def _texture_of(material):
+    f3d = getattr(material, "f3d_mat", None)
+    image = f3d.tex0.tex if f3d is not None and f3d.tex0.tex_set else None
+    return re.sub(r"\.\d{3}$", "", image.name) if image is not None else None
+
+
+def _match_layers(piece, target):
+    """Give the piece the target's UV and color layers"""
+    if target.uv_layers.active is not None and len(piece.uv_layers) == 1:
+        piece.uv_layers[0].name = target.uv_layers.active.name
+    # a join fills a layer only one side has with zeros, black and see-through on the other
+    for layer in list(piece.color_attributes):
+        if target.color_attributes.get(layer.name) is None:
+            piece.color_attributes.remove(layer)
+    for layer in target.color_attributes:
+        if piece.color_attributes.get(layer.name) is None:
+            added = piece.color_attributes.new(name=layer.name, type=layer.data_type, domain=layer.domain)
+            for item in added.data:
+                item.color = (1.0, 1.0, 1.0, 1.0)
+    # a joined mesh without the tags gets 0 on every face it had, which is a real chunk
+    if target.attributes.get(SOURCE_CHUNK_ATTR) is None and piece.attributes.get(SOURCE_CHUNK_ATTR) is not None:
+        piece.attributes.remove(piece.attributes[SOURCE_CHUNK_ATTR])
+
+
+def restore_stacked_faces(context, root_obj, path: str, settings) -> int:
+    """Put back the stacked copies the model lost, read from the file it was imported from"""
+    meshes = [obj for obj in [root_obj, *root_obj.children_recursive] if obj.type == "MESH" and not obj.ignore_render]
+    # this model's own layout, since Edit Range may have moved its levels off the file's
+    layout = stored_layout(root_obj) or []
+    level_of = chunk_levels(layout)
+    state_of = {}
+    for appendage, state, chunks in _selector_options(layout):
+        for chunk in chunks:
+            state_of.setdefault(chunk, (appendage, state))
+
+    def groups_of(chunk):
+        found = [geo_node_group(("lod", *level_of[chunk]))] if chunk in level_of else []
+        return found + ([geo_node_group(("selector", *state_of[chunk]))] if chunk in state_of else [])
+
+    def covered(chunk, by):
+        # a copy for distances another level already draws at isn't needed
+        mine, theirs = level_of.get(chunk), level_of.get(by, (0, math.inf))
+        return mine is not None and theirs != mine and theirs[0] <= mine[0] and theirs[1] >= mine[1]
+
+    def spot(mesh, polygon):
+        """(corners sorted, corners in winding order) in whole BK units"""
+        corners = [tuple(round(axis * settings.scale) for axis in mesh.vertices[i].co) for i in polygon.vertices]
+        first = corners.index(min(corners))
+        # a two sided pair is one stack, and only the winding says which side went
+        return tuple(sorted(corners)), tuple(corners[first:] + corners[:first])
+
+    held = {}
+    for obj in meshes:
+        tags = obj.data.attributes.get(SOURCE_CHUNK_ATTR)
+        slots = obj.data.materials
+        for polygon in obj.data.polygons:
+            chunk = tags.data[polygon.index].value if tags is not None else -1
+            material = slots[polygon.material_index] if polygon.material_index < len(slots) else None
+            key, wound = spot(obj.data, polygon)
+            held.setdefault(key, []).append((obj, (chunk, wound), material, polygon.index))
+
+    selected, active = list(context.selected_objects), context.view_layer.objects.active
+    before = {kind: set(getattr(bpy.data, kind)) for kind in ("objects", "collections", "meshes", "armatures")}
+    old_materials, old_images = set(bpy.data.materials), set(bpy.data.images)
+    _armature_obj, source_obj, _model = import_bk64_model(context, path, settings)
+    restored = 0
+    try:
+        source = source_obj.data
+        tags = source.attributes[SOURCE_CHUNK_ATTR]
+        stacks = {}
+        for polygon in source.polygons:
+            key, wound = spot(source, polygon)
+            stacks.setdefault(key, []).append((polygon.index, (tags.data[polygon.index].value, wound)))
+
+        wanted, overlap = {}, False
+        for key, faces in stacks.items():
+            have = held.get(key, [])
+            overlap = overlap or bool(have)
+            # a spot with no copy left was cleared on purpose, and a full one lost nothing
+            if not have or len(have) >= len(faces):
+                continue
+            kept = [copy for _obj, copy, _material, _polygon in have]
+            missing = []
+            for face, copy in faces:
+                if copy in kept:
+                    kept.remove(copy)
+                else:
+                    missing.append((face, copy[0]))
+            missing = [
+                face
+                for face, chunk in missing[: len(faces) - len(have)]
+                if not any(covered(chunk, other) for _obj, (other, _wound), _material, _polygon in have)
+            ]
+            survivor, _chunk, twin, _polygon = have[0]
+            if missing:
+                wanted.setdefault(survivor, []).extend((face, twin) for face in missing)
+        if not overlap:
+            raise PluginError(
+                f"None of the faces in '{os.path.basename(path)}' sit where this model's do. Point Model File at "
+                "the model this one was imported from, at the same Blender To BK Scale."
+            )
+
+        # the model's own material with the same settings, in slot order where several share them
+        theirs = {}
+        for material in dict.fromkeys(m for obj in meshes for m in obj.data.materials if m is not None):
+            theirs.setdefault(_material_key(material), []).append(material)
+        reuse = {}
+        for material in source.materials:
+            candidates = theirs.get(_material_key(material))
+            if candidates:
+                reuse[material] = candidates.pop(0) if len(candidates) > 1 else candidates[0]
+
+        # a merge leaves faces on another level's vertices, so they join their own chunk's groups again
+        regroup = {}
+        for spots in held.values() if wanted else ():
+            for obj, (chunk, _wound), _material, polygon in spots:
+                for name in groups_of(chunk):
+                    regroup.setdefault((obj, name), set()).update(obj.data.polygons[polygon].vertices)
+        for (obj, name), vertices in regroup.items():
+            group = obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+            group.add(sorted(vertices), 1.0, "REPLACE")
+
+        for target, entries in wanted.items():
+            # the piece keeps the file's face order, which the loops below pair these with
+            entries.sort(key=lambda entry: entry[0])
+            piece = bpy.data.objects.new(f"{target.name}_restored", source.copy())
+            context.scene.collection.objects.link(piece)
+            bm = bmesh.new()
+            bm.from_mesh(piece.data)
+            keep = {face for face, _twin in entries}
+            bmesh.ops.delete(bm, geom=[face for face in bm.faces if face.index not in keep], context="FACES")
+            bmesh.ops.delete(bm, geom=[vert for vert in bm.verts if not vert.link_faces], context="VERTS")
+            bm.to_mesh(piece.data)
+            bm.free()
+            _match_layers(piece.data, target.data)
+
+            # an edited material matches nothing, so a copy showing its survivor's texture takes the survivor's
+            chosen = []
+            for face, twin in entries:
+                original = source.materials[source.polygons[face].material_index]
+                material = reuse.get(original)
+                if material is None and twin is not None and _texture_of(twin) == _texture_of(original):
+                    material = twin
+                chosen.append(material or original)
+            # a join brings every slot along, used or not
+            slots = list(dict.fromkeys(chosen))
+            piece.data.materials.clear()
+            for material in slots:
+                piece.data.materials.append(material)
+            for polygon, material in zip(piece.data.polygons, chosen):
+                polygon.material_index = slots.index(material)
+
+            for group in source_obj.vertex_groups:
+                piece.vertex_groups.new(name=group.name)
+            # the file names its levels by its own distances, the model by its own
+            for group in list(piece.vertex_groups):
+                if geo_node_of_group(group.name):
+                    piece.vertex_groups.remove(group)
+            for (face, _twin), polygon in zip(entries, piece.data.polygons):
+                for name in groups_of(tags.data[face].value):
+                    group = piece.vertex_groups.get(name) or piece.vertex_groups.new(name=name)
+                    group.add(list(polygon.vertices), 1.0, "REPLACE")
+            piece.matrix_world = target.matrix_world.copy()
+
+            hidden = target.hide_get()
+            target.hide_set(False)
+            for obj in context.view_layer.objects:
+                obj.select_set(obj in (piece, target))
+            context.view_layer.objects.active = target
+            bpy.ops.object.join()
+            target.hide_set(hidden)
+            restored += len(entries)
+    finally:
+        for obj in set(bpy.data.objects) - before["objects"]:
+            if not obj.name.startswith("fast64_f3d_material_library"):
+                bpy.data.objects.remove(obj)
+        for collection in set(bpy.data.collections) - before["collections"]:
+            bpy.data.collections.remove(collection)
+        for kind in ("meshes", "armatures"):
+            for data in set(getattr(bpy.data, kind)) - before[kind]:
+                if data.users == 0:
+                    getattr(bpy.data, kind).remove(data)
+        for material in set(bpy.data.materials) - old_materials:
+            if material.users == 0:
+                bpy.data.materials.remove(material)
+        for image in set(bpy.data.images) - old_images:
+            if image.users == 0:
+                bpy.data.images.remove(image)
+        for obj in context.view_layer.objects:
+            obj.select_set(obj in selected)
+        context.view_layer.objects.active = active
+    return restored
