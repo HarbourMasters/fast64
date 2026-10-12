@@ -403,7 +403,7 @@ def lift_out_of_bones(records):
     # A copy of its node outside the bone draws the same, and the original keeps its refpoints.
 
     def lift(nodes, under):
-        out, lifted = [], []
+        out, lifted, last = [], [], []
         for record in nodes:
             kind = record[0]
             if kind == "loaddl" and under:
@@ -428,8 +428,9 @@ def lift_out_of_bones(records):
             if under:
                 lifted += moved
             else:
-                out += moved
-        return out, lifted
+                last += moved
+        # drawn last, so a translucent copy blends over the body behind it
+        return out + last, lifted
 
     return lift(records, False)[0]
 
