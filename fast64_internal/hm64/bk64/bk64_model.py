@@ -997,6 +997,10 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
     }
     sources = _face_sources(part_obj.data)
     nodes = _face_nodes(part_obj)
+    # only a sort cuts an imported chunk. Splitting one on a level or state loses its SKINNING
+    nodes = [
+        None if source >= 0 and node is not None and node[0] != "sort" else node for source, node in zip(sources, nodes)
+    ]
     part_obj.data.calc_loop_triangles()
     key_of_face = [
         (layer_of_slot.get(polygon.material_index, scene_layer), sources[index], nodes[index])
