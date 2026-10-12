@@ -448,6 +448,10 @@ def lift_out_of_bones(records):
             if kind == "loaddl" and under:
                 lifted.append(record)
                 continue
+            # a seam's halves are bound too, and SKINNING would move them again
+            if kind == "skinning" and under:
+                lifted += [("loaddl", index) for index in record[1]]
+                continue
             moved = []
             if kind == "bonebranch":
                 kept, moved = lift(record[2], True)

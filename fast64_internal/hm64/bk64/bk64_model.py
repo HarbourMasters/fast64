@@ -1761,7 +1761,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             segments[segment] = (segment << 24, (segment << 24) + max(len(tex_blob), 1))
 
         skinning_sources = set()
-        if stored is not None:
+        # a bound model poses its seams on the CPU, so none of them skin
+        if stored is not None and rigged:
             for kind, indices, _matrix, _parent, _record in layout_records(stored):
                 if kind == "skinning":
                     skinning_sources.update(indices)
