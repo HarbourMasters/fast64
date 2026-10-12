@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 
 from ...f3d.f3d_gbi import VTX_SIZE, SPDisplayList, SPEndDisplayList
@@ -76,6 +77,44 @@ def stored_layout(root_obj):
         return json.loads(raw)
     except ValueError:
         return None
+
+
+def layout_on_table(records, armature_obj, bones):
+    """The stored layout with its bone indices moved from the import's table to this one"""
+    # the layout names bones by table position, and a bone added since moves the ones after it
+    claims = {}
+    for bone in armature_obj.data.bones:
+        if bone.hm64_bk64_bone_order >= 0:
+            claims.setdefault(bone.hm64_bk64_bone_order, []).append(bone.name)
+    index_of = {bone.name: index for index, bone in enumerate(bones)}
+    moved = {}
+    for order, names in claims.items():
+        # a duplicated bone keeps its original's order, and only the original has the importer's name
+        name = min(names, key=lambda name: (not re.fullmatch(rf"bk_{order:02}_id\d+", name), name))
+        if index_of.get(name, order) != order:
+            moved[order] = index_of[name]
+    if not moved:
+        return records
+
+    def remap(nodes):
+        out = []
+        for record in nodes:
+            kind = record[0]
+            if kind == "bonebranch":
+                out.append(("bonebranch", moved.get(record[1], record[1]), remap(record[2])))
+            elif kind == "refpoint":
+                out.append(("refpoint", record[1], moved.get(record[2], record[2]), tuple(record[3])))
+            elif kind == "selector":
+                out.append(("selector", record[1], [remap(option) for option in record[2]]))
+            elif kind == "sort":
+                out.append(("sort", record[1], record[2], remap(record[3]), remap(record[4]), *record[5:]))
+            elif kind in ("lod", "drawdist", "camera"):
+                out.append((*record[:-1], remap(record[-1])))
+            else:
+                out.append(record)
+        return out
+
+    return remap(records)
 
 
 GEO_NODE_KIND_SHIFT = 28

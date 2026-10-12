@@ -95,6 +95,7 @@ from .bk64_geo import (
     flatten_gfx_list,
     geo_records,
     guard_layout,
+    layout_on_table,
     layout_refpoints,
     lift_out_of_bones,
     relink_layout,
@@ -394,7 +395,7 @@ def source_bones_of(mesh_obj, armature_obj):
         return None
     # only the names and their order are read back out, so the matrix is free
     bones = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
-    return _layout_bone_of_source(stored, bones)[0] or None
+    return _layout_bone_of_source(layout_on_table(stored, armature_obj, bones), bones)[0] or None
 
 
 def _bm_face_sources(bm, mesh_obj):
@@ -464,7 +465,7 @@ def _seam_family(armature_obj):
     stored = stored_layout(armature_obj)
     if stored is not None:
         bones = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
-        for kind, _chunks, matrix, parent, _record in layout_records(stored):
+        for kind, _chunks, matrix, parent, _record in layout_records(layout_on_table(stored, armature_obj, bones)):
             if kind == "bonebranch" and parent is not None and 0 <= matrix < len(bones) and 0 <= parent < len(bones):
                 nested_in[bones[matrix].name] = bones[parent].name
 
@@ -1571,6 +1572,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # every model keeps its layout. No bound or static one draws under a
         # BONE, and what is left addresses chunks and relinks the same way.
         stored = stored_layout(root_obj)
+        if stored is not None and armature_obj is not None:
+            stored = layout_on_table(stored, armature_obj, build_bone_table(armature_obj, bone_matrix)[0])
+        imported_layout = stored
         source_bones, source_parents = None, {}
         if stored is not None and rigged:  # only a split mesh gets cut along these
             table = build_bone_table(armature_obj, bone_matrix)[0]
@@ -1915,7 +1919,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             records += sorts
             # a refpoint names no display list and outlives a relink that gave up
             emitted = {record[1] for record in records if record[0] == "refpoint"}
-            for point in layout_refpoints(stored_layout(root_obj) or []):
+            for point in layout_refpoints(imported_layout or []):
                 if point[1] not in emitted:
                     records.append(point)
         stored_grid = next(
