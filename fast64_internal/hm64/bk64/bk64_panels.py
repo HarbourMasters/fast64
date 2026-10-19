@@ -23,6 +23,7 @@ from .bk64_operators import (
     BK64_PutInDetailLevel,
     BK64_PutInSelectorState,
     BK64_PutInSort,
+    BK64_RestoreStackedFaces,
     BK64_SelectLooseVertices,
     BK64_SetDetailLevelRange,
     BK64_SplitNodes,
@@ -175,6 +176,7 @@ class BK64_MeshToolsPanel(BK64_Panel):
         col.operator(BK64_PromoteMaterials.bl_idname)
         col.operator(BK64_SplitMeshAtBones.bl_idname)
         col.operator(BK64_WeldBoneSeams.bl_idname)
+        col.operator(BK64_RestoreStackedFaces.bl_idname)
         col.operator(BK64_SelectLooseVertices.bl_idname)
         col.operator(BK64_MarkCollisionOnly.bl_idname)
 
@@ -185,6 +187,7 @@ class BK64_MeshToolsPanel(BK64_Panel):
 
         box = col.box().column()
         box.label(text="These change the mesh you have selected, not the export.")
+        box.label(text="Restore Stacked Faces reads the Model File in the importer.")
         box.label(text="Collision Only makes a mesh an invisible floor or wall.")
         box.label(text="Pick the faces in edit mode before Add Mesh Effect.")
         box.label(text="Scroll only moves vertically, and effects only run on a level.")

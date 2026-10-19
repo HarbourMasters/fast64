@@ -95,6 +95,7 @@ from .bk64_geo import (
     flatten_gfx_list,
     geo_records,
     guard_layout,
+    layout_on_table,
     layout_refpoints,
     lift_out_of_bones,
     relink_layout,
@@ -394,7 +395,7 @@ def source_bones_of(mesh_obj, armature_obj):
         return None
     # only the names and their order are read back out, so the matrix is free
     bones = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
-    return _layout_bone_of_source(stored, bones)[0] or None
+    return _layout_bone_of_source(layout_on_table(stored, armature_obj, bones), bones)[0] or None
 
 
 def _bm_face_sources(bm, mesh_obj):
@@ -442,8 +443,8 @@ def _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings=None):
         if tagged is None:
             continue
         weighted = groups.get(_face_bone_group(face, deform, groups))
-        # vanilla weights some of a seam's faces wholly to the parent
-        if weighted is None or weighted == tagged or family(weighted, tagged):
+        # vanilla weights some of a seam's faces wholly to the parent, never to a child
+        if weighted is None or weighted == tagged or family(tagged, weighted, upward=True):
             continue
         face[layer] = -1
         strays += 1
@@ -464,14 +465,17 @@ def _seam_family(armature_obj):
     stored = stored_layout(armature_obj)
     if stored is not None:
         bones = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
-        for kind, _chunks, matrix, parent, _record in layout_records(stored):
+        for kind, _chunks, matrix, parent, _record in layout_records(layout_on_table(stored, armature_obj, bones)):
             if kind == "bonebranch" and parent is not None and 0 <= matrix < len(bones) and 0 <= parent < len(bones):
                 nested_in[bones[matrix].name] = bones[parent].name
 
-    def family(name_a, name_b):
+    def family(name_a, name_b, upward=False):
+        # upward only takes name_b as name_a's parent
         if name_a is None or name_b is None:
             return False
-        return any(of.get(name_a) == name_b or of.get(name_b) == name_a for of in (parent_of, nested_in))
+        return any(
+            of.get(name_a) == name_b or (not upward and of.get(name_b) == name_a) for of in (parent_of, nested_in)
+        )
 
     return family
 
@@ -509,15 +513,15 @@ def split_mesh_at_bones(mesh_obj):
     source_bones = source_bones_of(mesh_obj, armature_obj)
     family = _seam_family(armature_obj)
 
-    def blended(face_a, face_b):
+    def blended(owner_a, owner_b):
         # a bone and its parent are the seam SKINNING blends, and cutting there loses it
-        return bool(source_bones) and family(groups.get(owners[face_a]), groups.get(owners[face_b]))
+        return bool(source_bones) and family(groups.get(owner_a), groups.get(owner_b))
 
     seams = [
         edge
         for edge in bm.edges
         if len({owners[f] for f in edge.link_faces}) > 1
-        and not (len(edge.link_faces) == 2 and blended(*edge.link_faces))
+        and not (len(edge.link_faces) == 2 and blended(*(owners[f] for f in edge.link_faces)))
     ]
 
     # then the boundaries only the layout knows about. The weights alone can
@@ -533,11 +537,12 @@ def split_mesh_at_bones(mesh_obj):
 
     # a vertex the seams did not separate can still hold faces from two bones. The
     # rewrite below would give it to whichever comes last, so cut those apart first.
-    conflicted = set()
+    conflicted, corners = set(), 0
     for vert in bm.verts:
         holding = {owners.get(face) for face in vert.link_faces}
-        if len(holding) > 1:
+        if len(holding) > 1 and not (len(holding) == 2 and blended(*holding)):
             conflicted |= holding
+            corners += 1
     # in face order: reordering these splits cost one vanilla model its skinning,
     # so which copy of a shared vertex each chunk keeps is load bearing
     faces_by_owner = {}
@@ -547,20 +552,31 @@ def split_mesh_at_bones(mesh_obj):
     for faces in faces_by_owner.values():
         bmesh.ops.split(bm, geom=faces, use_only_faces=False)
 
+    def fits(vert, bone):
+        return all(owners.get(face) in (None, bone) or blended(owners[face], bone) for face in vert.link_faces)
+
+    # ties go to the earlier table entry, matching _tag_bone_binding
+    table = build_bone_table(armature_obj, mathutils.Matrix.Identity(4))[0]
+    rank = {bone.name: index for index, bone in enumerate(table)}
     for face in bm.faces:
         owner = owners.get(face)
         if owner is None:
             continue
         for vert in face.verts:
+            # a vertex on a bone its faces sit on or blend to keeps it, or the seam tears
+            weighted = [
+                (w, -rank[groups[i]], i) for i, w in vert[deform].items() if i in groups and w > 0 and fits(vert, i)
+            ]
+            keep = max(weighted)[2] if weighted else owner
             # only the bone groups. Clearing the lot takes the mesh groups with it.
             for index in [i for i in vert[deform].keys() if i in groups]:
                 del vert[deform][index]
-            vert[deform][owner] = 1.0
+            vert[deform][keep] = 1.0
 
     bm.to_mesh(mesh_obj.data)
     bm.free()
     mesh_obj.data.update()
-    return len(seams)
+    return len(seams) + corners
 
 
 def _face_bone_group(face, deform_layer, group_index_to_bone):
@@ -601,6 +617,8 @@ def _split_mesh_by_bone(context, bm, mesh_obj, armature_obj, fallback_bone_name:
             fix = "Apply its modifiers first, they make geometry Split Mesh At Bones never saw."
         else:
             fix = "Mesh Tools has Split Mesh At Bones."
+        if mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR) is not None:
+            fix += " After a Merge by Distance, Restore Stacked Faces puts back the levels and states it welded away."
         counted = "1 bone seam" if len(seams) == 1 else f"{len(seams)} bone seams"
         raise PluginError(
             f"'{mesh_obj.name}' is still joined across {counted}, at {where}. The game draws each "
@@ -900,7 +918,7 @@ def _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings):
         counted = "1 face" if moved == 1 else f"{moved} faces"
         warnings.append(
             f"{counted} on '{mesh_obj.name}' moved Detail Level, but imported faces draw in the level they came "
-            "from. Use Edit Range on that level instead."
+            "from. Move them with the level's Put In button in Geo Nodes, or use Edit Range to change the level."
         )
 
 
@@ -985,6 +1003,10 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
     }
     sources = _face_sources(part_obj.data)
     nodes = _face_nodes(part_obj)
+    # only a sort cuts an imported chunk. Splitting one on a level or state loses its SKINNING
+    nodes = [
+        None if source >= 0 and node is not None and node[0] != "sort" else node for source, node in zip(sources, nodes)
+    ]
     part_obj.data.calc_loop_triangles()
     key_of_face = [
         (layer_of_slot.get(polygon.material_index, scene_layer), sources[index], nodes[index])
@@ -1553,6 +1575,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # every model keeps its layout. No bound or static one draws under a
         # BONE, and what is left addresses chunks and relinks the same way.
         stored = stored_layout(root_obj)
+        if stored is not None and armature_obj is not None:
+            stored = layout_on_table(stored, armature_obj, build_bone_table(armature_obj, bone_matrix)[0])
+        imported_layout = stored
         source_bones, source_parents = None, {}
         if stored is not None and rigged:  # only a split mesh gets cut along these
             table = build_bone_table(armature_obj, bone_matrix)[0]
@@ -1736,7 +1761,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             segments[segment] = (segment << 24, (segment << 24) + max(len(tex_blob), 1))
 
         skinning_sources = set()
-        if stored is not None:
+        # a bound model poses its seams on the CPU, so none of them skin
+        if stored is not None and rigged:
             for kind, indices, _matrix, _parent, _record in layout_records(stored):
                 if kind == "skinning":
                     skinning_sources.update(indices)
@@ -1897,7 +1923,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             records += sorts
             # a refpoint names no display list and outlives a relink that gave up
             emitted = {record[1] for record in records if record[0] == "refpoint"}
-            for point in layout_refpoints(stored_layout(root_obj) or []):
+            for point in layout_refpoints(imported_layout or []):
                 if point[1] not in emitted:
                     records.append(point)
         stored_grid = next(

@@ -27,8 +27,9 @@ from .bk64_constants import (
     MODEL_STASH_PROPS,
     SHAPE_KIND,
     SORT_SIDES,
+    SOURCE_CHUNK_ATTR,
 )
-from .bk64_import import import_bk64_model
+from .bk64_import import import_bk64_model, restore_stacked_faces
 from .bk64_geo import (
     geo_node_group,
     geo_node_of_group,
@@ -411,7 +412,7 @@ class BK64_SplitMeshAtBones(Operator):
                 self.report(
                     {"INFO"},
                     (
-                        f"Cut {cuts} edges. Every triangle belongs to one bone now, so what you see is what exports."
+                        f"Made {cuts} cuts. Every triangle belongs to one bone now, so what you see is what exports."
                         if cuts
                         else "Nothing to cut, every triangle already belongs to one bone."
                     ),
@@ -674,6 +675,34 @@ class BK64_WeldBoneSeams(Operator):
             return {"CANCELLED"}
 
 
+class BK64_RestoreStackedFaces(Operator):
+    bl_idname = "object.hm64_bk64_restore_stacked_faces"
+    bl_label = "Restore Stacked Faces"
+    bl_description = "Put back the stacked copies a Merge by Distance welded away, read from the Model File"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        scene = context.scene
+        try:
+            root_obj = resolve_root(context)
+            path = bpy.path.abspath(scene.hm64_bk64_import_path)
+            if not path or not os.path.isfile(path):
+                raise PluginError("Set Model File in the Model Importer to the model this one was imported from.")
+
+            with object_mode(context):
+                restored = restore_stacked_faces(context, root_obj, path, BK64_Settings(scene))
+            counted = "1 face" if restored == 1 else f"{restored} faces"
+            self.report(
+                {"INFO"},
+                f"Put back {counted}." if restored else "Every stack still has all its copies, so nothing changed.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 class BK64_SetDetailLevelRange(Operator):
     bl_idname = "object.hm64_bk64_set_detail_level_range"
     bl_label = "Edit Range"
@@ -791,6 +820,13 @@ def _put_in_node(context, wanted, kind: str):
             if wanted is not None:
                 group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
                 group.add(indices, 1.0, "REPLACE")
+            # an imported face draws where its chunk did, so a face moved here lets go of its chunk
+            tags = mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR)
+            if tags is not None:
+                chosen = set(indices)
+                for polygon in mesh_obj.data.polygons:
+                    if chosen.issuperset(polygon.vertices):
+                        tags.data[polygon.index].value = -1
             moved += len(indices)
     return moved
 
@@ -1153,6 +1189,7 @@ bk64_operator_classes = (
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
     BK64_WeldBoneSeams,
+    BK64_RestoreStackedFaces,
     BK64_PutInDetailLevel,
     BK64_SetDetailLevelRange,
     BK64_PutInSelectorState,
