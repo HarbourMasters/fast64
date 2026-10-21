@@ -1894,7 +1894,7 @@ def import_bk64_model(context, path: str, settings):
             for corner in corners
         }
         if members:
-            name = geo_node_group(("lod", int(near), int(far)))
+            name = geo_node_group(("lod", round(near), round(far)))
             # two levels can cover the same distances, and a second group would be renamed
             group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
             group.add(sorted(members), 1.0, "REPLACE")
