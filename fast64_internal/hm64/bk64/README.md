@@ -229,7 +229,7 @@ Two things to expect from a round trip. Membership rides on the vertices themsel
 
 The mesh comes in as one object with a vertex group per bone, each vertex in the group of the bone that moves it. At a joint that's the parent bone, which is why posing the armature in Blender deforms the mesh the way the game does. Materials carry the texture, the combiner, the tile wrap modes and the collision the faces were drawn with.
 
-The geo layout comes in with the model and goes back out on export: selectors, sorts, skinned seams and mipmapped materials all survive the round trip, along with your mesh edits. Geometry you add is drawn after the original layout, under whichever bone you weight it to.
+The geo layout comes in with the model and goes back out on export: selectors, sorts, skinned seams and mipmapped materials all survive the round trip, along with your mesh edits. Geometry you add is drawn after the original layout, under whichever bone you weight it to. A Draw Distance box moves as far as the geometry it guards does.
 
 Both rigging methods come in weighted. A Split At Bones model takes its weights from the layout, a bound one from its binding table. Gruntilda, Boggy and Gobi arrive posable, not as a bare mesh sitting beside an armature. The import sets Rigging to whichever of the two it found.
 

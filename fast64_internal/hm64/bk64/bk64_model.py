@@ -90,6 +90,7 @@ from .bk64_geo import (
     place_in_node,
     sort_records,
     without_chunks,
+    fit_draw_distances,
     fixup_chunk,
     flatten_gfx_list,
     geo_records,
@@ -1918,6 +1919,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 standing = set()
                 records = without_chunks(records, took, sorts, standing)
                 records += [sort for which, sort in enumerate(sorts) if which not in standing]
+                points = {gfx: bounds for (_bone, gfx), bounds in zip(chunks, chunk_bounds)}
+                records = fit_draw_distances(records, points)
                 if not rigged:
                     records = lift_out_of_bones(records)
                 for node in sorted(missed):

@@ -423,7 +423,8 @@ def relink_layout(records, from_source):
             elif kind == "lod":
                 out.append(("lod", record[1], record[2], tuple(record[3]), relink(record[4])))
             elif kind == "drawdist":
-                out.append(("drawdist", tuple(record[1]), tuple(record[2]), relink(record[3])))
+                # what the box held at import rides between its corners and its branch
+                out.append(("drawdist", tuple(record[1]), tuple(record[2]), *record[3:-1], relink(record[-1])))
             elif kind == "camera":
                 out.append(("camera", list(record[1]), record[2], relink(record[3])))
             elif kind == "refpoint":
@@ -434,6 +435,70 @@ def relink_layout(records, from_source):
 
     relinked = relink(records)
     return relinked if kept else None
+
+
+def _extent_under(records, chunk_points):
+    """(low, high) of every vertex the chunks under these records draw, or None"""
+    points = [
+        point
+        for kind, chunks, _matrix, _parent, record in layout_records(records)
+        for chunk in ([record[2]] if kind == "bone" else chunks)
+        for point in chunk_points.get(chunk, [])
+    ]
+    if not points:
+        return None
+    low = tuple(min(point[axis] for point in points) for axis in range(3))
+    high = tuple(max(point[axis] for point in points) for axis in range(3))
+    return low, high
+
+
+def _rebuild_draw_distances(records, rebuilt):
+    """The layout with every DRAWDIST swapped for rebuilt(record, its rebuilt children)"""
+    out = []
+    for record in records:
+        kind = record[0]
+        if kind == "drawdist":
+            out.append(rebuilt(record, _rebuild_draw_distances(record[-1], rebuilt)))
+        elif kind == "bonebranch":
+            out.append(("bonebranch", record[1], _rebuild_draw_distances(record[2], rebuilt)))
+        elif kind == "selector":
+            out.append(("selector", record[1], [_rebuild_draw_distances(option, rebuilt) for option in record[2]]))
+        elif kind == "sort":
+            halves = [_rebuild_draw_distances(half, rebuilt) for half in (record[3], record[4])]
+            out.append((*record[:3], *halves, *record[5:]))
+        elif kind in ("lod", "camera"):
+            out.append((*record[:-1], _rebuild_draw_distances(record[-1], rebuilt)))
+        else:
+            out.append(record)
+    return out
+
+
+def hold_draw_distances(records, chunk_points):
+    """The layout with every DRAWDIST carrying the extent of the geometry under it"""
+
+    def held(record, children):
+        return ("drawdist", record[1], record[2], _extent_under(children, chunk_points), children)
+
+    return _rebuild_draw_distances(records, held)
+
+
+def fit_draw_distances(records, chunk_points):
+    """The layout with every DRAWDIST box moved as far as the geometry under it moved"""
+
+    def fitted(record, children):
+        low, high = record[1], record[2]
+        held = record[3] if len(record) > 4 else None
+        extent = _extent_under(children, chunk_points)
+        # a vanilla box can sit off its geometry, so it keeps the offset it was imported with
+        if extent is not None and held:
+            low = [low[axis] + extent[0][axis] - held[0][axis] for axis in range(3)]
+            high = [high[axis] + extent[1][axis] - held[1][axis] for axis in range(3)]
+        elif extent is not None:
+            low = [min(low[axis], extent[0][axis]) for axis in range(3)]
+            high = [max(high[axis], extent[1][axis]) for axis in range(3)]
+        return ("drawdist", tuple(low), tuple(high), children)
+
+    return _rebuild_draw_distances(records, fitted)
 
 
 def lift_out_of_bones(records):

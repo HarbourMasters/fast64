@@ -143,7 +143,7 @@ def geo_body(records, endian: str = "<"):
             continue
 
         if kind == "drawdist":
-            branch = geo_body(record[3], endian)
+            branch = geo_body(record[-1], endian)
             body.extend(
                 struct.pack(
                     endian + "Iihhhhhhhxx",
