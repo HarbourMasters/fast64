@@ -122,6 +122,7 @@ from .bk64_rom import (
     write_bkmodelbin,
 )
 from .bk64_skeleton import BK64Bone, BLENDER_TO_BK, build_bone_table
+from .bk64_texture_writer import bk_texture_writer
 
 
 def _write_vertex_resource(vertices):
@@ -1527,6 +1528,7 @@ def blank_half_object(context, mesh_objects, half: str, temp_objects):
     return blank
 
 
+@bk_texture_writer()
 def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=None, png_folder=None):
     """Builds the whole resource family as {suffix: bytes}.
 
