@@ -288,9 +288,10 @@ def rendermode_preset_to_advanced(material: bpy.types.Material):
     cycle_1, cycle_2 = settings.rendermode_preset_cycle_1, settings.rendermode_preset_cycle_2
     if not settings.set_rendermode:
         game_mode = scene.gameEditorMode
-        # no early return on a missing layer, the settings below still derive from
-        # whatever presets the material carries
         layer = getattr(f3d_mat.draw_layer, game_mode.lower(), None)
+        if layer is None and game_mode != "BK64":  # Game mode has no layer, don´t change anything
+            return
+
         possible_cycle_1, possible_cycle_2 = get_world_layer_defaults(scene, game_mode, layer)
         if getattr(f3d, possible_cycle_1, None) is not None and getattr(f3d, possible_cycle_2, None) is not None:
             cycle_1, cycle_2 = possible_cycle_1, possible_cycle_2

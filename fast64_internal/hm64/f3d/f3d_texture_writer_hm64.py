@@ -31,7 +31,7 @@ from ...f3d.f3d_material import (
     texFormatOf,
 )
 from ...utility import PluginError, toAlnum
-from ..utility import is_bk64, is_hm64, sanitize_internal_asset_path
+from ..utility import is_hm64, sanitize_internal_asset_path
 
 
 _ORIGINALS = {}
@@ -423,17 +423,17 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
 
     loadGfx = fMaterial.texture_DL
     f3d = fModel.f3d
-
-    def write_palette_load():
-        if not self.loadPal:
-            return
+    if self.doTexLoad:
+        base.saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
+    if self.doTexTile:
+        base.saveTextureTile(
+            fImage, fMaterial, loadGfx, self.texProp, None, self.indexInMat, self.texAddr, self.palIndex, f3d
+        )
+    if self.loadPal:
         load_tlut_cmd = base.savePaletteLoad(
             loadGfx, fPalette, self.palFormat, self.palAddr, self.palLen, 5 - self.indexInMat, f3d
         )
         override = getattr(self.texProp, "palette_color_count", None) if self.texProp is not None else None
-        if is_bk64() and self.texProp is not None:
-            # Banjo's Backpack sizes the palette off this count and only knows 16 or 256
-            override = 15 if self.texProp.tex_format == "CI4" else 255
         if load_tlut_cmd is not None:
             load_tlut_cmd.count = max(0, min((override if override is not None else self.palLen - 1), 255))
             if shared_tlut_state is not None and fPalette is not None:
@@ -441,22 +441,6 @@ def writeAll(self, fMaterial: FMaterial, fModel: Union[FModel, FTexRect], conver
                 shared_pair = (load_tlut_cmd, override)
                 if shared_pair not in shared_tlut_state.load_commands:
                     shared_tlut_state.load_commands.append(shared_pair)
-
-    def write_texture_load():
-        if self.doTexLoad:
-            base.saveTextureLoadOnly(fImage, loadGfx, self.texProp, None, 7 - self.indexInMat, self.texAddr, f3d)
-        if self.doTexTile:
-            base.saveTextureTile(
-                fImage, fMaterial, loadGfx, self.texProp, None, self.indexInMat, self.texAddr, self.palIndex, f3d
-            )
-
-    # every paletted load in BK's own display lists sends the TLUT first
-    if is_bk64():
-        write_palette_load()
-        write_texture_load()
-    else:
-        write_texture_load()
-        write_palette_load()
 
     texProp = self.texProp
     should_write_data = convertTextureData and not (texProp and getattr(texProp, "is_vanilla_texture", False))
