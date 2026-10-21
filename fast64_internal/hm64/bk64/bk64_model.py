@@ -25,7 +25,7 @@ from ...f3d.f3d_gbi import (
     SPTexture,
 )
 from ...f3d.f3d_material import all_combiner_uses, combiner_uses
-from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
+from ...f3d.f3d_writer import getInfoDict
 from ...utility import (
     PluginError,
     exportColor,
@@ -123,6 +123,7 @@ from .bk64_rom import (
 )
 from .bk64_skeleton import BK64Bone, BLENDER_TO_BK, build_bone_table
 from .bk64_texture_writer import bk_texture_writer
+from .bk64_writer import BKTriangleConverterInfo, saveStaticModel
 
 
 def _write_vertex_resource(vertices):
@@ -1614,7 +1615,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for part in parts:
                 for layer, piece in _split_by_draw_key(context, part, settings.draw_layer, temp_objects):
                     infoDict = getInfoDict(piece)
-                    triConverterInfo = TriangleConverterInfo(
+                    triConverterInfo = BKTriangleConverterInfo(
                         piece, None, fModel.f3d, transform_matrix, infoDict, _piece_mesh_tags(piece)
                     )
                     fMeshes = saveStaticModel(
