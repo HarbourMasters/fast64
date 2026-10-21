@@ -25,7 +25,6 @@ from ...f3d.f3d_gbi import (
     SPTexture,
 )
 from ...f3d.f3d_material import all_combiner_uses, combiner_uses
-from ...f3d.f3d_writer import getInfoDict
 from ...utility import (
     PluginError,
     exportColor,
@@ -123,7 +122,7 @@ from .bk64_rom import (
 )
 from .bk64_skeleton import BK64Bone, BLENDER_TO_BK, build_bone_table
 from .bk64_texture_writer import bk_texture_writer
-from .bk64_writer import BKTriangleConverterInfo, saveStaticModel
+from .bk64_writer import BKTriangleConverterInfo, getInfoDict, saveStaticModel
 
 
 def _write_vertex_resource(vertices):
@@ -1602,6 +1601,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # bone table order, keeping chunk order and bone order in step
         chunk_fMeshes = []
         ordered_fMeshes = []
+        unfit = []
         for bone_index, bone in enumerate(bones):
             parts = meshes_by_bone.get(bone.name)
             if not parts:
@@ -1615,6 +1615,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for part in parts:
                 for layer, piece in _split_by_draw_key(context, part, settings.draw_layer, temp_objects):
                     infoDict = getInfoDict(piece)
+                    for index in infoDict.unfit:
+                        unfit.append(piece.material_slots[piece.data.polygons[index].material_index].material.name)
                     triConverterInfo = BKTriangleConverterInfo(
                         piece, None, fModel.f3d, transform_matrix, infoDict, _piece_mesh_tags(piece)
                     )
@@ -1633,6 +1635,13 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for layer in sorted(by_layer, key=lambda key: (key[0], key[1], key[2] or ())):
                 chunk_fMeshes.append((bone_index, layer, by_layer[layer]))
                 ordered_fMeshes += by_layer[layer]
+        if unfit:
+            counted = "1 face" if len(unfit) == 1 else f"{len(unfit)} faces"
+            listed = "\n  ".join(sorted(set(unfit)))
+            settings.warnings.append(
+                f"{counted} spread the texture wider than a face can hold, and went out distorted. Cut the faces in "
+                f"these materials smaller:\n  {listed}"
+            )
 
         if not ordered_fMeshes:
             raise PluginError("Nothing was exported. Check that the mesh has faces and F3D materials.")
