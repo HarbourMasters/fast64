@@ -103,7 +103,7 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
-from .bk64_geo import chunk_levels, geo_node_group, geo_node_of_group, stored_layout
+from .bk64_geo import chunk_levels, geo_node_group, geo_node_of_group, hold_draw_distances, stored_layout
 from .bk64_model import read_vertex_bounds
 from .bk64_rom import (
     BKMODEL_SECTIONS,
@@ -1810,8 +1810,13 @@ def import_bk64_model(context, path: str, settings):
     mesh_obj = bpy.data.objects.new(base, mesh)
     mesh_obj.use_f3d_culling = False  # BK culls off the model's own center and radius
     context.scene.collection.objects.link(mesh_obj)
+    chunk_points = {}
+    for _matrix, gfx_index, faces in geometry:
+        chunk_points.setdefault(gfx_index, []).extend(
+            vertices[index][0] for indices, _draw in faces for index in indices if index < len(vertices)
+        )
     # on whichever object the export is handed, the armature when there's one
-    (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(model["geo_layout"])
+    (armature_obj or mesh_obj)[GEO_LAYOUT_PROP] = json.dumps(hold_draw_distances(model["geo_layout"], chunk_points))
     # so the export knows this scene was read with the rules it writes by
     (armature_obj or mesh_obj).hm64_bk64_contract = SCENE_CONTRACT
     (armature_obj or mesh_obj).hm64_bk64_geo_type_raw = model["geo_type"]
@@ -1889,7 +1894,7 @@ def import_bk64_model(context, path: str, settings):
             for corner in corners
         }
         if members:
-            name = geo_node_group(("lod", int(near), int(far)))
+            name = geo_node_group(("lod", round(near), round(far)))
             # two levels can cover the same distances, and a second group would be renamed
             group = mesh_obj.vertex_groups.get(name) or mesh_obj.vertex_groups.new(name=name)
             group.add(sorted(members), 1.0, "REPLACE")

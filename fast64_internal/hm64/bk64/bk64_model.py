@@ -25,7 +25,6 @@ from ...f3d.f3d_gbi import (
     SPTexture,
 )
 from ...f3d.f3d_material import all_combiner_uses, combiner_uses
-from ...f3d.f3d_writer import TriangleConverterInfo, getInfoDict, saveStaticModel
 from ...utility import (
     PluginError,
     exportColor,
@@ -91,6 +90,7 @@ from .bk64_geo import (
     place_in_node,
     sort_records,
     without_chunks,
+    fit_draw_distances,
     fixup_chunk,
     flatten_gfx_list,
     geo_records,
@@ -122,6 +122,8 @@ from .bk64_rom import (
     write_bkmodelbin,
 )
 from .bk64_skeleton import BK64Bone, BLENDER_TO_BK, build_bone_table
+from .bk64_texture_writer import bk_texture_writer
+from .bk64_writer import BKTriangleConverterInfo, getInfoDict, saveStaticModel
 
 
 def _write_vertex_resource(vertices):
@@ -1527,6 +1529,7 @@ def blank_half_object(context, mesh_objects, half: str, temp_objects):
     return blank
 
 
+@bk_texture_writer()
 def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=None, png_folder=None):
     """Builds the whole resource family as {suffix: bytes}.
 
@@ -1599,6 +1602,7 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
         # bone table order, keeping chunk order and bone order in step
         chunk_fMeshes = []
         ordered_fMeshes = []
+        unfit = []
         for bone_index, bone in enumerate(bones):
             parts = meshes_by_bone.get(bone.name)
             if not parts:
@@ -1612,7 +1616,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for part in parts:
                 for layer, piece in _split_by_draw_key(context, part, settings.draw_layer, temp_objects):
                     infoDict = getInfoDict(piece)
-                    triConverterInfo = TriangleConverterInfo(
+                    for index in infoDict.unfit:
+                        unfit.append(piece.material_slots[piece.data.polygons[index].material_index].material.name)
+                    triConverterInfo = BKTriangleConverterInfo(
                         piece, None, fModel.f3d, transform_matrix, infoDict, _piece_mesh_tags(piece)
                     )
                     fMeshes = saveStaticModel(
@@ -1630,6 +1636,13 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             for layer in sorted(by_layer, key=lambda key: (key[0], key[1], key[2] or ())):
                 chunk_fMeshes.append((bone_index, layer, by_layer[layer]))
                 ordered_fMeshes += by_layer[layer]
+        if unfit:
+            counted = "1 face" if len(unfit) == 1 else f"{len(unfit)} faces"
+            listed = "\n  ".join(sorted(set(unfit)))
+            settings.warnings.append(
+                f"{counted} spread the texture wider than a face can hold, and went out distorted. Cut the faces in "
+                f"these materials smaller:\n  {listed}"
+            )
 
         if not ordered_fMeshes:
             raise PluginError("Nothing was exported. Check that the mesh has faces and F3D materials.")
@@ -1906,6 +1919,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 standing = set()
                 records = without_chunks(records, took, sorts, standing)
                 records += [sort for which, sort in enumerate(sorts) if which not in standing]
+                points = {gfx: bounds for (_bone, gfx), bounds in zip(chunks, chunk_bounds)}
+                records = fit_draw_distances(records, points)
                 if not rigged:
                     records = lift_out_of_bones(records)
                 for node in sorted(missed):
