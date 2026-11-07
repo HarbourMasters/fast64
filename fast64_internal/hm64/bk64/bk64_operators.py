@@ -543,6 +543,45 @@ class BK64_MarkCollisionOnly(Operator):
             return {"CANCELLED"}
 
 
+class BK64_DrawAfterLayout(Operator):
+    bl_idname = "object.hm64_bk64_draw_after_layout"
+    bl_label = "Draw After Imported Layout"
+    bl_description = "Draw the selected meshes in slot order with the faces you add, or the selected faces in edit mode"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            editing = context.mode == "EDIT_MESH"
+            meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+            if not meshes:
+                raise PluginError("Select the mesh to move.")
+
+            freed = 0
+            with object_mode(context):
+                for mesh_obj in meshes:
+                    upgrade_chunk_tags(mesh_obj.data)
+                    tags = mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR)
+                    if tags is None:
+                        continue
+                    for polygon in mesh_obj.data.polygons:
+                        if (polygon.select or not editing) and tags.data[polygon.index].value:
+                            tags.data[polygon.index].value = 0
+                            freed += 1
+
+            counted = "1 face" if freed == 1 else f"{freed} faces"
+            self.report(
+                {"INFO"},
+                f"Moved {counted} after the imported layout."
+                if freed
+                else "None of those faces have an imported chunk.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
 def _place_hit_sphere(empty, root_obj, scale: float, bounds):
     """Move and size one hit sphere empty"""
     # a write here tags another depsgraph update, so only write a change
@@ -1193,6 +1232,7 @@ bk64_operator_classes = (
     BK64_AddMeshEffect,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
+    BK64_DrawAfterLayout,
     BK64_WeldBoneSeams,
     BK64_RestoreStackedFaces,
     BK64_PutInDetailLevel,

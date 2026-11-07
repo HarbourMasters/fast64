@@ -10,6 +10,7 @@ from .bk64_geo import geo_node_of_group, layout_detail_levels, layout_selectors,
 from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
     BK64_AddMeshEffect,
+    BK64_DrawAfterLayout,
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
     BK64_ExportAnimation,
@@ -179,6 +180,7 @@ class BK64_MeshToolsPanel(BK64_Panel):
         col.operator(BK64_RestoreStackedFaces.bl_idname)
         col.operator(BK64_SelectLooseVertices.bl_idname)
         col.operator(BK64_MarkCollisionOnly.bl_idname)
+        col.operator(BK64_DrawAfterLayout.bl_idname)
 
         col.separator()
         prop_split(col, scene, "hm64_bk64_mesh_effect", "Effect")
@@ -189,6 +191,7 @@ class BK64_MeshToolsPanel(BK64_Panel):
         box.label(text="These change the mesh you have selected, not the export.")
         box.label(text="Restore Stacked Faces reads the Model File in the importer.")
         box.label(text="Collision Only makes a mesh an invisible floor or wall.")
+        box.label(text="Imported faces ignore slot order until Draw After Imported Layout.")
         box.label(text="Pick the faces in edit mode before Add Mesh Effect.")
         box.label(text="Scroll only moves vertically, and effects only run on a level.")
 

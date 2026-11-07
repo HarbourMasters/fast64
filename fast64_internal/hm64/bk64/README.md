@@ -8,7 +8,7 @@ Everything is in the 3D view sidebar under the BK64 tab. Press N if the sidebar 
 - **Model Exporter** writes a model, or a level's two halves together. Format, scale, rigging and the default draw layer are set here.
 - **Animations** exports the actions on an armature, and imports one onto it.
 - **Model Importer** brings in a model, its skeleton alone, or a whole level picked by name.
-- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Weld Bone Seams, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only and Add Mesh Effect.
+- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Weld Bone Seams, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only, Draw After Imported Layout and Add Mesh Effect.
 
 Bone settings are in the properties editor under the bone tab, and material settings under the material tab.
 
@@ -77,6 +77,8 @@ Default Draw Layer on the export panel is what a material takes when its own is 
 Materials export in the order of the object's material slots, and the game draws them in that order. Where two surfaces overlap and neither writes depth, the one drawn later is the one you see. Moving a material down the list brings its faces out in front of the ones above it.
 
 A model built from several objects sorts by object name first, since the export walks the root's children in name order. Material slots then order the faces within each object.
+
+An imported model keeps the order it came in. Each imported face remembers the chunk it was drawn in, and those chunks go out in their original order, so moving a slot doesn't move an imported face past another chunk. Faces you add come after the whole imported layout, in slot order. To put imported faces there too, select them in edit mode and press Draw After Imported Layout in Mesh Tools. A face moved that way leaves any Draw Distance box or camera gate it was under. In a blend from an older Fast64, faces you added draw with the first imported chunk until they get the button too.
 
 ### Textures
 Fast64 converts textures to native N64 formats and the exporter writes them through untouched. RGBA16, RGBA32, CI4, CI8 and IA8 are supported, and the export refuses the rest. BK stores a texture's width and height as a single byte each. Neither can exceed 255. The export fails with a message instead of truncating.
@@ -234,7 +236,7 @@ The geo layout comes in with the model and goes back out on export: selectors, s
 
 Both rigging methods come in weighted. A Split At Bones model takes its weights from the layout, a bound one from its binding table. Gruntilda, Boggy and Gobi arrive posable, not as a bare mesh sitting beside an armature. The import sets Rigging to whichever of the two it found.
 
-A Split At Bones model also remembers which chunk each face was drawn in, and that decides the bone the face draws under ahead of its weights. It's what keeps a vanilla model on its original bones through a round trip, but it means re-weighting an imported face doesn't move it. Delete the mesh's `hm64_bk64_chunk` attribute when you mean to re-rig, and the weights decide instead.
+A Split At Bones model also remembers which chunk each face was drawn in, and that decides the bone the face draws under ahead of its weights. It's what keeps a vanilla model on its original bones through a round trip, but it means re-weighting an imported face doesn't move it. Select the faces and press Draw After Imported Layout when you mean to re-rig them, or press it in object mode for the whole mesh, and the weights decide instead.
 
 The collision fields describe every flag word vanilla ships. A word only a romhack sets comes in as Raw Flags and goes back out exactly as it arrived; clear that field to author the surface with the fields instead.
 
@@ -322,7 +324,8 @@ Cull spheres, geo command 0x0E, are the one part of the format read past and not
 - Streaks or smears across flat surfaces: the tiles are set to wrap and some UVs reach past the tile edge. Set Clamp on S and T.
 - The export still calls the mesh welded after you ran Split Mesh At Bones: a modifier is making the welded geometry. The split cuts the mesh itself, the export reads it with its modifiers applied. Apply them first.
 - An eye vanishes on a blink, or a level of detail or appendage state has holes: Merge by Distance welded the copies the model stacks for them into one. Point Model File at the model it was imported from and run Restore Stacked Faces. It leaves out copies for distances another level already draws.
-- A re-weighted limb still follows the bone it had before: its faces kept the chunk they were imported in, which outranks their weights. Delete the mesh's `hm64_bk64_chunk` attribute.
+- A re-weighted limb still follows the bone it had before: its faces kept the chunk they were imported in, which outranks their weights. Select them and press Draw After Imported Layout.
+- A see-through face draws in front of the wrong one, and moving its material slot changes nothing: imported faces keep the order they came in. Press Draw After Imported Layout on the faces that should come out in front.
 - Limbs tear at the joints: the seam faces are cut, or welded across bones that aren't parent and child. Weld the seam to the joint's own bone pair, overlap the limbs, or switch to Bind Vertices.
 - A single vertex stretches away from the model as it animates: it carries no weight to a bone's vertex group, so Bind Vertices leaves it behind at rest. Run Select Loose Vertices and weight what it finds.
 - Select Loose Vertices finds nothing but the export still warned: a modifier is making that geometry. The export reads the mesh with its modifiers applied, and Boolean, Remesh, Skin and Geometry Nodes drop vertex groups.
