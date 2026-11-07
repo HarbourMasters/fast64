@@ -234,7 +234,7 @@ The geo layout comes in with the model and goes back out on export: selectors, s
 
 Both rigging methods come in weighted. A Split At Bones model takes its weights from the layout, a bound one from its binding table. Gruntilda, Boggy and Gobi arrive posable, not as a bare mesh sitting beside an armature. The import sets Rigging to whichever of the two it found.
 
-A Split At Bones model also remembers which chunk each face was drawn in, and that decides the bone the face draws under ahead of its weights. It's what keeps a vanilla model on its original bones through a round trip, but it means re-weighting an imported face doesn't move it. Delete the mesh's `hm64_bk64_source` attribute when you mean to re-rig, and the weights decide instead.
+A Split At Bones model also remembers which chunk each face was drawn in, and that decides the bone the face draws under ahead of its weights. It's what keeps a vanilla model on its original bones through a round trip, but it means re-weighting an imported face doesn't move it. Delete the mesh's `hm64_bk64_chunk` attribute when you mean to re-rig, and the weights decide instead.
 
 The collision fields describe every flag word vanilla ships. A word only a romhack sets comes in as Raw Flags and goes back out exactly as it arrived; clear that field to author the surface with the fields instead.
 
@@ -322,7 +322,7 @@ Cull spheres, geo command 0x0E, are the one part of the format read past and not
 - Streaks or smears across flat surfaces: the tiles are set to wrap and some UVs reach past the tile edge. Set Clamp on S and T.
 - The export still calls the mesh welded after you ran Split Mesh At Bones: a modifier is making the welded geometry. The split cuts the mesh itself, the export reads it with its modifiers applied. Apply them first.
 - An eye vanishes on a blink, or a level of detail or appendage state has holes: Merge by Distance welded the copies the model stacks for them into one. Point Model File at the model it was imported from and run Restore Stacked Faces. It leaves out copies for distances another level already draws.
-- A re-weighted limb still follows the bone it had before: its faces kept the chunk they were imported in, which outranks their weights. Delete the mesh's `hm64_bk64_source` attribute.
+- A re-weighted limb still follows the bone it had before: its faces kept the chunk they were imported in, which outranks their weights. Delete the mesh's `hm64_bk64_chunk` attribute.
 - Limbs tear at the joints: the seam faces are cut, or welded across bones that aren't parent and child. Weld the seam to the joint's own bone pair, overlap the limbs, or switch to Bind Vertices.
 - A single vertex stretches away from the model as it animates: it carries no weight to a bone's vertex group, so Bind Vertices leaves it behind at rest. Run Select Loose Vertices and weight what it finds.
 - Select Loose Vertices finds nothing but the export still warned: a modifier is making that geometry. The export reads the mesh with its modifiers applied, and Boolean, Remesh, Skin and Geometry Nodes drop vertex groups.

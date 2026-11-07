@@ -103,7 +103,14 @@ from .bk64_collision import (
     read_collision,
     read_collision_shapes_data,
 )
-from .bk64_geo import chunk_levels, geo_node_group, geo_node_of_group, hold_draw_distances, stored_layout
+from .bk64_geo import (
+    chunk_levels,
+    geo_node_group,
+    geo_node_of_group,
+    hold_draw_distances,
+    stored_layout,
+    upgrade_chunk_tags,
+)
 from .bk64_model import read_vertex_bounds
 from .bk64_rom import (
     BKMODEL_SECTIONS,
@@ -1719,7 +1726,7 @@ def _fill_mesh(mesh, positions, face_data, slot_image, slot_scale):
     for face_index, (_corners, material_index, _matrix_id, source, _orig_indices, chunk) in enumerate(face_data):
         polygon = mesh.polygons[face_index]
         polygon.material_index = material_index
-        chunk_layer.data[face_index].value = chunk
+        chunk_layer.data[face_index].value = chunk + 1
         image = slot_image.get(material_index)
         width, height = (image.size[0], image.size[1]) if image else (32, 32)
         scale_s, scale_t = slot_scale.get(material_index, (1.0, 1.0))
@@ -2016,7 +2023,7 @@ def _match_layers(piece, target):
             added = piece.color_attributes.new(name=layer.name, type=layer.data_type, domain=layer.domain)
             for item in added.data:
                 item.color = (1.0, 1.0, 1.0, 1.0)
-    # a joined mesh without the tags gets 0 on every face it had, which is a real chunk
+    # what joins a mesh whose tags were deleted goes without them too
     if target.attributes.get(SOURCE_CHUNK_ATTR) is None and piece.attributes.get(SOURCE_CHUNK_ATTR) is not None:
         piece.attributes.remove(piece.attributes[SOURCE_CHUNK_ATTR])
 
@@ -2050,10 +2057,11 @@ def restore_stacked_faces(context, root_obj, path: str, settings) -> int:
 
     held = {}
     for obj in meshes:
+        upgrade_chunk_tags(obj.data)
         tags = obj.data.attributes.get(SOURCE_CHUNK_ATTR)
         slots = obj.data.materials
         for polygon in obj.data.polygons:
-            chunk = tags.data[polygon.index].value if tags is not None else -1
+            chunk = tags.data[polygon.index].value - 1 if tags is not None else -1
             material = slots[polygon.material_index] if polygon.material_index < len(slots) else None
             key, wound = spot(obj.data, polygon)
             held.setdefault(key, []).append((obj, (chunk, wound), material, polygon.index))
@@ -2069,7 +2077,7 @@ def restore_stacked_faces(context, root_obj, path: str, settings) -> int:
         stacks = {}
         for polygon in source.polygons:
             key, wound = spot(source, polygon)
-            stacks.setdefault(key, []).append((polygon.index, (tags.data[polygon.index].value, wound)))
+            stacks.setdefault(key, []).append((polygon.index, (tags.data[polygon.index].value - 1, wound)))
 
         wanted, overlap = {}, False
         for key, faces in stacks.items():
@@ -2156,7 +2164,7 @@ def restore_stacked_faces(context, root_obj, path: str, settings) -> int:
                 if geo_node_of_group(group.name):
                     piece.vertex_groups.remove(group)
             for (face, _twin), polygon in zip(entries, piece.data.polygons):
-                for name in groups_of(tags.data[face].value):
+                for name in groups_of(tags.data[face].value - 1):
                     group = piece.vertex_groups.get(name) or piece.vertex_groups.new(name=name)
                     group.add(list(polygon.vertices), 1.0, "REPLACE")
             piece.matrix_world = target.matrix_world.copy()

@@ -37,6 +37,7 @@ from .bk64_geo import (
     layout_level_gaps,
     set_detail_level,
     stored_layout,
+    upgrade_chunk_tags,
 )
 from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
 from .bk64_properties import spread_detail_levels
@@ -213,6 +214,9 @@ class BK64_ExportLevelHalves(Operator):
                 sources = [obj for obj in sources if not obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)]
                 if not sources:
                     raise PluginError(f"Nothing to export, '{root_obj.name}' has no mesh geometry.")
+                # the cut copies the meshes, and the export would only upgrade those copies
+                for obj in sources:
+                    upgrade_chunk_tags(obj.data)
 
                 base_name, written, blanked = settings.name, [], []
                 extension = ".bin" if settings.file_format == "BIN" else ""
@@ -821,12 +825,13 @@ def _put_in_node(context, wanted, kind: str):
                 group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
                 group.add(indices, 1.0, "REPLACE")
             # an imported face draws where its chunk did, so a face moved here lets go of its chunk
+            upgrade_chunk_tags(mesh_obj.data)
             tags = mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR)
             if tags is not None:
                 chosen = set(indices)
                 for polygon in mesh_obj.data.polygons:
                     if chosen.issuperset(polygon.vertices):
-                        tags.data[polygon.index].value = -1
+                        tags.data[polygon.index].value = 0
             moved += len(indices)
     return moved
 
