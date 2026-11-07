@@ -8,7 +8,7 @@ Everything is in the 3D view sidebar under the BK64 tab. Press N if the sidebar 
 - **Model Exporter** writes a model, or a level's two halves together. Format, scale, rigging and the default draw layer are set here.
 - **Animations** exports the actions on an armature, and imports one onto it.
 - **Model Importer** brings in a model, its skeleton alone, or a whole level picked by name.
-- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only and Add Texture Scroll.
+- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Weld Bone Seams, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only and Add Mesh Effect.
 
 Bone settings are in the properties editor under the bone tab, and material settings under the material tab.
 
@@ -77,14 +77,13 @@ Materials export in the order of the object's material slots, and the game draws
 A model built from several objects sorts by object name first, since the export walks the root's children in name order. Material slots then order the faces within each object.
 
 ### Textures
-Fast64 converts textures to native N64 formats and the exporter writes them through untouched. RGBA16, RGBA32, CI4, CI8, I4, I8, IA4, IA8 and IA16 are all supported. BK stores a texture's width and height as a single byte each. Neither can exceed 255. The export fails with a message instead of truncating.
+Fast64 converts textures to native N64 formats and the exporter writes them through untouched. RGBA16, RGBA32, CI4, CI8 and IA8 are supported, and the export refuses the rest. BK stores a texture's width and height as a single byte each. Neither can exceed 255. The export fails with a message instead of truncating.
 
 A texture also has to fit TMEM, which holds 4KB, or 2KB for a CI format since the palette takes the rest. The biggest that fit:
 
 - RGBA32: 32x32, 16x64, 8x128
-- RGBA16, IA16 and CI8: 32x64, 64x32, 16x128, 8x256
-- I8, IA8 and CI4: 64x64, 32x128, 128x32, 16x256
-- I4 and IA4: 64x128, 128x64, 32x256, 256x32
+- RGBA16 and CI8: 32x64, 64x32, 16x128, 8x256
+- IA8 and CI4: 64x64, 32x128, 128x32, 16x256
 
 Halving one side lets the other double, and the material tab shows what a texture uses against that budget. Going over isn't an error. Fast64 keeps the image whole and writes it as an HD texture: a smaller tile stands in for it in the display list, with the scales beside it saying how much bigger the real image is. Only an o2r export can carry those scales. A `.bin` stores its images as bare bytes with nowhere to record them, and refuses.
 
@@ -297,8 +296,6 @@ Bones come in at their original rest positions, and many sit exactly on their pa
 Format sets what is written, for animations as well as models. O2R writes the resource family described above, for the HarbourMasters ports. BK Model Binary writes a single `.bin` in the game's own format, which the ROM hacking tools read.
 
 Textures are written differently for a `.bin`, because nothing outside the game reproduces the game's own shading. Fast64 materials keep their color in the light and let the combiner fold it into the texture. For a `.bin` the export bakes that fold into the pixels and leaves the vertex color neutral. Both of the shaded-texture setups Fast64 writes are handled: a flat tint, and the decal setup where the texture's alpha picks between a base color and the detail painted over it. A material that combines them some other way keeps its texture and vertex color unchanged.
-
-A `.bin` takes RGBA16, RGBA32, CI4 and CI8, the four types the game's own header names. An o2r texture list also carries IA8, which is the format Lightning's animated frames are stored in.
 
 Every `.bin` ends its texture list with an 8x8 white RGBA16. Faces with no texture of their own are bound to it, since the combiner still samples one.
 
