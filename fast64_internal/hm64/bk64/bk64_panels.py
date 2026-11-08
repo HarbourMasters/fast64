@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import textwrap
+
 from bpy.utils import register_class, unregister_class
 
 from ...f3d.flipbook import drawTextureArray
@@ -10,6 +12,7 @@ from .bk64_geo import geo_node_of_group, layout_detail_levels, layout_selectors,
 from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
     BK64_AddMeshEffect,
+    BK64_ClearExportWarnings,
     BK64_DrawAfterLayout,
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
@@ -31,8 +34,24 @@ from .bk64_operators import (
     BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
     BK64_WeldBoneSeams,
+    export_warnings,
     resolve_root,
 )
+
+
+def _draw_export_warnings(col, panel: str):
+    warnings = export_warnings[panel]
+    if not warnings:
+        return
+    box = col.box().column()
+    row = box.row()
+    row.label(text="Last export warned:", icon="ERROR")
+    row.operator(BK64_ClearExportWarnings.bl_idname).panel = panel
+    for warning in warnings:
+        # a label doesn't wrap
+        lines = [line for part in warning.split("\n") for line in textwrap.wrap(part, 60)]
+        for index, line in enumerate(lines):
+            box.label(text=("- " if index == 0 else "  ") + line)
 
 
 class BK64_ExportModelPanel(BK64_Panel):
@@ -95,6 +114,7 @@ class BK64_ExportModelPanel(BK64_Panel):
                         counts[half] += 1
             halves.label(text=f"{counts['OPAQUE']} opaque, {counts['TRANSLUCENT']} translucent")
         halves.operator(BK64_ExportLevelHalves.bl_idname)
+        _draw_export_warnings(col, "model")
 
         box = col.box().column()
         box.label(text="Select the armature, or the mesh for a static model.")
@@ -119,6 +139,7 @@ class BK64_ExportAnimationPanel(BK64_Panel):
         col.prop(scene, "hm64_bk64_anim_include_rest")
         col.operator(BK64_ExportAnimation.bl_idname)
         col.operator(BK64_ExportAllAnimations.bl_idname)
+        _draw_export_warnings(col, "animation")
 
         prop_split(col, scene, "hm64_bk64_anim_import_path", "Animation File")
         col.operator(BK64_ImportAnimation.bl_idname)

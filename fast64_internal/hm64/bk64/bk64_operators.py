@@ -113,6 +113,32 @@ def resolve_root(context):
     return meshes[0]
 
 
+export_warnings = {"model": [], "animation": []}  # per panel, until the next export or file load
+
+
+@persistent
+def _forget_export_warnings(*_args):
+    for warnings in export_warnings.values():
+        warnings.clear()
+
+
+def report_warnings(operator, warnings, done: str, panel=None):
+    """Reports each warning, then the done line with their count"""
+    # a level's two halves share one settings, and raise the same ones
+    warnings = list(dict.fromkeys(warnings))
+    if panel is not None:
+        export_warnings[panel] = warnings
+    for warning in warnings:
+        operator.report({"WARNING"}, warning)
+    if not warnings:
+        operator.report({"INFO"}, done)
+        return
+    counted = "1 warning" if len(warnings) == 1 else f"{len(warnings)} warnings"
+    where = "under the Export button" if panel is not None else "in the Info editor"
+    # the status bar shows only the last report
+    operator.report({"WARNING"}, f"{done.rstrip('.')}. {counted} {where}.")
+
+
 class BK64_ExportModel(Operator):
     bl_idname = "scene.hm64_bk64_export_model"
     bl_label = "Export BK Model"
@@ -120,6 +146,7 @@ class BK64_ExportModel(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["model"] = []
         scene = context.scene
 
         try:
@@ -145,15 +172,15 @@ class BK64_ExportModel(Operator):
                     with open(path, "wb") as file:
                         file.write(data)
 
-                for warning in settings.warnings:
-                    self.report({"WARNING"}, warning)
-                self.report(
-                    {"INFO"},
+                report_warnings(
+                    self,
+                    settings.warnings,
                     (
                         f"Exported {settings.name} and {len(resources) - 1} sibling resources to {export_dir}"
                         if len(resources) > 1
                         else f"Exported {settings.name}{extension} to {export_dir}"
                     ),
+                    "model",
                 )
             return {"FINISHED"}
 
@@ -188,6 +215,7 @@ class BK64_ExportLevelHalves(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["model"] = []
         scene = context.scene
         temp_objects = []
         try:
@@ -262,11 +290,10 @@ class BK64_ExportLevelHalves(Operator):
                     written.append(settings.name)
 
                 settings.name = base_name
-                # both halves raise the same ones, and one settings collects them all
-                for warning in dict.fromkeys(settings.warnings):
-                    self.report({"WARNING"}, warning)
                 note = f" {' and '.join(blanked)} had no geometry and went out blank." if blanked else ""
-                self.report({"INFO"}, f"Exported {' and '.join(written)} to {export_dir}.{note}")
+                report_warnings(
+                    self, settings.warnings, f"Exported {' and '.join(written)} to {export_dir}.{note}", "model"
+                )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -286,6 +313,7 @@ class BK64_ExportAnimation(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["animation"] = []
         scene = context.scene
 
         try:
@@ -308,9 +336,9 @@ class BK64_ExportAnimation(Operator):
                 with open(path, "wb") as file:
                     file.write(data)
 
-                for warning in dict.fromkeys(settings.warnings):
-                    self.report({"WARNING"}, warning)
-                self.report({"INFO"}, f"Exported {settings.anim_path}{extension} to {export_dir}")
+                report_warnings(
+                    self, settings.warnings, f"Exported {settings.anim_path}{extension} to {export_dir}", "animation"
+                )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -325,6 +353,7 @@ class BK64_ExportAllAnimations(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["animation"] = []
         scene = context.scene
 
         try:
@@ -361,12 +390,29 @@ class BK64_ExportAllAnimations(Operator):
                 finally:
                     armature_obj.animation_data.action = restore
 
-                self.report({"INFO"}, f"Exported {len(written)} actions to {os.path.join(export_dir, folder)}")
+                report_warnings(
+                    self,
+                    settings.warnings,
+                    f"Exported {len(written)} actions to {os.path.join(export_dir, folder)}",
+                    "animation",
+                )
             return {"FINISHED"}
 
         except Exception as exc:
             raisePluginError(self, exc)
             return {"CANCELLED"}
+
+
+class BK64_ClearExportWarnings(Operator):
+    bl_idname = "scene.hm64_bk64_clear_export_warnings"
+    bl_label = "Clear"
+    bl_description = "Stop listing the last export's warnings"
+
+    panel: StringProperty(default="model")
+
+    def execute(self, context):
+        export_warnings[self.panel] = []
+        return {"FINISHED"}
 
 
 class BK64_PromoteMaterials(Operator):
@@ -1077,9 +1123,9 @@ class BK64_ImportLevel(Operator):
                         )
 
                 note = " Each half is its own object." if len(brought) > 1 else ""
-                for caveat in caveats:
-                    self.report({"WARNING"}, caveat)
-                self.report({"INFO"}, f"Imported {level} {' and '.join(brought)}, {triangles} triangles.{note}")
+                report_warnings(
+                    self, caveats, f"Imported {level} {' and '.join(brought)}, {triangles} triangles.{note}"
+                )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -1227,6 +1273,7 @@ bk64_operator_classes = (
     BK64_ExportLevelHalves,
     BK64_ExportAnimation,
     BK64_ExportAllAnimations,
+    BK64_ClearExportWarnings,
     BK64_PromoteMaterials,
     BK64_SplitMeshAtBones,
     BK64_AddMeshEffect,
@@ -1252,6 +1299,7 @@ def bk64_operators_register():
     for cls in bk64_operator_classes:
         register_class(cls)
     bpy.app.handlers.depsgraph_update_post.append(_follow_hit_spheres)
+    bpy.app.handlers.load_post.append(_forget_export_warnings)
 
 
 def bk64_operators_unregister():
@@ -1259,3 +1307,5 @@ def bk64_operators_unregister():
         unregister_class(cls)
     if _follow_hit_spheres in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_follow_hit_spheres)
+    if _forget_export_warnings in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_forget_export_warnings)
