@@ -8,7 +8,7 @@ Everything is in the 3D view sidebar under the BK64 tab. Press N if the sidebar 
 - **Model Exporter** writes a model, or a level's two halves together. Format, scale, rigging and the default draw layer are set here.
 - **Animations** exports the actions on an armature, and imports one onto it.
 - **Model Importer** brings in a model, its skeleton alone, or a whole level picked by name.
-- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Weld Bone Seams, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only, Draw After Imported Layout and Add Mesh Effect.
+- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Weld Bone Seams, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only, Draw After Imported Layout, Set Up Vertex Paint, Paint Color, Paint Alpha and Add Mesh Effect.
 
 Bone settings are in the properties editor under the bone tab, and material settings under the material tab.
 
@@ -52,6 +52,8 @@ Shading comes from vertex color. The game loads no lights for a model. A vanilla
 Primitive and Environment Color belong to the game. It loads both before it draws a model: Environment as a tint and the alpha the model fades with, Primitive as an offset that's usually black. The player's tint follows the floor under them. Every vanilla material takes them in the first cycle, (TEXEL0 - PRIMITIVE) * ENVIRONMENT + PRIMITIVE, and multiplies by SHADE in the second. The presets do the same and set neither color. A material that sets one changes it for everything drawn after it in the model.
 
 The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded. "BK Vertex Colored Texture Cutout Transparent" takes both, for a cutout that also fades at its vertices. "BK Shaded Texture Transparent" takes both too.
+
+Set Up Vertex Paint, in Mesh Tools, gets the selected meshes ready to paint. It names a mesh's color layer Col when it's the only one, adds Col and Alpha where they're missing, makes Col the layer the viewport shows, and turns lighting off on any material whose color combiner takes SHADE, unless it's reflective. Paint Color and Paint Alpha switch to Vertex Paint on Col or Alpha, and Paint Alpha names any material that doesn't read vertex alpha. Alpha is painted in gray: white is solid and black is clear.
 
 Alpha Compare, in the material tab beside Draw Layer, is what makes a cutout clip instead of blend. Threshold tests each pixel's alpha and throws the failing ones away; None lets them blend. Vanilla turns it on around the chunks that need it, foliage and railings among them, and an imported material arrives with whatever it shipped with. The two cutout presets set Threshold for you. Cutout Transparent doesn't, since its alpha carries the vertex fade too and a threshold would drop the surface instead of fading it.
 
@@ -318,6 +320,7 @@ Cull spheres, geo command 0x0E, are the one part of the format read past and not
 
 ### Common Issues
 - The model renders black: a material still has lighting enabled and Force Unlit Shade is off.
+- A mesh previews black in Blender but exports white: it has no color layer named Col, often one called Color instead. Press Set Up Vertex Paint.
 - The model lies on its side: it wasn't authored with +Z up. Rotate it upright in Blender, and apply the rotation if it's an armature.
 - It animates, but some limbs hold their rest pose: those bones' IDs aren't the ones the animation addresses. Import the original model's skeleton and match its IDs.
 - An exported animation moves the model too far or not far enough: Animation Scale doesn't match the model it's playing on.

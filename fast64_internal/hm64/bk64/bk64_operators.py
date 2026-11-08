@@ -11,6 +11,14 @@ from bpy.props import IntProperty, StringProperty
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
+from ...f3d.f3d_material import (
+    addColorAttributesToModel,
+    combiner_uses,
+    createScenePropertiesForMaterial,
+    get_f3d_node_tree,
+    update_all_node_values,
+)
+from ...f3d.f3d_material_helpers import node_tree_copy
 from ...utility import PluginError, raisePluginError
 from .bk64_anim import actions_for, export_bk64_animation, import_bk64_animation
 from .bk64_constants import (
@@ -621,6 +629,109 @@ class BK64_DrawAfterLayout(Operator):
                 if freed
                 else "None of those faces have an imported chunk.",
             )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_SetUpVertexPaint(Operator):
+    bl_idname = "object.hm64_bk64_set_up_vertex_paint"
+    bl_label = "Set Up Vertex Paint"
+    bl_description = "Give the selected meshes Col and Alpha, and turn lighting off on their shaded materials"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+            if not meshes:
+                raise PluginError("Select the mesh to paint.")
+
+            notes, black = [], []
+            with object_mode(context):
+                selected, active = list(context.selected_objects), context.view_layer.objects.active
+                try:
+                    for obj in meshes:
+                        colors = obj.data.color_attributes
+                        painted = [layer for layer in colors if layer.name != "Alpha"]
+                        if colors.get("Col") is None and len(painted) == 1:
+                            notes.append(f"'{painted[0].name}' on '{obj.name}' is Col now.")
+                            painted[0].name = "Col"
+                        addColorAttributesToModel(obj)
+                        color_layer = colors["Col"]
+                        colors.active_color = color_layer
+                        colors.render_color_index = colors.find("Col")
+                        values = [0.0] * (len(color_layer.data) * 4)
+                        color_layer.data.foreach_get("color", values)
+                        del values[3::4]  # the alpha
+                        if values and not any(values):
+                            black.append(obj.name)
+
+                    materials = list(
+                        dict.fromkeys(m for obj in meshes for m in obj.data.materials if m is not None and m.is_f3d)
+                    )
+                    f3d_node_tree = get_f3d_node_tree() if materials else None
+                    for material in materials:
+                        f3d_mat = material.f3d_mat
+                        rdp = f3d_mat.rdp_settings
+                        # environment mapping needs G_LIGHTING on
+                        if rdp.g_lighting and not rdp.g_tex_gen and combiner_uses(f3d_mat, ["SHADE"], checkAlpha=False):
+                            with context.temp_override(material=material):
+                                rdp.g_lighting = False
+                        # Recreate F3D Shader Nodes, keeping the preset name it sets to Custom
+                        name = f3d_mat.presetName
+                        node_tree_copy(f3d_node_tree, material.node_tree)
+                        createScenePropertiesForMaterial(material)
+                        with context.temp_override(material=material):
+                            update_all_node_values(material, context)
+                        f3d_mat.presetName = name
+                finally:
+                    # addColorAttributesToModel and the node library link both change the selection
+                    for obj in context.view_layer.objects:
+                        obj.select_set(obj in selected)
+                    context.view_layer.objects.active = active
+
+            warnings = [f"Col is black everywhere on '{mesh_name}'. Paint it, or fill it white." for mesh_name in black]
+            counted = "1 mesh" if len(meshes) == 1 else f"{len(meshes)} meshes"
+            report_warnings(self, warnings, " ".join([f"{counted} ready to paint.", *notes]))
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_PaintLayer(Operator):
+    bl_idname = "object.hm64_bk64_paint_layer"
+    bl_label = "Paint Layer"
+    bl_description = "Vertex paint this layer of the active mesh"
+    bl_options = {"REGISTER", "UNDO"}
+
+    layer: StringProperty(default="Col")
+
+    def execute(self, context):
+        try:
+            obj = context.object
+            if obj is None or obj.type != "MESH":
+                raise PluginError("Select the mesh to paint.")
+            colors = obj.data.color_attributes
+            if colors.get(self.layer) is None:
+                raise PluginError(f"'{obj.name}' has no {self.layer}. Press Set Up Vertex Paint first.")
+            colors.active_color = colors[self.layer]
+            if context.mode != "PAINT_VERTEX":
+                bpy.ops.object.mode_set(mode="VERTEX_PAINT")
+
+            warnings = []
+            if self.layer == "Alpha":
+                materials = dict.fromkeys(m for m in obj.data.materials if m is not None and m.is_f3d)
+                unread = [m.name for m in materials if not combiner_uses(m.f3d_mat, ["SHADE"], checkColor=False)]
+                if unread:
+                    warnings.append(
+                        f"Vertex alpha doesn't reach {', '.join(unread)}. "
+                        "A Transparent or Cutout Transparent preset reads it."
+                    )
+            report_warnings(self, warnings, f"Painting {self.layer}.")
             return {"FINISHED"}
 
         except Exception as exc:
@@ -1280,6 +1391,8 @@ bk64_operator_classes = (
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
     BK64_DrawAfterLayout,
+    BK64_SetUpVertexPaint,
+    BK64_PaintLayer,
     BK64_WeldBoneSeams,
     BK64_RestoreStackedFaces,
     BK64_PutInDetailLevel,
