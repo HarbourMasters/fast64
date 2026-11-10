@@ -101,6 +101,7 @@ from .bk64_geo import (
     relink_layout,
     split_skinning,
     stored_layout,
+    upgrade_chunk_tags,
 )
 from .bk64_collision import (
     check_camera_water_reads,
@@ -405,7 +406,7 @@ def _bm_face_sources(bm, mesh_obj):
     # triangulating renumbers the faces, and copies this layer onto the ones it makes
     layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
     if layer is not None:
-        return {face: face[layer] for face in bm.faces}
+        return {face: face[layer] - 1 for face in bm.faces}
     of_slot = _source_of_slot(mesh_obj.data)
     return {face: of_slot[face.material_index] if face.material_index < len(of_slot) else -1 for face in bm.faces}
 
@@ -431,7 +432,7 @@ def bone_of_faces(bm, mesh_obj, group_index_to_bone, fallback_bone_name=None, so
 
 def _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings=None):
     """Clears the chunk tag off faces weighted to a bone that chunk never drew on"""
-    # joining a mesh in fills its faces with 0, and duplicating copies the tag
+    # duplicating copies the tag, and a mesh joined into an older blend took chunk 0
     layer = bm.faces.layers.int.get(SOURCE_CHUNK_ATTR)
     if not source_bones or layer is None:
         return
@@ -441,14 +442,14 @@ def _untag_strays(bm, mesh_obj, armature_obj, source_bones, warnings=None):
 
     strays = 0
     for face in bm.faces:
-        tagged = source_bones.get(face[layer])
+        tagged = source_bones.get(face[layer] - 1)
         if tagged is None:
             continue
         weighted = groups.get(_face_bone_group(face, deform, groups))
         # vanilla weights some of a seam's faces wholly to the parent, never to a child
         if weighted is None or weighted == tagged or family(tagged, weighted, upward=True):
             continue
-        face[layer] = -1
+        face[layer] = 0
         strays += 1
 
     if strays and warnings is not None:
@@ -504,6 +505,8 @@ def split_mesh_at_bones(mesh_obj):
     # viewport showing something other than what ships
     armature_obj = checked_armature_of(mesh_obj)
     groups = checked_bone_groups(mesh_obj, armature_obj)
+    # bone_of_faces reads SOURCE_CHUNK_ATTR alone
+    upgrade_chunk_tags(mesh_obj.data)
 
     bm = bmesh.new()
     bm.from_mesh(mesh_obj.data)
@@ -905,7 +908,7 @@ def _warn_level_moves(bm, mesh_obj, levels_of_chunk, taken_out_of, warnings):
 
     moved = 0
     for face in bm.faces:
-        level = levels_of_chunk.get(face[layer])
+        level = levels_of_chunk.get(face[layer] - 1)
         if level is None:
             continue
         held = [{level_of_group[i] for i in vert[deform].keys() if i in level_of_group} for vert in face.verts]
@@ -933,7 +936,7 @@ def _face_sources(mesh):
     """The chunk each face was drawn in, off the mesh or an older blend's materials"""
     layer = mesh.attributes.get(SOURCE_CHUNK_ATTR)
     if layer is not None and layer.domain == "FACE":
-        return [item.value for item in layer.data]
+        return [item.value - 1 for item in layer.data]
     of_slot = _source_of_slot(mesh)
     return [
         of_slot[polygon.material_index] if polygon.material_index < len(of_slot) else -1 for polygon in mesh.polygons
@@ -1562,6 +1565,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
     if culling:
         counted = "1 object" if len(culling) == 1 else f"{len(culling)} objects"
         settings.warnings.append(f"Turned Use F3D Culling off on {counted}. BK culls off its own center and radius.")
+    # everything below reads SOURCE_CHUNK_ATTR alone
+    for mesh_obj in mesh_objects:
+        upgrade_chunk_tags(mesh_obj.data)
 
     # WriteAll emits a blanket othermode-H and leaks it, differing-and-revert
     # writes only what the world defaults don't cover
@@ -1699,9 +1705,16 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 del commands[last]
         # an import stores geo type on the object, since a level's halves disagree
         geo_type = root_obj.hm64_bk64_geo_type_raw or settings.geo_type_bits()
+        # the bit without the pyramid, which only o2r gets, samples tiles TMEM never got
+        if rom_format and geo_type & GEO_TYPE_MIPMAP_TRILINEAR:
+            geo_type &= ~GEO_TYPE_MIPMAP_TRILINEAR
+            settings.warnings.append(
+                "Trilinear Mipmap needs an o2r export, so the .bin went out without it and its "
+                "textures draw from level 0."
+            )
         _warn_reflective(mesh_objects, geo_type, settings.warnings)
         # the bits shipped, not the scene setting: a level's second half clears that
-        if (geo_type & GEO_TYPE_MIPMAP_TRILINEAR) and not rom_format:
+        if geo_type & GEO_TYPE_MIPMAP_TRILINEAR:
             for key, value in fModel.materials.items():
                 material = key[0]
                 f3d_mat = f3d_settings(material)
