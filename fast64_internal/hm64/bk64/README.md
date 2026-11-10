@@ -67,7 +67,7 @@ Force Unlit Shade, on by default, does that baking. It calculates what the RSP w
 
 Reflective materials need the Reflective (Env Map) option. It sets up the reflection matrix that G_TEXTURE_GEN environment mapping needs. The lighting flag has to stay on for it, with no lights loaded, because that flag transforms the normal the reflection samples. A reflective material therefore keeps both the flag and its vertex normals through the export, where every other material has its shading baked down into vertex color.
 
-Trilinear Mipmap is the other geo type flag and is off by default. With it on, any 32x32 RGBA16 material whose combiner blends two texels gets a mip pyramid written. A texture imported from the game writes back the levels it came in with, which Rare drew by hand. Edit the base and the levels are filtered from it instead.
+Trilinear Mipmap is the other geo type flag and is off by default. With it on, any 32x32 RGBA16 material whose combiner blends two texels gets a mip pyramid written. A texture imported from the game writes back the levels it came in with, which Rare drew by hand. Edit the base and the levels are filtered from it instead. Only an o2r export writes the pyramid, so a `.bin` goes out without the flag, imported or not.
 
 Both boxes only apply to a model you built yourself. An imported one keeps the flags it arrived with, and the panel greys the boxes out and shows the value as Imported Geo Type. Set that to 0 to take the boxes back. A level's two halves usually disagree, which is why the flags are kept per object rather than per scene.
 

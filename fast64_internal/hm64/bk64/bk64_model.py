@@ -1705,9 +1705,16 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                 del commands[last]
         # an import stores geo type on the object, since a level's halves disagree
         geo_type = root_obj.hm64_bk64_geo_type_raw or settings.geo_type_bits()
+        # the bit without the pyramid, which only o2r gets, samples tiles TMEM never got
+        if rom_format and geo_type & GEO_TYPE_MIPMAP_TRILINEAR:
+            geo_type &= ~GEO_TYPE_MIPMAP_TRILINEAR
+            settings.warnings.append(
+                "Trilinear Mipmap needs an o2r export, so the .bin went out without it and its "
+                "textures draw from level 0."
+            )
         _warn_reflective(mesh_objects, geo_type, settings.warnings)
         # the bits shipped, not the scene setting: a level's second half clears that
-        if (geo_type & GEO_TYPE_MIPMAP_TRILINEAR) and not rom_format:
+        if geo_type & GEO_TYPE_MIPMAP_TRILINEAR:
             for key, value in fModel.materials.items():
                 material = key[0]
                 f3d_mat = f3d_settings(material)
