@@ -1845,9 +1845,11 @@ def set_output_node_groups(material: Material):
     f3dMat: "F3DMaterialProperty" = material.f3d_mat
     cycle = f3dMat.rdp_settings.g_mdsft_cycletype.lstrip("G_CYC_").rstrip("_CYCLE")
     output_method = get_output_method(material)
+    # BK sets blend alpha to 0x80 before it draws a model (modelRender.c)
+    threshold = 0.5 if bpy.context.scene.gameEditorMode == "BK64" else 0.125
     if bpy.app.version < (4, 2, 0) and output_method == "CLIP":
         output_method = "XLU"
-        material.alpha_threshold = 0.125
+        material.alpha_threshold = threshold
 
     output_group_name = f"OUTPUT_{cycle}CYCLE_{output_method}"
     output_group = bpy.data.node_groups[output_group_name]
@@ -1860,7 +1862,7 @@ def set_output_node_groups(material: Material):
     output_node.inputs["Cycle_C_2"].default_value = (0.0, 0.0, 0.0, 1.0)
     output_node.inputs["Cycle_A_2"].default_value = 0.5
     if output_method == "CLIP":
-        output_node.inputs["Alpha Threshold"].default_value = 0.125
+        output_node.inputs["Alpha Threshold"].default_value = threshold
     material.node_tree.links.new(nodes["Cycle_1"].outputs["Color"], output_node.inputs["Cycle_C_1"])
     material.node_tree.links.new(nodes["Cycle_1"].outputs["Alpha"], output_node.inputs["Cycle_A_1"])
     material.node_tree.links.new(nodes["FogBlender"].outputs["Color"], output_node.inputs["Cycle_C_2"])

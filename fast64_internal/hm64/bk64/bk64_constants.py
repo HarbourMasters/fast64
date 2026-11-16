@@ -378,8 +378,10 @@ MIP_PYRAMID_PROP = "hm64_bk64_mip_pyramid"
 MIP_BASE_PROP = "hm64_bk64_mip_base"
 
 # the display list chunk each imported face was drawn in, on the mesh rather
-# than the material so identical materials can share one slot
-SOURCE_CHUNK_ATTR = "hm64_bk64_source"
+# than the material so identical materials can share one slot. Holds the chunk
+# plus one, since Blender gives a new face 0
+SOURCE_CHUNK_ATTR = "hm64_bk64_chunk"
+OLD_SOURCE_CHUNK_ATTR = "hm64_bk64_source"  # older blends, the chunk with -1 for none
 
 # the cell grid a model's collision came with, written back while the surface
 # set still matches

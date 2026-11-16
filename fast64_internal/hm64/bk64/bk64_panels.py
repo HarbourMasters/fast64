@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import textwrap
+
 from bpy.utils import register_class, unregister_class
 
+from ...f3d.f3d_material import combiner_uses
 from ...f3d.flipbook import drawTextureArray
 from ...panels import BK64_Panel
 from ...utility import prop_split
@@ -10,6 +13,8 @@ from .bk64_geo import geo_node_of_group, layout_detail_levels, layout_selectors,
 from .bk64_model import in_level_half, level_half_faces, read_vertex_bounds
 from .bk64_operators import (
     BK64_AddMeshEffect,
+    BK64_ClearExportWarnings,
+    BK64_DrawAfterLayout,
     BK64_ExportAllAnimations,
     BK64_ImportAnimation,
     BK64_ExportAnimation,
@@ -20,18 +25,36 @@ from .bk64_operators import (
     BK64_ImportSkeleton,
     BK64_PromoteMaterials,
     BK64_MarkCollisionOnly,
+    BK64_PaintLayer,
     BK64_PutInDetailLevel,
     BK64_PutInSelectorState,
     BK64_PutInSort,
     BK64_RestoreStackedFaces,
     BK64_SelectLooseVertices,
     BK64_SetDetailLevelRange,
+    BK64_SetUpVertexPaint,
     BK64_SplitNodes,
     BK64_ShowHitSphere,
     BK64_SplitMeshAtBones,
     BK64_WeldBoneSeams,
+    export_warnings,
     resolve_root,
 )
+
+
+def _draw_export_warnings(col, panel: str):
+    warnings = export_warnings[panel]
+    if not warnings:
+        return
+    box = col.box().column()
+    row = box.row()
+    row.label(text="Last export warned:", icon="ERROR")
+    row.operator(BK64_ClearExportWarnings.bl_idname).panel = panel
+    for warning in warnings:
+        # a label doesn't wrap
+        lines = [line for part in warning.split("\n") for line in textwrap.wrap(part, 60)]
+        for index, line in enumerate(lines):
+            box.label(text=("- " if index == 0 else "  ") + line)
 
 
 class BK64_ExportModelPanel(BK64_Panel):
@@ -94,6 +117,7 @@ class BK64_ExportModelPanel(BK64_Panel):
                         counts[half] += 1
             halves.label(text=f"{counts['OPAQUE']} opaque, {counts['TRANSLUCENT']} translucent")
         halves.operator(BK64_ExportLevelHalves.bl_idname)
+        _draw_export_warnings(col, "model")
 
         box = col.box().column()
         box.label(text="Select the armature, or the mesh for a static model.")
@@ -118,6 +142,7 @@ class BK64_ExportAnimationPanel(BK64_Panel):
         col.prop(scene, "hm64_bk64_anim_include_rest")
         col.operator(BK64_ExportAnimation.bl_idname)
         col.operator(BK64_ExportAllAnimations.bl_idname)
+        _draw_export_warnings(col, "animation")
 
         prop_split(col, scene, "hm64_bk64_anim_import_path", "Animation File")
         col.operator(BK64_ImportAnimation.bl_idname)
@@ -179,6 +204,13 @@ class BK64_MeshToolsPanel(BK64_Panel):
         col.operator(BK64_RestoreStackedFaces.bl_idname)
         col.operator(BK64_SelectLooseVertices.bl_idname)
         col.operator(BK64_MarkCollisionOnly.bl_idname)
+        col.operator(BK64_DrawAfterLayout.bl_idname)
+
+        col.separator()
+        col.operator(BK64_SetUpVertexPaint.bl_idname)
+        row = col.row(align=True)
+        row.operator(BK64_PaintLayer.bl_idname, text="Paint Color").layer = "Col"
+        row.operator(BK64_PaintLayer.bl_idname, text="Paint Alpha").layer = "Alpha"
 
         col.separator()
         prop_split(col, scene, "hm64_bk64_mesh_effect", "Effect")
@@ -189,6 +221,8 @@ class BK64_MeshToolsPanel(BK64_Panel):
         box.label(text="These change the mesh you have selected, not the export.")
         box.label(text="Restore Stacked Faces reads the Model File in the importer.")
         box.label(text="Collision Only makes a mesh an invisible floor or wall.")
+        box.label(text="Imported faces ignore slot order until Draw After Imported Layout.")
+        box.label(text="Paint Alpha in gray: white is solid, black is clear.")
         box.label(text="Pick the faces in edit mode before Add Mesh Effect.")
         box.label(text="Scroll only moves vertically, and effects only run on a level.")
 
@@ -373,6 +407,17 @@ class BK64_MaterialPanel(BK64_Panel):
         material = context.material
         prop_split(col, material, "hm64_bk64_draw_layer", "Draw Layer")
         prop_split(col, material, "hm64_bk64_level_half", "Level Half")
+        obj = context.object
+        if (
+            obj is not None
+            and obj.type == "MESH"
+            and obj.data.color_attributes.get("Col") is None
+            and not material.f3d_mat.rdp_settings.g_lighting
+            and combiner_uses(material.f3d_mat, ["SHADE"], checkAlpha=False)
+        ):
+            box = col.box().column()
+            box.label(text=f"'{obj.name}' has no Col, so it previews black and exports white.")
+            box.operator(BK64_SetUpVertexPaint.bl_idname)
         prop_split(col, material.f3d_mat.rdp_settings, "g_mdsft_alpha_compare", "Alpha Compare")
         if material.f3d_mat.rdp_settings.g_mdsft_alpha_compare == "G_AC_NONE" and material.f3d_mat.presetName.endswith(
             "Cutout"

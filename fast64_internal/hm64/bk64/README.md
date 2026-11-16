@@ -8,7 +8,7 @@ Everything is in the 3D view sidebar under the BK64 tab. Press N if the sidebar 
 - **Model Exporter** writes a model, or a level's two halves together. Format, scale, rigging and the default draw layer are set here.
 - **Animations** exports the actions on an armature, and imports one onto it.
 - **Model Importer** brings in a model, its skeleton alone, or a whole level picked by name.
-- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only and Add Texture Scroll.
+- **Mesh Tools** change the mesh you have selected: Promote Materials To 2 Cycle, Split Mesh At Bones, Weld Bone Seams, Restore Stacked Faces, Select Loose Vertices, Toggle Collision Only, Draw After Imported Layout, Set Up Vertex Paint, Paint Color, Paint Alpha and Add Mesh Effect.
 
 Bone settings are in the properties editor under the bone tab, and material settings under the material tab.
 
@@ -53,7 +53,11 @@ Primitive and Environment Color belong to the game. It loads both before it draw
 
 The vertex color's alpha channel only reaches the output if the alpha combiner takes SHADE. "BK Vertex Colored Texture" holds alpha at 1, so painting that channel does nothing there. Use "BK Vertex Colored Texture Transparent", which takes shade alpha. "BK Vertex Colored Texture Cutout" takes the texture's alpha instead, for foliage and railings that are vertex shaded. "BK Vertex Colored Texture Cutout Transparent" takes both, for a cutout that also fades at its vertices. "BK Shaded Texture Transparent" takes both too.
 
+Set Up Vertex Paint, in Mesh Tools, gets the selected meshes ready to paint. It names a mesh's color layer Col when it's the only one, adds Col and Alpha where they're missing, makes Col the layer the viewport shows, and turns lighting off on any material whose color combiner takes SHADE, unless it's reflective. Paint Color and Paint Alpha switch to Vertex Paint on Col or Alpha, and Paint Alpha names any material that doesn't read vertex alpha. Alpha is painted in gray: white is solid and black is clear.
+
 Alpha Compare, in the material tab beside Draw Layer, is what makes a cutout clip instead of blend. Threshold tests each pixel's alpha and throws the failing ones away; None lets them blend. Vanilla turns it on around the chunks that need it, foliage and railings among them, and an imported material arrives with whatever it shipped with. The two cutout presets set Threshold for you. Cutout Transparent doesn't, since its alpha carries the vertex fade too and a threshold would drop the surface instead of fading it.
+
+Threshold drops pixels under half alpha on N64 and under 8/256 in Lighthouse. The viewport cuts at half too, but draws what passes solid. The game blends it on the Translucent layer. A texture whose edges fade belongs on Cutout Transparent, in IA8 if it's white, since RGBA16 keeps one bit of alpha. Filtering pulls a see-through texel's color into the edge beside it, so a black background darkens the edge a little. Paint the see-through pixels the edge's color instead.
 
 No preset sets a render mode, and none should. A chunk jumps into the render mode table the game builds instead, picked by its Draw Layer. Ticking Set Render Mode writes a mode into the display list after that jump, which overrides it and takes the actor's depth behavior away from the game.
 
@@ -63,7 +67,7 @@ Force Unlit Shade, on by default, does that baking. It calculates what the RSP w
 
 Reflective materials need the Reflective (Env Map) option. It sets up the reflection matrix that G_TEXTURE_GEN environment mapping needs. The lighting flag has to stay on for it, with no lights loaded, because that flag transforms the normal the reflection samples. A reflective material therefore keeps both the flag and its vertex normals through the export, where every other material has its shading baked down into vertex color.
 
-Trilinear Mipmap is the other geo type flag and is off by default. With it on, any 32x32 RGBA16 material whose combiner blends two texels gets a mip pyramid written. A texture imported from the game writes back the levels it came in with, which Rare drew by hand. Edit the base and the levels are filtered from it instead.
+Trilinear Mipmap is the other geo type flag and is off by default. With it on, any 32x32 RGBA16 material whose combiner blends two texels gets a mip pyramid written. A texture imported from the game writes back the levels it came in with, which Rare drew by hand. Edit the base and the levels are filtered from it instead. Only an o2r export writes the pyramid, so a `.bin` goes out without the flag, imported or not.
 
 Both boxes only apply to a model you built yourself. An imported one keeps the flags it arrived with, and the panel greys the boxes out and shows the value as Imported Geo Type. Set that to 0 to take the boxes back. A level's two halves usually disagree, which is why the flags are kept per object rather than per scene.
 
@@ -76,15 +80,16 @@ Materials export in the order of the object's material slots, and the game draws
 
 A model built from several objects sorts by object name first, since the export walks the root's children in name order. Material slots then order the faces within each object.
 
+An imported model keeps the order it came in. Each imported face remembers the chunk it was drawn in, and those chunks go out in their original order, so moving a slot doesn't move an imported face past another chunk. Faces you add come after the whole imported layout, in slot order. To put imported faces there too, select them in edit mode and press Draw After Imported Layout in Mesh Tools. A face moved that way leaves any Draw Distance box or camera gate it was under. In a blend from an older Fast64, faces you added draw with the first imported chunk until they get the button too.
+
 ### Textures
-Fast64 converts textures to native N64 formats and the exporter writes them through untouched. RGBA16, RGBA32, CI4, CI8, I4, I8, IA4, IA8 and IA16 are all supported. BK stores a texture's width and height as a single byte each. Neither can exceed 255. The export fails with a message instead of truncating.
+Fast64 converts textures to native N64 formats and the exporter writes them through untouched. RGBA16, RGBA32, CI4, CI8 and IA8 are supported, and the export refuses the rest. BK stores a texture's width and height as a single byte each. Neither can exceed 255. The export fails with a message instead of truncating.
 
 A texture also has to fit TMEM, which holds 4KB, or 2KB for a CI format since the palette takes the rest. The biggest that fit:
 
 - RGBA32: 32x32, 16x64, 8x128
-- RGBA16, IA16 and CI8: 32x64, 64x32, 16x128, 8x256
-- I8, IA8 and CI4: 64x64, 32x128, 128x32, 16x256
-- I4 and IA4: 64x128, 128x64, 32x256, 256x32
+- RGBA16 and CI8: 32x64, 64x32, 16x128, 8x256
+- IA8 and CI4: 64x64, 32x128, 128x32, 16x256
 
 Halving one side lets the other double, and the material tab shows what a texture uses against that budget. Going over isn't an error. Fast64 keeps the image whole and writes it as an HD texture: a smaller tile stands in for it in the display list, with the scales beside it saying how much bigger the real image is. Only an o2r export can carry those scales. A `.bin` stores its images as bare bytes with nowhere to record them, and refuses.
 
@@ -233,7 +238,7 @@ The geo layout comes in with the model and goes back out on export: selectors, s
 
 Both rigging methods come in weighted. A Split At Bones model takes its weights from the layout, a bound one from its binding table. Gruntilda, Boggy and Gobi arrive posable, not as a bare mesh sitting beside an armature. The import sets Rigging to whichever of the two it found.
 
-A Split At Bones model also remembers which chunk each face was drawn in, and that decides the bone the face draws under ahead of its weights. It's what keeps a vanilla model on its original bones through a round trip, but it means re-weighting an imported face doesn't move it. Delete the mesh's `hm64_bk64_source` attribute when you mean to re-rig, and the weights decide instead.
+A Split At Bones model also remembers which chunk each face was drawn in, and that decides the bone the face draws under ahead of its weights. It's what keeps a vanilla model on its original bones through a round trip, but it means re-weighting an imported face doesn't move it. Select the faces and press Draw After Imported Layout when you mean to re-rig them, or press it in object mode for the whole mesh, and the weights decide instead.
 
 The collision fields describe every flag word vanilla ships. A word only a romhack sets comes in as Raw Flags and goes back out exactly as it arrived; clear that field to author the surface with the fields instead.
 
@@ -298,8 +303,6 @@ Format sets what is written, for animations as well as models. O2R writes the re
 
 Textures are written differently for a `.bin`, because nothing outside the game reproduces the game's own shading. Fast64 materials keep their color in the light and let the combiner fold it into the texture. For a `.bin` the export bakes that fold into the pixels and leaves the vertex color neutral. Both of the shaded-texture setups Fast64 writes are handled: a flat tint, and the decal setup where the texture's alpha picks between a base color and the detail painted over it. A material that combines them some other way keeps its texture and vertex color unchanged.
 
-A `.bin` takes RGBA16, RGBA32, CI4 and CI8, the four types the game's own header names. An o2r texture list also carries IA8, which is the format Lightning's animated frames are stored in.
-
 Every `.bin` ends its texture list with an 8x8 white RGBA16. Faces with no texture of their own are bound to it, since the combiner still samples one.
 
 Save Textures As PNGs, in the F3D Global Settings, writes each texture into Export Folder as a PNG as well. The warning in its label is about C exports and doesn't apply here.
@@ -317,13 +320,15 @@ Cull spheres, geo command 0x0E, are the one part of the format read past and not
 
 ### Common Issues
 - The model renders black: a material still has lighting enabled and Force Unlit Shade is off.
+- A mesh previews black in Blender but exports white: it has no color layer named Col, often one called Color instead. Press Set Up Vertex Paint.
 - The model lies on its side: it wasn't authored with +Z up. Rotate it upright in Blender, and apply the rotation if it's an armature.
 - It animates, but some limbs hold their rest pose: those bones' IDs aren't the ones the animation addresses. Import the original model's skeleton and match its IDs.
 - An exported animation moves the model too far or not far enough: Animation Scale doesn't match the model it's playing on.
 - Streaks or smears across flat surfaces: the tiles are set to wrap and some UVs reach past the tile edge. Set Clamp on S and T.
 - The export still calls the mesh welded after you ran Split Mesh At Bones: a modifier is making the welded geometry. The split cuts the mesh itself, the export reads it with its modifiers applied. Apply them first.
 - An eye vanishes on a blink, or a level of detail or appendage state has holes: Merge by Distance welded the copies the model stacks for them into one. Point Model File at the model it was imported from and run Restore Stacked Faces. It leaves out copies for distances another level already draws.
-- A re-weighted limb still follows the bone it had before: its faces kept the chunk they were imported in, which outranks their weights. Delete the mesh's `hm64_bk64_source` attribute.
+- A re-weighted limb still follows the bone it had before: its faces kept the chunk they were imported in, which outranks their weights. Select them and press Draw After Imported Layout.
+- A see-through face draws in front of the wrong one, and moving its material slot changes nothing: imported faces keep the order they came in. Press Draw After Imported Layout on the faces that should come out in front.
 - Limbs tear at the joints: the seam faces are cut, or welded across bones that aren't parent and child. Weld the seam to the joint's own bone pair, overlap the limbs, or switch to Bind Vertices.
 - A single vertex stretches away from the model as it animates: it carries no weight to a bone's vertex group, so Bind Vertices leaves it behind at rest. Run Select Loose Vertices and weight what it finds.
 - Select Loose Vertices finds nothing but the export still warned: a modifier is making that geometry. The export reads the mesh with its modifiers applied, and Boolean, Remesh, Skin and Geometry Nodes drop vertex groups.

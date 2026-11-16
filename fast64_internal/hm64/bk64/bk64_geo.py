@@ -21,6 +21,7 @@ from .bk64_constants import (
     MIP_LOAD_BLOCK,
     MIP_LOAD_TILE,
     NO_PARENT,
+    OLD_SOURCE_CHUNK_ATTR,
     OP_CLEARGEOMETRYMODE,
     OP_CULLDL,
     OP_DL,
@@ -54,6 +55,7 @@ from .bk64_constants import (
     SEG_TEX,
     SEG_TEX_BLOB,
     SEG_VTX,
+    SOURCE_CHUNK_ATTR,
     WHITE_TEXTURE_DIM,
 )
 from .bk64_rom import layout_records
@@ -77,6 +79,25 @@ def stored_layout(root_obj):
         return json.loads(raw)
     except ValueError:
         return None
+
+
+def upgrade_chunk_tags(mesh):
+    """Moves an older blend's chunk tags one up, onto SOURCE_CHUNK_ATTR"""
+    old = mesh.attributes.get(OLD_SOURCE_CHUNK_ATTR)
+    if old is None or old.domain != "FACE":
+        return
+    values = [item.value + 1 for item in old.data]
+    tags = mesh.attributes.get(SOURCE_CHUNK_ATTR)
+    if tags is None:
+        tags = mesh.attributes.new(name=SOURCE_CHUNK_ATTR, type="INT", domain="FACE")
+    else:
+        # joined with a newer import: a face's new tag wins, and the old one fills in where it's 0
+        held = [0] * len(values)
+        tags.data.foreach_get("value", held)
+        values = [kept or value for kept, value in zip(held, values)]
+    tags.data.foreach_set("value", values)
+    # adding a layer can move the old one, so it's found again by name
+    mesh.attributes.remove(mesh.attributes[OLD_SOURCE_CHUNK_ATTR])
 
 
 def layout_on_table(records, armature_obj, bones):

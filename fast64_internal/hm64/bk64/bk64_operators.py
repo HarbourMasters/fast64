@@ -11,6 +11,14 @@ from bpy.props import IntProperty, StringProperty
 from bpy.types import Operator
 from bpy.utils import register_class, unregister_class
 
+from ...f3d.f3d_material import (
+    addColorAttributesToModel,
+    combiner_uses,
+    createScenePropertiesForMaterial,
+    get_f3d_node_tree,
+    update_all_node_values,
+)
+from ...f3d.f3d_material_helpers import node_tree_copy
 from ...utility import PluginError, raisePluginError
 from .bk64_anim import actions_for, export_bk64_animation, import_bk64_animation
 from .bk64_constants import (
@@ -37,6 +45,7 @@ from .bk64_geo import (
     layout_level_gaps,
     set_detail_level,
     stored_layout,
+    upgrade_chunk_tags,
 )
 from .bk64_level_models import bk64_level_half_paths, bk64_level_layers, bk64_level_of_asset
 from .bk64_properties import spread_detail_levels
@@ -112,6 +121,32 @@ def resolve_root(context):
     return meshes[0]
 
 
+export_warnings = {"model": [], "animation": []}  # per panel, until the next export or file load
+
+
+@persistent
+def _forget_export_warnings(*_args):
+    for warnings in export_warnings.values():
+        warnings.clear()
+
+
+def report_warnings(operator, warnings, done: str, panel=None):
+    """Reports each warning, then the done line with their count"""
+    # a level's two halves share one settings, and raise the same ones
+    warnings = list(dict.fromkeys(warnings))
+    if panel is not None:
+        export_warnings[panel] = warnings
+    for warning in warnings:
+        operator.report({"WARNING"}, warning)
+    if not warnings:
+        operator.report({"INFO"}, done)
+        return
+    counted = "1 warning" if len(warnings) == 1 else f"{len(warnings)} warnings"
+    where = "under the Export button" if panel is not None else "in the Info editor"
+    # the status bar shows only the last report
+    operator.report({"WARNING"}, f"{done.rstrip('.')}. {counted} {where}.")
+
+
 class BK64_ExportModel(Operator):
     bl_idname = "scene.hm64_bk64_export_model"
     bl_label = "Export BK Model"
@@ -119,6 +154,7 @@ class BK64_ExportModel(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["model"] = []
         scene = context.scene
 
         try:
@@ -144,15 +180,15 @@ class BK64_ExportModel(Operator):
                     with open(path, "wb") as file:
                         file.write(data)
 
-                for warning in settings.warnings:
-                    self.report({"WARNING"}, warning)
-                self.report(
-                    {"INFO"},
+                report_warnings(
+                    self,
+                    settings.warnings,
                     (
                         f"Exported {settings.name} and {len(resources) - 1} sibling resources to {export_dir}"
                         if len(resources) > 1
                         else f"Exported {settings.name}{extension} to {export_dir}"
                     ),
+                    "model",
                 )
             return {"FINISHED"}
 
@@ -187,6 +223,7 @@ class BK64_ExportLevelHalves(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["model"] = []
         scene = context.scene
         temp_objects = []
         try:
@@ -213,6 +250,9 @@ class BK64_ExportLevelHalves(Operator):
                 sources = [obj for obj in sources if not obj.ignore_render and not obj.get(COLLISION_ONLY_PROP)]
                 if not sources:
                     raise PluginError(f"Nothing to export, '{root_obj.name}' has no mesh geometry.")
+                # the cut copies the meshes, and the export would only upgrade those copies
+                for obj in sources:
+                    upgrade_chunk_tags(obj.data)
 
                 base_name, written, blanked = settings.name, [], []
                 extension = ".bin" if settings.file_format == "BIN" else ""
@@ -258,11 +298,10 @@ class BK64_ExportLevelHalves(Operator):
                     written.append(settings.name)
 
                 settings.name = base_name
-                # both halves raise the same ones, and one settings collects them all
-                for warning in dict.fromkeys(settings.warnings):
-                    self.report({"WARNING"}, warning)
                 note = f" {' and '.join(blanked)} had no geometry and went out blank." if blanked else ""
-                self.report({"INFO"}, f"Exported {' and '.join(written)} to {export_dir}.{note}")
+                report_warnings(
+                    self, settings.warnings, f"Exported {' and '.join(written)} to {export_dir}.{note}", "model"
+                )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -282,6 +321,7 @@ class BK64_ExportAnimation(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["animation"] = []
         scene = context.scene
 
         try:
@@ -304,9 +344,9 @@ class BK64_ExportAnimation(Operator):
                 with open(path, "wb") as file:
                     file.write(data)
 
-                for warning in dict.fromkeys(settings.warnings):
-                    self.report({"WARNING"}, warning)
-                self.report({"INFO"}, f"Exported {settings.anim_path}{extension} to {export_dir}")
+                report_warnings(
+                    self, settings.warnings, f"Exported {settings.anim_path}{extension} to {export_dir}", "animation"
+                )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -321,6 +361,7 @@ class BK64_ExportAllAnimations(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        export_warnings["animation"] = []
         scene = context.scene
 
         try:
@@ -357,12 +398,29 @@ class BK64_ExportAllAnimations(Operator):
                 finally:
                     armature_obj.animation_data.action = restore
 
-                self.report({"INFO"}, f"Exported {len(written)} actions to {os.path.join(export_dir, folder)}")
+                report_warnings(
+                    self,
+                    settings.warnings,
+                    f"Exported {len(written)} actions to {os.path.join(export_dir, folder)}",
+                    "animation",
+                )
             return {"FINISHED"}
 
         except Exception as exc:
             raisePluginError(self, exc)
             return {"CANCELLED"}
+
+
+class BK64_ClearExportWarnings(Operator):
+    bl_idname = "scene.hm64_bk64_clear_export_warnings"
+    bl_label = "Clear"
+    bl_description = "Stop listing the last export's warnings"
+
+    panel: StringProperty(default="model")
+
+    def execute(self, context):
+        export_warnings[self.panel] = []
+        return {"FINISHED"}
 
 
 class BK64_PromoteMaterials(Operator):
@@ -532,6 +590,148 @@ class BK64_MarkCollisionOnly(Operator):
                         else f"{counted} draw again."
                     ),
                 )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_DrawAfterLayout(Operator):
+    bl_idname = "object.hm64_bk64_draw_after_layout"
+    bl_label = "Draw After Imported Layout"
+    bl_description = "Draw the selected meshes in slot order with the faces you add, or the selected faces in edit mode"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            editing = context.mode == "EDIT_MESH"
+            meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+            if not meshes:
+                raise PluginError("Select the mesh to move.")
+
+            freed = 0
+            with object_mode(context):
+                for mesh_obj in meshes:
+                    upgrade_chunk_tags(mesh_obj.data)
+                    tags = mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR)
+                    if tags is None:
+                        continue
+                    for polygon in mesh_obj.data.polygons:
+                        if (polygon.select or not editing) and tags.data[polygon.index].value:
+                            tags.data[polygon.index].value = 0
+                            freed += 1
+
+            counted = "1 face" if freed == 1 else f"{freed} faces"
+            self.report(
+                {"INFO"},
+                f"Moved {counted} after the imported layout."
+                if freed
+                else "None of those faces have an imported chunk.",
+            )
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_SetUpVertexPaint(Operator):
+    bl_idname = "object.hm64_bk64_set_up_vertex_paint"
+    bl_label = "Set Up Vertex Paint"
+    bl_description = "Give the selected meshes Col and Alpha, and turn lighting off on their shaded materials"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+            if not meshes:
+                raise PluginError("Select the mesh to paint.")
+
+            notes, black = [], []
+            with object_mode(context):
+                selected, active = list(context.selected_objects), context.view_layer.objects.active
+                try:
+                    for obj in meshes:
+                        colors = obj.data.color_attributes
+                        painted = [layer for layer in colors if layer.name != "Alpha"]
+                        if colors.get("Col") is None and len(painted) == 1:
+                            notes.append(f"'{painted[0].name}' on '{obj.name}' is Col now.")
+                            painted[0].name = "Col"
+                        addColorAttributesToModel(obj)
+                        color_layer = colors["Col"]
+                        colors.active_color = color_layer
+                        colors.render_color_index = colors.find("Col")
+                        values = [0.0] * (len(color_layer.data) * 4)
+                        color_layer.data.foreach_get("color", values)
+                        del values[3::4]  # the alpha
+                        if values and not any(values):
+                            black.append(obj.name)
+
+                    materials = list(
+                        dict.fromkeys(m for obj in meshes for m in obj.data.materials if m is not None and m.is_f3d)
+                    )
+                    f3d_node_tree = get_f3d_node_tree() if materials else None
+                    for material in materials:
+                        f3d_mat = material.f3d_mat
+                        rdp = f3d_mat.rdp_settings
+                        # environment mapping needs G_LIGHTING on
+                        if rdp.g_lighting and not rdp.g_tex_gen and combiner_uses(f3d_mat, ["SHADE"], checkAlpha=False):
+                            with context.temp_override(material=material):
+                                rdp.g_lighting = False
+                        # Recreate F3D Shader Nodes, keeping the preset name it sets to Custom
+                        name = f3d_mat.presetName
+                        node_tree_copy(f3d_node_tree, material.node_tree)
+                        createScenePropertiesForMaterial(material)
+                        with context.temp_override(material=material):
+                            update_all_node_values(material, context)
+                        f3d_mat.presetName = name
+                finally:
+                    # addColorAttributesToModel and the node library link both change the selection
+                    for obj in context.view_layer.objects:
+                        obj.select_set(obj in selected)
+                    context.view_layer.objects.active = active
+
+            warnings = [f"Col is black everywhere on '{mesh_name}'. Paint it, or fill it white." for mesh_name in black]
+            counted = "1 mesh" if len(meshes) == 1 else f"{len(meshes)} meshes"
+            report_warnings(self, warnings, " ".join([f"{counted} ready to paint.", *notes]))
+            return {"FINISHED"}
+
+        except Exception as exc:
+            raisePluginError(self, exc)
+            return {"CANCELLED"}
+
+
+class BK64_PaintLayer(Operator):
+    bl_idname = "object.hm64_bk64_paint_layer"
+    bl_label = "Paint Layer"
+    bl_description = "Vertex paint this layer of the active mesh"
+    bl_options = {"REGISTER", "UNDO"}
+
+    layer: StringProperty(default="Col")
+
+    def execute(self, context):
+        try:
+            obj = context.object
+            if obj is None or obj.type != "MESH":
+                raise PluginError("Select the mesh to paint.")
+            colors = obj.data.color_attributes
+            if colors.get(self.layer) is None:
+                raise PluginError(f"'{obj.name}' has no {self.layer}. Press Set Up Vertex Paint first.")
+            colors.active_color = colors[self.layer]
+            if context.mode != "PAINT_VERTEX":
+                bpy.ops.object.mode_set(mode="VERTEX_PAINT")
+
+            warnings = []
+            if self.layer == "Alpha":
+                materials = dict.fromkeys(m for m in obj.data.materials if m is not None and m.is_f3d)
+                unread = [m.name for m in materials if not combiner_uses(m.f3d_mat, ["SHADE"], checkColor=False)]
+                if unread:
+                    warnings.append(
+                        f"Vertex alpha doesn't reach {', '.join(unread)}. "
+                        "A Transparent or Cutout Transparent preset reads it."
+                    )
+            report_warnings(self, warnings, f"Painting {self.layer}.")
             return {"FINISHED"}
 
         except Exception as exc:
@@ -821,12 +1021,13 @@ def _put_in_node(context, wanted, kind: str):
                 group = mesh_obj.vertex_groups.get(wanted) or mesh_obj.vertex_groups.new(name=wanted)
                 group.add(indices, 1.0, "REPLACE")
             # an imported face draws where its chunk did, so a face moved here lets go of its chunk
+            upgrade_chunk_tags(mesh_obj.data)
             tags = mesh_obj.data.attributes.get(SOURCE_CHUNK_ATTR)
             if tags is not None:
                 chosen = set(indices)
                 for polygon in mesh_obj.data.polygons:
                     if chosen.issuperset(polygon.vertices):
-                        tags.data[polygon.index].value = -1
+                        tags.data[polygon.index].value = 0
             moved += len(indices)
     return moved
 
@@ -1033,9 +1234,9 @@ class BK64_ImportLevel(Operator):
                         )
 
                 note = " Each half is its own object." if len(brought) > 1 else ""
-                for caveat in caveats:
-                    self.report({"WARNING"}, caveat)
-                self.report({"INFO"}, f"Imported {level} {' and '.join(brought)}, {triangles} triangles.{note}")
+                report_warnings(
+                    self, caveats, f"Imported {level} {' and '.join(brought)}, {triangles} triangles.{note}"
+                )
             return {"FINISHED"}
 
         except Exception as exc:
@@ -1183,11 +1384,15 @@ bk64_operator_classes = (
     BK64_ExportLevelHalves,
     BK64_ExportAnimation,
     BK64_ExportAllAnimations,
+    BK64_ClearExportWarnings,
     BK64_PromoteMaterials,
     BK64_SplitMeshAtBones,
     BK64_AddMeshEffect,
     BK64_SelectLooseVertices,
     BK64_MarkCollisionOnly,
+    BK64_DrawAfterLayout,
+    BK64_SetUpVertexPaint,
+    BK64_PaintLayer,
     BK64_WeldBoneSeams,
     BK64_RestoreStackedFaces,
     BK64_PutInDetailLevel,
@@ -1207,6 +1412,7 @@ def bk64_operators_register():
     for cls in bk64_operator_classes:
         register_class(cls)
     bpy.app.handlers.depsgraph_update_post.append(_follow_hit_spheres)
+    bpy.app.handlers.load_post.append(_forget_export_warnings)
 
 
 def bk64_operators_unregister():
@@ -1214,3 +1420,5 @@ def bk64_operators_unregister():
         unregister_class(cls)
     if _follow_hit_spheres in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_follow_hit_spheres)
+    if _forget_export_warnings in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_forget_export_warnings)
