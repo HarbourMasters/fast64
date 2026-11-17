@@ -182,7 +182,6 @@ def getTextureNamesFromBasename(
     imageName = sanitizedName
     if isPalette and not skip_pal_suffix:
         imageName += "_pal"
-    imageName = base.checkDuplicateTextureName(parent, imageName)
     filename = baseName + (".pal" if isPalette else ".inc.c")
     return imageName, filename
 
