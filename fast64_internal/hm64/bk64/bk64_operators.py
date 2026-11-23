@@ -217,7 +217,7 @@ class BK64_ExportLevelHalves(Operator):
     bl_idname = "scene.hm64_bk64_export_level_halves"
     bl_label = "Export Level Halves"
     bl_description = (
-        "Write the selected level as its opaque and translucent models. A vanilla level's halves go "
+        "Write the selected level as its opaque and translucent models, A and B. A vanilla level's halves go "
         "out under their own asset names, which differ from each other"
     )
     bl_options = {"REGISTER", "UNDO"}
@@ -600,7 +600,9 @@ class BK64_MarkCollisionOnly(Operator):
 class BK64_DrawAfterLayout(Operator):
     bl_idname = "object.hm64_bk64_draw_after_layout"
     bl_label = "Draw After Imported Layout"
-    bl_description = "Draw the selected meshes in slot order with the faces you add, or the selected faces in edit mode"
+    bl_description = (
+        "Let material slots order the imported faces of the selected meshes, or the selected faces in edit mode"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):

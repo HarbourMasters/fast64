@@ -63,7 +63,7 @@ No preset sets a render mode, and none should. A chunk jumps into the render mod
 
 The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below. The cutout and transparent presets set that to Translucent for you, and the rest put it back to From Scene. A cutout gets no alpha on the opaque entry. Nothing holds them together afterwards: move a material to the opaque layer and it still previews blended while it ships solid.
 
-Force Unlit Shade, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal. The result goes to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
+Bake Lighting, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal. The result goes to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
 
 Reflective materials need the Reflective (Env Map) option. It sets up the reflection matrix that G_TEXTURE_GEN environment mapping needs. The lighting flag has to stay on for it, with no lights loaded, because that flag transforms the normal the reflection samples. A reflective material therefore keeps both the flag and its vertex normals through the export, where every other material has its shading baked down into vertex color.
 
@@ -77,6 +77,8 @@ Default Draw Layer on the export panel is what a material takes when its own is 
 
 #### Draw Order
 Materials export in the order of the object's material slots, and the game draws them in that order. Where two surfaces overlap and neither writes depth, the one drawn later is the one you see. Moving a material down the list brings its faces out in front of the ones above it.
+
+Within a bone, opaque layers draw before translucent ones whatever their slots or objects, and slots order the materials within each, No AA or not. Inherit draws ahead of both. A sort of new geometry draws after all of them. In a level's opaque half a translucent face writes depth and hides anything behind it that draws later. Put it below what should show through it.
 
 A model built from several objects sorts by object name first, since the export walks the root's children in name order. Material slots then order the faces within each object.
 
@@ -197,7 +199,7 @@ An animation loops by returning to progress zero. For anything that repeats, mak
 ### Collision
 Scenery carries collision, characters don't.
 
-Collision is set per material, under BK64 Collision in the material tab. Leave it at No Collision and those faces stay out of the list, which is how an ordinary model exports with none. Set it to Ground and Banjo can stand on those faces. Sound Type picks the footstep. Map Default and the numbered map sounds resolve through the map the model loads into, so a level replacing TTC gets sand. The named sounds are the same everywhere, and the Surface Flags cover slopes, hazards and the rest.
+Collision is set per material, under BK64 Material in the material tab. Leave it at No Collision and those faces stay out of the list, which is how an ordinary model exports with none. Set it to Ground and Banjo can stand on those faces. Water is the same in every level. The map makes it drain air at the surface too in RBB and CCW's winter, and hurt in FP, Wozza's Cave and part of RBB. Piranha water is Water up to 50 units over a floor with the Thorns, Piranhas hazard. Sound Type picks the footstep. Map Default and the numbered map sounds resolve through the map the model loads into, so a level replacing TTC gets sand. The named sounds are the same everywhere, and the Surface Flags cover slopes, hazards and the rest.
 
 The triangles reference the model's own vertices. Collision costs a triangle list and nothing more.
 
@@ -226,6 +228,8 @@ The uid carries the effect and its setting in one number. Which hundred it falls
 Those six you can set up without touching the port. Select the faces in edit mode, pick the Effect and a Speed, and press "Add Mesh Effect". Speed 20 is what Gobi's Valley uses for its scrolling sand. Only the vertical texture coordinate moves, so the texture slides one way rather than drifting. Flicker ignores Speed, Bob reads it as how far the faces rise, and Wave runs from 1 to 10. Banjo's Backpack calls scrolling Scroll Texture, and its Slow, Normal and Fast are speeds 6, 20 and 60.
 
 Some uids are addresses for gameplay code rather than effects, and those you have to leave where they are. Gobi's Valley works out which sphinx tile Banjo is standing on by asking which mesh from 400 to 415 his position falls inside. Furnace Fun does the same from 401 to 495, and Mad Monster Mansion's shed and Treasure Trove Cove's castle ask over every mesh they have. Moving or renumbering one of those moves the region with it.
+
+The lair's jigsaw puzzles take a uid per piece, from 400. CC's starts at 402, RBB's at 410 and double health's at 430, and MMM's third piece is 422. The pieces go in shuffled, in an order fixed by the puzzle and its cost. The Door of Grunty and double health fill in order instead. A piece needs one of the Transparent presets, since the game fades its vertex alpha from 0 to 255. That overwrites any you painted, so a piece that stays see-through needs its alpha in the texture, on BK Shaded Texture Transparent or BK Vertex Colored Texture Cutout Transparent.
 
 Two things to expect from a round trip. Membership rides on the vertices themselves, so a mesh exports with the vertices its group holds even where two meshes meet at one coordinate. And vanilla lists some vertices no triangle draws, which have no geometry to come in on. Re-exporting one of those models gives a slightly shorter list than the original.
 
@@ -265,7 +269,7 @@ Two things in a Tooie layout crash the port: it gates parts of a model with appe
 ### Levels
 A level's geometry is two models rather than one. The game loads an opaque half and a translucent half as separate resources, named for the level and which half they are: Treasure Trove Cove is `ASSET_146B_TTC_TREASURE_TROVE_COVE_OPA` and `ASSET_146C_TTC_TREASURE_TROVE_COVE_XLU`. Most maps have both halves, and some only the OPA.
 
-The halves are not opaque and translucent geometry sorted by material. What the split decides is depth. OPA draws with depth writing on, XLU with depth compare only. Geometry in the second half is tested against what is already there, but never hides anything behind it. Each half then has its own opaque and translucent render modes, which a material's Draw Layer picks between. That is why an opaque model still carries translucent faces: they blend, and they still write depth. Which half a piece of geometry goes in is your call, the same choice Banjo's Backpack offers with its A and B model slots.
+The halves are not opaque and translucent geometry sorted by material. What the split decides is depth. OPA draws with depth writing on, XLU with depth compare only. Geometry in the second half is tested against what is already there, but never hides anything behind it. Each half then has its own opaque and translucent render modes, which a material's Draw Layer picks between. That is why an opaque model still carries translucent faces: they blend, and they still write depth. Which half a piece of geometry goes in is your call, the same choice Banjo's Backpack offers with its A and B model slots. Model A is the opaque half and Model B the translucent one.
 
 "Import BK Level" finds them by name, so point Level Folder at the folder you unpacked `bk.o2r` into and pick the level rather than hunting for asset ids. Halves brings in one or both, each as its own object, tagged with the half it came from.
 
@@ -319,7 +323,7 @@ Drop the resulting `.o2r` in Lighthouse's `mods` folder.
 Cull spheres, geo command 0x0E, are the one part of the format read past and not kept. They skip whatever hangs off them while the sphere is off screen. The import keeps the geometry under one but flattens the sphere away, and a model carrying one exports without it. Only ASSET_88E_CLANKER_CHAIN has any, and losing them draws the same picture for slightly more work. Use Draw Distance for a model of your own that needs culling.
 
 ### Common Issues
-- The model renders black: a material still has lighting enabled and Force Unlit Shade is off.
+- The model renders in the wrong colors: a material still has lighting enabled and Bake Lighting is off.
 - A mesh previews black in Blender but exports white: it has no color layer named Col, often one called Color instead. Press Set Up Vertex Paint.
 - The model lies on its side: it wasn't authored with +Z up. Rotate it upright in Blender, and apply the rotation if it's an armature.
 - It animates, but some limbs hold their rest pose: those bones' IDs aren't the ones the animation addresses. Import the original model's skeleton and match its IDs.

@@ -999,6 +999,31 @@ def _face_nodes(obj):
     return out
 
 
+def _slot_runs(mesh, layers, sources, nodes):
+    """Which run of one layer each slot falls in, among the slots the added faces in its node use"""
+    used = {
+        (node or (), polygon.material_index): layer
+        for polygon, layer, source, node in zip(mesh.polygons, layers, sources, nodes)
+        if source < 0
+    }
+    runs, last = {}, {}
+    for (node, index), layer in sorted(used.items()):
+        # a No AA layer shares its order with the antialiased one
+        kind = (node, layer.removesuffix("_NO_AA"))
+        before, run = last.get(kind, (layer, 0))
+        runs[node, index] = run + (layer != before)
+        last[kind] = (layer, runs[node, index])
+    return runs
+
+
+def _draw_position(key, place):
+    """Where a piece sorts among the ones its bone draws"""
+    layer, source, node, run = key
+    if source >= 0:  # an imported chunk draws where its layout put it
+        return (layer, source, node or (), 0, 0)
+    return (layer.removesuffix("_NO_AA"), source, node or (), place, run)
+
+
 def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
     """The part as (key, object) pairs, cut where its faces disagree"""
     # a chunk jumps into one render mode entry. Other faces need their own.
@@ -1013,18 +1038,20 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
         None if source >= 0 and node is not None and node[0] != "sort" else node for source, node in zip(sources, nodes)
     ]
     part_obj.data.calc_loop_triangles()
+    layers = [layer_of_slot.get(polygon.material_index, scene_layer) for polygon in part_obj.data.polygons]
+    runs = _slot_runs(part_obj.data, layers, sources, nodes)
     key_of_face = [
-        (layer_of_slot.get(polygon.material_index, scene_layer), sources[index], nodes[index])
-        for index, polygon in enumerate(part_obj.data.polygons)
+        (layer, source, node, runs[node or (), polygon.material_index] if source < 0 else 0)
+        for polygon, layer, source, node in zip(part_obj.data.polygons, layers, sources, nodes)
     ]
-    default = (scene_layer, -1, None)
+    default = (scene_layer, -1, None, 0)
     wanted = set(key_of_face) or {default}
     if len(wanted) <= 1:
         return [(wanted.pop(), part_obj)]
 
     pieces = []
     # a mesh with faces in a node and faces in none holds a tuple beside a None
-    for key in sorted(wanted, key=lambda key: (key[0], key[1], key[2] or ())):
+    for key in sorted(wanted, key=lambda key: (key[0], key[1], key[2] or (), key[3])):
         bm = bmesh.new()
         bm.from_mesh(part_obj.data)
         bm.faces.ensure_lookup_table()
@@ -1034,7 +1061,7 @@ def _split_by_draw_key(context, part_obj, scene_layer: str, temp_objects):
             context="FACES",
         )
         # the whole key rides in the name, or two pieces of one mesh collide
-        named = "_".join(str(part) for part in (key[2] or ()))
+        named = "_".join(str(part) for part in (*(key[2] or ()), key[3]))
         piece = _bmesh_to_object(context, bm, f"{part_obj.name}_{key[0].lower()}_{key[1]}_{named}", part_obj)
         bm.free()
         if piece is not None:
@@ -1618,9 +1645,9 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                     f"Bone '{bone.name}' is entry {bone_index} in the bone table, and only the first "
                     f"{MAX_DRAWABLE_BONE_INDEX + 1} can own geometry."
                 )
-            by_layer = {}
-            for part in parts:
-                for layer, piece in _split_by_draw_key(context, part, settings.draw_layer, temp_objects):
+            drawn = []
+            for place, part in enumerate(parts):
+                for key, piece in _split_by_draw_key(context, part, settings.draw_layer, temp_objects):
                     infoDict = getInfoDict(piece)
                     for index in infoDict.unfit:
                         unfit.append(piece.material_slots[piece.data.polygons[index].material_index].material.name)
@@ -1638,10 +1665,13 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
                         None,
                     )
                     if fMeshes:
-                        by_layer.setdefault(layer, []).extend(fMeshes.values())
-            for layer in sorted(by_layer, key=lambda key: (key[0], key[1], key[2] or ())):
-                chunk_fMeshes.append((bone_index, layer, by_layer[layer]))
-                ordered_fMeshes += by_layer[layer]
+                        drawn.append((_draw_position(key, place), key[:3], list(fMeshes.values())))
+            for _position, layer, fMeshes in sorted(drawn, key=lambda entry: entry[0]):
+                if chunk_fMeshes and chunk_fMeshes[-1][:2] == (bone_index, layer):
+                    chunk_fMeshes[-1][2].extend(fMeshes)
+                else:
+                    chunk_fMeshes.append((bone_index, layer, fMeshes))
+                ordered_fMeshes += fMeshes
         if unfit:
             counted = "1 face" if len(unfit) == 1 else f"{len(unfit)} faces"
             listed = "\n  ".join(sorted(set(unfit)))
@@ -1695,8 +1725,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             if getattr(value[0], "revert", None)
             and all(isinstance(command, geometry_only) for command in value[0].revert.commands)
         }
-        for fMesh in ordered_fMeshes:
-            commands = fMesh.draw.commands
+        for _bone_index, _key, fMeshes in chunk_fMeshes:
+            commands = fMeshes[-1].draw.commands
             # by index: these are dataclasses, so remove() can take the wrong one
             last = len(commands) - 1
             while last >= 0 and isinstance(commands[last], SPEndDisplayList):

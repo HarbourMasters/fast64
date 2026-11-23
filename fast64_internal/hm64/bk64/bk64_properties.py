@@ -26,10 +26,10 @@ from .bk64_constants import (
 from .bk64_level_models import bk64_level_layers, bk64_level_names
 
 bk64_collision_type_enum = (
-    ("NONE", "No Collision", "Not written into the collision list"),
-    ("GROUND", "Ground", "Solid, walked on from above"),
-    ("WATER", "Water", "Swimmable"),
-    ("WATER2", "Water (alt)", "Swimmable. The game tests it exactly like Water"),
+    ("NONE", "No Collision", "Everything goes straight through"),
+    ("GROUND", "Ground", "Floors, walls and slopes"),
+    ("WATER", "Water", "Swimmable. The map decides whether it is oily or freezing"),
+    ("WATER2", "Water 2 (Rarely Used)", "Swims the same as Water. Snowballs break on it instead of splashing"),
 )
 
 bk64_level_enum = tuple(
@@ -43,8 +43,8 @@ bk64_level_enum = tuple(
 
 bk64_level_layer_enum = (
     ("BOTH", "Both", "Each half as its own object, so either can be hidden"),
-    ("OPA", "Opaque", "The solid half on its own"),
-    ("XLU", "Translucent", "The blended half on its own, water and glass"),
+    ("OPA", "Opaque (Model A)", "The solid half on its own"),
+    ("XLU", "Translucent (Model B)", "The blended half on its own, water and glass"),
 )
 
 bk64_sound_type_enum = (
@@ -93,14 +93,18 @@ bk64_file_format_enum = (
 
 bk64_level_half_enum = (
     ("AUTO", "From Materials", "Each material picks its half. An object using both is cut along them"),
-    ("OPAQUE", "Opaque", "Writes depth, so it hides what is behind it. Translucent materials stay put and blend"),
-    ("TRANSLUCENT", "Translucent", "Tests depth without writing it. Vanilla puts water here"),
+    (
+        "OPAQUE",
+        "Opaque (Model A)",
+        "Hides what is behind it. Translucent materials blend, but hide what draws behind them later",
+    ),
+    ("TRANSLUCENT", "Translucent (Model B)", "Never hides what draws after it. Vanilla puts water here"),
 )
 
 bk64_material_level_half_enum = (
-    ("LAYER", "From Draw Layer", "A translucent layer goes to the translucent model, the rest to the opaque one"),
-    ("OPAQUE", "Opaque", "Stays in the opaque model whatever its Draw Layer, blending in place"),
-    ("TRANSLUCENT", "Translucent", "Goes to the translucent model whatever its Draw Layer"),
+    ("LAYER", "From Draw Layer", "A translucent layer goes to Model B, the rest to Model A"),
+    ("OPAQUE", "Opaque (Model A)", "Always Model A. A translucent layer still blends there"),
+    ("TRANSLUCENT", "Translucent (Model B)", "Always Model B, whatever its Draw Layer"),
 )
 
 bk64_mesh_effect_enum = (
@@ -109,19 +113,23 @@ bk64_mesh_effect_enum = (
     ("BOB", "Bob", "Rises and falls. Speed is how far, in BK units"),
     ("GLOW", "Glow", "Fades between dark and bright"),
     ("WAVE", "Wave", "Rolling waves across the faces, darker in the troughs. Speed runs 1 to 10"),
-    ("ALPHA_GLOW", "Alpha Glow", "Fades between clear and solid"),
+    ("ALPHA_GLOW", "Alpha Glow", "Fades between clear and solid. Needs one of the Transparent presets"),
 )
 
 bk64_draw_layer_enum = (
     ("OPAQUE", "Opaque", "Solid geometry"),
     ("OPAQUE_NO_AA", "Opaque, No AA", "Solid, without the antialiased edge"),
-    ("TRANSLUCENT", "Translucent", "Blended geometry, drawn against what is already there"),
-    ("TRANSLUCENT_NO_AA", "Translucent, No AA", "Blended, without the antialiased edge"),
+    ("TRANSLUCENT", "Translucent", "Blends by its alpha, for water, glass and fades"),
+    (
+        "TRANSLUCENT_NO_AA",
+        "Translucent, No AA",
+        "Blended, without the antialiased edge. Imported translucent halves use this",
+    ),
 )
 
 bk64_material_draw_layer_enum = (
     ("SCENE", "From Scene", "Whatever the export panel's Default Draw Layer says"),
-    ("INHERIT", "Inherit", "Sets no render mode and draws with whatever the chunk before it left"),
+    ("INHERIT", "Inherit", "Draws with the layer of whatever drew before it. Meant for imported faces"),
 ) + bk64_draw_layer_enum
 
 
@@ -299,20 +307,19 @@ def bk64_properties_register():
         "model you are replacing, or the animation moves the wrong distance",
     )
     bpy.types.Scene.hm64_bk64_force_unlit = BoolProperty(
-        name="Force Unlit Shade",
+        name="Bake Lighting",
         default=True,
-        description="Bakes each lit material's lighting into the vertices, since BK's model path "
-        "loads no lights and a lit material would otherwise render black",
+        description="Bakes each lit material's lighting into the vertices. A lit material shows the wrong colors without it",
     )
     bpy.types.Scene.hm64_bk64_env_map = BoolProperty(
         name="Reflective (Env Map)",
         default=False,
-        description="Sets up the reflection matrix that environment mapping needs",
+        description="Sets up the reflection that materials with Texture UV Generate need",
     )
     bpy.types.Scene.hm64_bk64_mipmap = BoolProperty(
         name="Trilinear Mipmap",
         default=False,
-        description="Trilinear mipmap filtering",
+        description="Adds smaller copies of 32x32 RGBA16 textures to materials that blend Texture 0 and 1. O2R only",
     )
     bpy.types.Scene.hm64_bk64_file_format = EnumProperty(
         name="Format",
@@ -352,8 +359,8 @@ def bk64_properties_register():
         name="Imported Geo Type",
         default=0,
         min=0,
-        description="The geo type word an imported model came in with, written back as it is. It sits "
-        "on the object because a level's two halves differ. Set it to 0 to use Env Map and Mipmap",
+        description="The reflection and mipmap settings an imported model came in with. Set it to 0 to use "
+        "Reflective and Trilinear Mipmap instead",
     )
     bpy.types.Object.hm64_bk64_cull_radius_raw = IntProperty(
         name="Imported Cull Radius",
@@ -400,9 +407,8 @@ def bk64_properties_register():
         name="Level Half",
         items=bk64_level_half_enum,
         default="AUTO",
-        description="Which of a level's two models Export Level Halves writes this object into. From "
-        "Materials reads it off the materials. The level importer sets it on the halves it brings in. "
-        "It has nothing to do with Default Draw Layer",
+        description="Which of a level's two models Export Level Halves writes this object into. The "
+        "level importer sets it on the halves it brings in. It has nothing to do with Default Draw Layer",
     )
     bpy.types.Scene.hm64_bk64_import_path = StringProperty(
         name="Model File",
@@ -457,54 +463,54 @@ def bk64_properties_register():
         name="Draw Layer",
         items=bk64_material_draw_layer_enum,
         default="SCENE",
-        description="Draws faces using this material on their own render mode, so one model can mix "
-        "solid and translucent geometry",
+        description="Whether faces using this material are solid or see-through. One model can mix both",
     )
     bpy.types.Material.hm64_bk64_level_half = EnumProperty(
         name="Level Half",
         items=bk64_material_level_half_enum,
         default="LAYER",
-        description="Which of a level's two models faces using this material go into, while the object "
-        "reads From Materials. An object set outright takes every material with it",
+        description="Which of a level's two models faces using this material go into. Only used while the "
+        "object's Level Half is From Materials",
     )
     bpy.types.Material.hm64_bk64_collision_type = EnumProperty(
         name="Collision",
         items=bk64_collision_type_enum,
         default="NONE",
-        description="Whether faces using this material go into the model's collision list, and what "
-        "kind of surface they are. Characters carry no collision, scenery does",
+        description="What kind of surface faces using this material are. Characters carry no collision, "
+        "scenery does",
     )
     bpy.types.Material.hm64_bk64_trottable_slope = BoolProperty(
         name="Trottable Slope",
-        description="Slippery unless the player is in Talon Trot",
+        description="Slippery unless the player is in Talon Trot, wading boots or a transformation",
     )
     bpy.types.Material.hm64_bk64_untrottable_slope = BoolProperty(
         name="Untrottable Slope",
         description="Slippery in any move except a transformation",
     )
     bpy.types.Material.hm64_bk64_hazard_1 = BoolProperty(
-        name="Hazard 1",
-        description="Damages the player where the map has a matching hazard. Piranha water and thorns",
+        name="Hazard (Thorns, Piranhas)",
+        description="Hurts the player standing on it, in BGS, GV, MMM, CCW's seasons, the RBB kitchen, "
+        "Furnace Fun and the BGS and GV lobbies",
     )
     bpy.types.Material.hm64_bk64_hazard_2 = BoolProperty(
-        name="Hazard 2",
-        description="Damages the player where the map has a matching hazard. GV's sand",
+        name="Hazard (GV Cactus)",
+        description="Hurts the player on touch in GV, walls included. Elsewhere it acts like the first hazard",
     )
     bpy.types.Material.hm64_bk64_hazard_3 = BoolProperty(
-        name="Hazard 3",
-        description="The third hazard bit. Vanilla never sets it, the game reads all three",
+        name="Hazard (Unused)",
+        description="Acts like the first hazard",
     )
     bpy.types.Material.hm64_bk64_double_sided = BoolProperty(
         name="Double Sided",
         description="Solid from either face",
     )
     bpy.types.Material.hm64_bk64_non_impeding = BoolProperty(
-        name="Non-Impeding",
-        description="Detected but does not block movement",
+        name="Player Passes Through",
+        description="Some other collision checks still find it",
     )
     bpy.types.Material.hm64_bk64_script_target = BoolProperty(
-        name="Script Target",
-        description="Targeted by the map's event scripts",
+        name="Checked By Game Code",
+        description="Jigsaw podiums and some other code check if the player is standing on this",
     )
     bpy.types.Material.hm64_bk64_collision_extra = IntProperty(
         name="Other Flags",
@@ -527,15 +533,16 @@ def bk64_properties_register():
     bpy.types.Material.hm64_bk64_collision_raw = IntProperty(
         name="Raw Flags",
         default=0,
-        description="The flag word an imported surface came in with, written back as it is. Only set "
-        "when the word holds a bit the choices above can't describe. Set it to 0 to author with them",
+        description="Flags an imported surface has that the collision choices can't describe. Set it to 0 to "
+        "use the choices instead",
     )
     bpy.types.Material.hm64_bk64_collision_unk6 = IntProperty(
-        name="Raw Unk6",
+        name="Raw Flags 2",
         default=0,
         min=0,
         max=0xFFFF,
-        description="The unidentified halfword an imported collision triangle came in with, written back untouched",
+        description="The second set of flags on an imported surface. The only one known stops the floor's color "
+        "tinting the player",
     )
     bpy.types.Material.hm64_bk64_anim_tex = EnumProperty(
         name="Animated Texture",
