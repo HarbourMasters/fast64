@@ -113,19 +113,23 @@ bk64_mesh_effect_enum = (
     ("BOB", "Bob", "Rises and falls. Speed is how far, in BK units"),
     ("GLOW", "Glow", "Fades between dark and bright"),
     ("WAVE", "Wave", "Rolling waves across the faces, darker in the troughs. Speed runs 1 to 10"),
-    ("ALPHA_GLOW", "Alpha Glow", "Fades between clear and solid"),
+    ("ALPHA_GLOW", "Alpha Glow", "Fades between clear and solid. Needs one of the Transparent presets"),
 )
 
 bk64_draw_layer_enum = (
     ("OPAQUE", "Opaque", "Solid geometry"),
     ("OPAQUE_NO_AA", "Opaque, No AA", "Solid, without the antialiased edge"),
-    ("TRANSLUCENT", "Translucent", "Blended geometry, drawn against what is already there"),
-    ("TRANSLUCENT_NO_AA", "Translucent, No AA", "Blended, without the antialiased edge"),
+    ("TRANSLUCENT", "Translucent", "Blends by its alpha, for water, glass and fades"),
+    (
+        "TRANSLUCENT_NO_AA",
+        "Translucent, No AA",
+        "Blended, without the antialiased edge. Imported translucent halves use this",
+    ),
 )
 
 bk64_material_draw_layer_enum = (
     ("SCENE", "From Scene", "Whatever the export panel's Default Draw Layer says"),
-    ("INHERIT", "Inherit", "Sets no render mode and draws with whatever the chunk before it left"),
+    ("INHERIT", "Inherit", "Draws with the layer of whatever drew before it. Meant for imported faces"),
 ) + bk64_draw_layer_enum
 
 
@@ -310,12 +314,12 @@ def bk64_properties_register():
     bpy.types.Scene.hm64_bk64_env_map = BoolProperty(
         name="Reflective (Env Map)",
         default=False,
-        description="Sets up the reflection matrix that environment mapping needs",
+        description="Sets up the reflection that materials with Texture UV Generate need",
     )
     bpy.types.Scene.hm64_bk64_mipmap = BoolProperty(
         name="Trilinear Mipmap",
         default=False,
-        description="Trilinear mipmap filtering",
+        description="Adds smaller copies of 32x32 RGBA16 textures to materials that blend Texture 0 and 1. O2R only",
     )
     bpy.types.Scene.hm64_bk64_file_format = EnumProperty(
         name="Format",
@@ -355,8 +359,8 @@ def bk64_properties_register():
         name="Imported Geo Type",
         default=0,
         min=0,
-        description="The geo type word an imported model came in with, written back as it is. It sits "
-        "on the object because a level's two halves differ. Set it to 0 to use Env Map and Mipmap",
+        description="The reflection and mipmap settings an imported model came in with. Set it to 0 to use "
+        "Reflective and Trilinear Mipmap instead",
     )
     bpy.types.Object.hm64_bk64_cull_radius_raw = IntProperty(
         name="Imported Cull Radius",
@@ -459,8 +463,7 @@ def bk64_properties_register():
         name="Draw Layer",
         items=bk64_material_draw_layer_enum,
         default="SCENE",
-        description="Draws faces using this material on their own render mode, so one model can mix "
-        "solid and translucent geometry",
+        description="Whether faces using this material are solid or see-through. One model can mix both",
     )
     bpy.types.Material.hm64_bk64_level_half = EnumProperty(
         name="Level Half",
