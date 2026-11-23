@@ -1725,8 +1725,8 @@ def export_bk64_model(context, root_obj, settings, shapes=None, collision_only=N
             if getattr(value[0], "revert", None)
             and all(isinstance(command, geometry_only) for command in value[0].revert.commands)
         }
-        for fMesh in ordered_fMeshes:
-            commands = fMesh.draw.commands
+        for _bone_index, _key, fMeshes in chunk_fMeshes:
+            commands = fMeshes[-1].draw.commands
             # by index: these are dataclasses, so remove() can take the wrong one
             last = len(commands) - 1
             while last >= 0 and isinstance(commands[last], SPEndDisplayList):
