@@ -217,7 +217,7 @@ class BK64_ExportLevelHalves(Operator):
     bl_idname = "scene.hm64_bk64_export_level_halves"
     bl_label = "Export Level Halves"
     bl_description = (
-        "Write the selected level as its opaque and translucent models. A vanilla level's halves go "
+        "Write the selected level as its opaque and translucent models, A and B. A vanilla level's halves go "
         "out under their own asset names, which differ from each other"
     )
     bl_options = {"REGISTER", "UNDO"}

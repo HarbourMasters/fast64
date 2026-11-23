@@ -43,8 +43,8 @@ bk64_level_enum = tuple(
 
 bk64_level_layer_enum = (
     ("BOTH", "Both", "Each half as its own object, so either can be hidden"),
-    ("OPA", "Opaque", "The solid half on its own"),
-    ("XLU", "Translucent", "The blended half on its own, water and glass"),
+    ("OPA", "Opaque (Model A)", "The solid half on its own"),
+    ("XLU", "Translucent (Model B)", "The blended half on its own, water and glass"),
 )
 
 bk64_sound_type_enum = (
@@ -93,14 +93,18 @@ bk64_file_format_enum = (
 
 bk64_level_half_enum = (
     ("AUTO", "From Materials", "Each material picks its half. An object using both is cut along them"),
-    ("OPAQUE", "Opaque", "Writes depth, so it hides what is behind it. Translucent materials stay put and blend"),
-    ("TRANSLUCENT", "Translucent", "Tests depth without writing it. Vanilla puts water here"),
+    (
+        "OPAQUE",
+        "Opaque (Model A)",
+        "Hides what is behind it. Translucent materials blend, but hide what draws behind them later",
+    ),
+    ("TRANSLUCENT", "Translucent (Model B)", "Never hides what draws after it. Vanilla puts water here"),
 )
 
 bk64_material_level_half_enum = (
-    ("LAYER", "From Draw Layer", "A translucent layer goes to the translucent model, the rest to the opaque one"),
-    ("OPAQUE", "Opaque", "Stays in the opaque model whatever its Draw Layer, blending in place"),
-    ("TRANSLUCENT", "Translucent", "Goes to the translucent model whatever its Draw Layer"),
+    ("LAYER", "From Draw Layer", "A translucent layer goes to Model B, the rest to Model A"),
+    ("OPAQUE", "Opaque (Model A)", "Always Model A. A translucent layer still blends there"),
+    ("TRANSLUCENT", "Translucent (Model B)", "Always Model B, whatever its Draw Layer"),
 )
 
 bk64_mesh_effect_enum = (
@@ -400,9 +404,8 @@ def bk64_properties_register():
         name="Level Half",
         items=bk64_level_half_enum,
         default="AUTO",
-        description="Which of a level's two models Export Level Halves writes this object into. From "
-        "Materials reads it off the materials. The level importer sets it on the halves it brings in. "
-        "It has nothing to do with Default Draw Layer",
+        description="Which of a level's two models Export Level Halves writes this object into. The "
+        "level importer sets it on the halves it brings in. It has nothing to do with Default Draw Layer",
     )
     bpy.types.Scene.hm64_bk64_import_path = StringProperty(
         name="Model File",
@@ -464,8 +467,8 @@ def bk64_properties_register():
         name="Level Half",
         items=bk64_material_level_half_enum,
         default="LAYER",
-        description="Which of a level's two models faces using this material go into, while the object "
-        "reads From Materials. An object set outright takes every material with it",
+        description="Which of a level's two models faces using this material go into. Only used while the "
+        "object's Level Half is From Materials",
     )
     bpy.types.Material.hm64_bk64_collision_type = EnumProperty(
         name="Collision",

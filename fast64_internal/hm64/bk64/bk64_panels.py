@@ -104,7 +104,7 @@ class BK64_ExportModelPanel(BK64_Panel):
                 if level_half_faces(obj, "OPAQUE") and level_half_faces(obj, "TRANSLUCENT"):
                     halves.label(text="Its materials read as both, so it goes out cut in two.")
                 else:
-                    which = "translucent" if in_level_half(obj, "TRANSLUCENT") else "opaque"
+                    which = "Model B" if in_level_half(obj, "TRANSLUCENT") else "Model A"
                     halves.label(text=f"Its materials read as {which}.")
         # the root is usually not a mesh, so the row above is often missing
         meshes = [] if root is None else ([root] if root.type == "MESH" else root.children_recursive)
@@ -115,14 +115,14 @@ class BK64_ExportModelPanel(BK64_Panel):
                 for half in counts:
                     if in_level_half(child, half):
                         counts[half] += 1
-            halves.label(text=f"{counts['OPAQUE']} opaque, {counts['TRANSLUCENT']} translucent")
+            halves.label(text=f"{counts['OPAQUE']} in Model A, {counts['TRANSLUCENT']} in Model B")
         halves.operator(BK64_ExportLevelHalves.bl_idname)
         _draw_export_warnings(col, "model")
 
         box = col.box().column()
         box.label(text="Select the armature, or the mesh for a static model.")
         box.label(text="Split At Bones needs the mesh cut first, Bind Vertices doesn't.")
-        box.label(text="Level Half picks which model, Export Level Halves writes both.")
+        box.label(text="Level Half picks Model A or B, Export Level Halves writes both.")
         box.label(text="Geo Type per bone and collision per material are in Properties.")
         if scene.hm64_bk64_file_format == "O2R":
             box.label(text="Pack the folder with: torch pack <folder> <name>.o2r o2r")
