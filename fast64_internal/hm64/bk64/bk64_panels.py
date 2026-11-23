@@ -438,7 +438,7 @@ class BK64_MaterialPanel(BK64_Panel):
 
         if material.hm64_bk64_collision_raw:
             prop_split(col, material, "hm64_bk64_collision_raw", "Raw Flags")
-            prop_split(col, material, "hm64_bk64_collision_unk6", "Raw Unk6")
+            prop_split(col, material, "hm64_bk64_collision_unk6", "Raw Flags 2")
             col.box().label(text="Imported surface, written back as it came in.")
             return
         prop_split(col, material, "hm64_bk64_collision_type", "Collision")

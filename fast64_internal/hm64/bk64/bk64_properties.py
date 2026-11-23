@@ -26,10 +26,10 @@ from .bk64_constants import (
 from .bk64_level_models import bk64_level_layers, bk64_level_names
 
 bk64_collision_type_enum = (
-    ("NONE", "No Collision", "Not written into the collision list"),
-    ("GROUND", "Ground", "Solid, walked on from above"),
-    ("WATER", "Water", "Swimmable"),
-    ("WATER2", "Water (alt)", "Swimmable. The game tests it exactly like Water"),
+    ("NONE", "No Collision", "Everything goes straight through"),
+    ("GROUND", "Ground", "Floors, walls and slopes"),
+    ("WATER", "Water", "Swimmable. The map decides whether it is oily or freezing"),
+    ("WATER2", "Water 2 (Rarely Used)", "Swims the same as Water. Snowballs break on it instead of splashing"),
 )
 
 bk64_level_enum = tuple(
@@ -474,40 +474,41 @@ def bk64_properties_register():
         name="Collision",
         items=bk64_collision_type_enum,
         default="NONE",
-        description="Whether faces using this material go into the model's collision list, and what "
-        "kind of surface they are. Characters carry no collision, scenery does",
+        description="What kind of surface faces using this material are. Characters carry no collision, "
+        "scenery does",
     )
     bpy.types.Material.hm64_bk64_trottable_slope = BoolProperty(
         name="Trottable Slope",
-        description="Slippery unless the player is in Talon Trot",
+        description="Slippery unless the player is in Talon Trot, wading boots or a transformation",
     )
     bpy.types.Material.hm64_bk64_untrottable_slope = BoolProperty(
         name="Untrottable Slope",
         description="Slippery in any move except a transformation",
     )
     bpy.types.Material.hm64_bk64_hazard_1 = BoolProperty(
-        name="Hazard 1",
-        description="Damages the player where the map has a matching hazard. Piranha water and thorns",
+        name="Hazard (Thorns, Piranhas)",
+        description="Hurts the player standing on it, in BGS, GV, MMM, CCW's seasons, the RBB kitchen, "
+        "Furnace Fun and the BGS and GV lobbies",
     )
     bpy.types.Material.hm64_bk64_hazard_2 = BoolProperty(
-        name="Hazard 2",
-        description="Damages the player where the map has a matching hazard. GV's sand",
+        name="Hazard (GV Cactus)",
+        description="Hurts the player on touch in GV, walls included. Elsewhere it acts like the first hazard",
     )
     bpy.types.Material.hm64_bk64_hazard_3 = BoolProperty(
-        name="Hazard 3",
-        description="The third hazard bit. Vanilla never sets it, the game reads all three",
+        name="Hazard (Unused)",
+        description="Acts like the first hazard",
     )
     bpy.types.Material.hm64_bk64_double_sided = BoolProperty(
         name="Double Sided",
         description="Solid from either face",
     )
     bpy.types.Material.hm64_bk64_non_impeding = BoolProperty(
-        name="Non-Impeding",
-        description="Detected but does not block movement",
+        name="Player Passes Through",
+        description="Some other collision checks still find it",
     )
     bpy.types.Material.hm64_bk64_script_target = BoolProperty(
-        name="Script Target",
-        description="Targeted by the map's event scripts",
+        name="Checked By Game Code",
+        description="Jigsaw podiums and some other code check if the player is standing on this",
     )
     bpy.types.Material.hm64_bk64_collision_extra = IntProperty(
         name="Other Flags",
@@ -530,15 +531,16 @@ def bk64_properties_register():
     bpy.types.Material.hm64_bk64_collision_raw = IntProperty(
         name="Raw Flags",
         default=0,
-        description="The flag word an imported surface came in with, written back as it is. Only set "
-        "when the word holds a bit the choices above can't describe. Set it to 0 to author with them",
+        description="Flags an imported surface has that the collision choices can't describe. Set it to 0 to "
+        "use the choices instead",
     )
     bpy.types.Material.hm64_bk64_collision_unk6 = IntProperty(
-        name="Raw Unk6",
+        name="Raw Flags 2",
         default=0,
         min=0,
         max=0xFFFF,
-        description="The unidentified halfword an imported collision triangle came in with, written back untouched",
+        description="The second set of flags on an imported surface. The only one known stops the floor's color "
+        "tinting the player",
     )
     bpy.types.Material.hm64_bk64_anim_tex = EnumProperty(
         name="Animated Texture",

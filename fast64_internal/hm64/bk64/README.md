@@ -199,7 +199,7 @@ An animation loops by returning to progress zero. For anything that repeats, mak
 ### Collision
 Scenery carries collision, characters don't.
 
-Collision is set per material, under BK64 Collision in the material tab. Leave it at No Collision and those faces stay out of the list, which is how an ordinary model exports with none. Set it to Ground and Banjo can stand on those faces. Sound Type picks the footstep. Map Default and the numbered map sounds resolve through the map the model loads into, so a level replacing TTC gets sand. The named sounds are the same everywhere, and the Surface Flags cover slopes, hazards and the rest.
+Collision is set per material, under BK64 Material in the material tab. Leave it at No Collision and those faces stay out of the list, which is how an ordinary model exports with none. Set it to Ground and Banjo can stand on those faces. Water is the same in every level. The map makes it drain air at the surface too in RBB and CCW's winter, and hurt in FP, Wozza's Cave and part of RBB. Piranha water is Water up to 50 units over a floor with the Thorns, Piranhas hazard. Sound Type picks the footstep. Map Default and the numbered map sounds resolve through the map the model loads into, so a level replacing TTC gets sand. The named sounds are the same everywhere, and the Surface Flags cover slopes, hazards and the rest.
 
 The triangles reference the model's own vertices. Collision costs a triangle list and nothing more.
 

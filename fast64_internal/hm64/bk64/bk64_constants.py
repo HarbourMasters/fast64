@@ -283,7 +283,7 @@ BK_COLLISION_FLAG_BITS = {
     "trottable_slope": 0x00000010,
     "untrottable_slope": 0x00000040,
     "hazard_1": 0x00002000,  # ba/hazards.c reads 0xE000 as a group, gated per map
-    "hazard_2": 0x00004000,  # GV's sand tests this one alone
+    "hazard_2": 0x00004000,  # GV tests this one alone, for its cactus
     "hazard_3": 0x00008000,
     "double_sided": 0x00010000,  # core2/collision/raycast.c, and listutils.c inverts the normal
     "non_impeding": 0x00400000,
