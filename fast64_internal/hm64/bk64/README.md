@@ -78,6 +78,8 @@ Default Draw Layer on the export panel is what a material takes when its own is 
 #### Draw Order
 Materials export in the order of the object's material slots, and the game draws them in that order. Where two surfaces overlap and neither writes depth, the one drawn later is the one you see. Moving a material down the list brings its faces out in front of the ones above it.
 
+Within a bone, opaque layers draw before translucent ones whatever their slots or objects, and slots order the materials within each, No AA or not. Inherit draws ahead of both. A sort of new geometry draws after all of them. In a level's opaque half a translucent face writes depth and hides anything behind it that draws later. Put it below what should show through it.
+
 A model built from several objects sorts by object name first, since the export walks the root's children in name order. Material slots then order the faces within each object.
 
 An imported model keeps the order it came in. Each imported face remembers the chunk it was drawn in, and those chunks go out in their original order, so moving a slot doesn't move an imported face past another chunk. Faces you add come after the whole imported layout, in slot order. To put imported faces there too, select them in edit mode and press Draw After Imported Layout in Mesh Tools. A face moved that way leaves any Draw Distance box or camera gate it was under. In a blend from an older Fast64, faces you added draw with the first imported chunk until they get the button too.
