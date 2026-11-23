@@ -229,6 +229,8 @@ Those six you can set up without touching the port. Select the faces in edit mod
 
 Some uids are addresses for gameplay code rather than effects, and those you have to leave where they are. Gobi's Valley works out which sphinx tile Banjo is standing on by asking which mesh from 400 to 415 his position falls inside. Furnace Fun does the same from 401 to 495, and Mad Monster Mansion's shed and Treasure Trove Cove's castle ask over every mesh they have. Moving or renumbering one of those moves the region with it.
 
+The lair's jigsaw puzzles take a uid per piece, from 400. CC's starts at 402, RBB's at 410 and double health's at 430, and MMM's third piece is 422. The pieces go in shuffled, in an order fixed by the puzzle and its cost. The Door of Grunty and double health fill in order instead. A piece needs one of the Transparent presets, since the game fades its vertex alpha from 0 to 255. That overwrites any you painted, so a piece that stays see-through needs its alpha in the texture, on BK Shaded Texture Transparent or BK Vertex Colored Texture Cutout Transparent.
+
 Two things to expect from a round trip. Membership rides on the vertices themselves, so a mesh exports with the vertices its group holds even where two meshes meet at one coordinate. And vanilla lists some vertices no triangle draws, which have no geometry to come in on. Re-exporting one of those models gives a slightly shorter list than the original.
 
 ### Importing A Model
