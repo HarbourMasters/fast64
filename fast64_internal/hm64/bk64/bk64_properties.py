@@ -303,10 +303,9 @@ def bk64_properties_register():
         "model you are replacing, or the animation moves the wrong distance",
     )
     bpy.types.Scene.hm64_bk64_force_unlit = BoolProperty(
-        name="Force Unlit Shade",
+        name="Bake Lighting",
         default=True,
-        description="Bakes each lit material's lighting into the vertices, since BK's model path "
-        "loads no lights and a lit material would otherwise render black",
+        description="Bakes each lit material's lighting into the vertices. A lit material shows the wrong colors without it",
     )
     bpy.types.Scene.hm64_bk64_env_map = BoolProperty(
         name="Reflective (Env Map)",

@@ -63,7 +63,7 @@ No preset sets a render mode, and none should. A chunk jumps into the render mod
 
 The viewport previews a material the way its render mode preset describes, so a cutout clips and a transparent one blends while you work. That preset is preview only. What the game actually renders with comes from Draw Layer, below. The cutout and transparent presets set that to Translucent for you, and the rest put it back to From Scene. A cutout gets no alpha on the opaque entry. Nothing holds them together afterwards: move a material to the opaque layer and it still previews blended while it ships solid.
 
-Force Unlit Shade, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal. The result goes to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
+Bake Lighting, on by default, does that baking. It calculates what the RSP would have shaded each vertex, ambient plus every light facing it, from the material's light colors and directions and the vertex normal. The result goes to the vertex color. An unlit material already has a color there and passes it through untouched. A mesh painted by hand or baked in Blender exports as it looks.
 
 Reflective materials need the Reflective (Env Map) option. It sets up the reflection matrix that G_TEXTURE_GEN environment mapping needs. The lighting flag has to stay on for it, with no lights loaded, because that flag transforms the normal the reflection samples. A reflective material therefore keeps both the flag and its vertex normals through the export, where every other material has its shading baked down into vertex color.
 
@@ -321,7 +321,7 @@ Drop the resulting `.o2r` in Lighthouse's `mods` folder.
 Cull spheres, geo command 0x0E, are the one part of the format read past and not kept. They skip whatever hangs off them while the sphere is off screen. The import keeps the geometry under one but flattens the sphere away, and a model carrying one exports without it. Only ASSET_88E_CLANKER_CHAIN has any, and losing them draws the same picture for slightly more work. Use Draw Distance for a model of your own that needs culling.
 
 ### Common Issues
-- The model renders black: a material still has lighting enabled and Force Unlit Shade is off.
+- The model renders in the wrong colors: a material still has lighting enabled and Bake Lighting is off.
 - A mesh previews black in Blender but exports white: it has no color layer named Col, often one called Color instead. Press Set Up Vertex Paint.
 - The model lies on its side: it wasn't authored with +Z up. Rotate it upright in Blender, and apply the rotation if it's an armature.
 - It animates, but some limbs hold their rest pose: those bones' IDs aren't the ones the animation addresses. Import the original model's skeleton and match its IDs.
